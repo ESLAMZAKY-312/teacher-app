@@ -1819,7 +1819,7 @@ tr:hover td{background:rgba(255,255,255,.018);}
 <div class="modal-ov" id="add-student-modal">
   <div class="modal">
     <div class="mtt">إضافة طالب جديد <button class="mc-btn" onclick="closeModal('add-student-modal')">✕</button></div>
-    <div class="fr"><div class="fg"><label class="fl">الاسم الأول</label><input class="fi" id="s-fn" placeholder="أحمد / فاطمة"></div><div class="fg"><label class="fl">اسم العائلة</label><input class="fi" id="s-ln" placeholder="محمد"></div></div>
+    <div class="fg"><label class="fl">اسم الطالب</label><input class="fi" id="s-fn" placeholder="الاسم الكامل للطالب"></div>
     <div class="fr">
       <div class="fg"><label class="fl">الجنس</label>
         <div style="display:flex;gap:8px;margin-top:4px;">
@@ -1831,9 +1831,11 @@ tr:hover td{background:rgba(255,255,255,.018);}
           </label>
         </div>
       </div>
-      <div class="fg"><label class="fl">هاتف الطالب</label><input class="fi" id="s-ph" placeholder="010xxxxxxxx"></div>
     </div>
-    <div class="fr"><div class="fg"><label class="fl">اسم ولي الأمر</label><input class="fi" id="s-pname" placeholder="اسم ولي الأمر..."></div><div class="fg"><label class="fl">هاتف ولي الأمر</label><input class="fi" id="s-pph" placeholder="012xxxxxxxx"></div></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">هاتف الطالب</label><input class="fi" id="s-ph" placeholder="010xxxxxxxx"></div>
+      <div class="fg"><label class="fl">هاتف ولي الأمر</label><input class="fi" id="s-pph" placeholder="012xxxxxxxx"></div>
+    </div>
     <div class="fg">
       <label class="fl">✈️ آيدي محادثة تيليجرام ولي الأمر (Chat ID)</label>
       <div style="display:flex;gap:7px;">
@@ -1854,7 +1856,7 @@ tr:hover td{background:rgba(255,255,255,.018);}
     </div>
     <div class="fr"><div class="fg"><label class="fl">تاريخ الالتحاق</label><input type="date" class="fi" id="s-date"></div><div class="fg"><label class="fl">رسوم خاصة (اتركها فارغة للافتراضي)</label><input type="number" class="fi" id="s-fee" placeholder="500"></div></div>
     <div class="fg"><label class="fl">الباركود (أدخله يدوياً أو اتركه للتوليد التلقائي)</label><div style="display:flex;gap:7px;"><input class="fi" id="s-bc" placeholder="باركود خارجي أو اتركه فارغاً..." style="flex:1"><button class="btn btn-secondary btn-sm" onclick="genBC()">⚡ توليد</button></div></div>
-    <div class="fg"><label class="fl">ملاحظات</label><textarea class="fta" id="s-notes" rows="2"></textarea></div>
+    <div class="fg"><label class="fl">🔑 الرقم السري للطالب</label><input class="fi" id="s-pin" placeholder="أدخل الرقم السري..." type="text"></div>
     <div class="fa"><button class="btn btn-secondary" onclick="closeModal('add-student-modal')">إلغاء</button><button class="btn btn-primary" onclick="addStudent()">✅ إضافة الطالب</button></div>
   </div>
 </div>
@@ -2652,74 +2654,9 @@ function localMonth(){
 // ════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════
-//  Supabase — المزامنة السحابية
-//  جدول واحد فقط: app_data (id TEXT PRIMARY KEY, payload JSONB, updated_at TIMESTAMPTZ)
-//  البيانات تُقرأ من Supabase عند البدء وتُكتب إليه عند كل save()
-//  IndexedDB تبقى كـ cache محلي للسرعة وللعمل offline
-// ════════════════════════════════════════════════════════
-const SB_URL  = 'https://kvavjkaiwltxnhlzszsv.supabase.co';
-const SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2YXZqa2Fpd2x0eG5obHpzenN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1MzU2OTgsImV4cCI6MjA5OTExMTY5OH0.xRmtSTvGywkYm8kMxr_-7Q38fEDQcL_I4OUcyaH4yLs';
-const SB_ROW  = 'main';   // id الصف الوحيد في الجدول
-
-// ── اتصال Supabase خفيف (بدون SDK — fetch مباشر) ──
-async function _sbGet(){
-  try{
-    const r = await fetch(`${SB_URL}/rest/v1/app_data?id=eq.${SB_ROW}&select=payload,updated_at`,{
-      headers:{ 'apikey':SB_KEY, 'Authorization':'Bearer '+SB_KEY }
-    });
-    if(!r.ok) throw new Error('Supabase GET '+r.status);
-    const rows = await r.json();
-    return rows.length ? rows[0] : null;
-  }catch(e){ console.warn('[Supabase] GET failed:',e); return null; }
-}
-
-async function _sbPut(payload){
-  try{
-    const r = await fetch(`${SB_URL}/rest/v1/app_data`,{
-      method:'POST',
-      headers:{
-        'apikey':SB_KEY, 'Authorization':'Bearer '+SB_KEY,
-        'Content-Type':'application/json',
-        'Prefer':'resolution=merge-duplicates'
-      },
-      body: JSON.stringify({ id:SB_ROW, payload, updated_at: new Date().toISOString() })
-    });
-    if(!r.ok){ const t=await r.text(); throw new Error('Supabase PUT '+r.status+' '+t); }
-    return true;
-  }catch(e){ console.warn('[Supabase] PUT failed:',e); return false; }
-}
-
-// ── مؤشر مزامنة في الواجهة ──
-let _sbIndicator = null;
-function _sbShowSync(state){
-  if(!_sbIndicator){
-    _sbIndicator = document.createElement('div');
-    Object.assign(_sbIndicator.style,{
-      position:'fixed', bottom:'14px', left:'14px', zIndex:'9999',
-      padding:'5px 12px', borderRadius:'20px', fontSize:'11px', fontWeight:'700',
-      fontFamily:'Cairo,sans-serif', transition:'opacity .4s', pointerEvents:'none'
-    });
-    document.body.appendChild(_sbIndicator);
-  }
-  const states = {
-    saving:  { text:'☁️ جارٍ الحفظ…',  bg:'#1c2440', color:'#9aa3c7' },
-    saved:   { text:'✅ محفوظ',          bg:'#052e16', color:'#22c55e' },
-    error:   { text:'⚠️ فشل الحفظ',     bg:'#2d0a0a', color:'#ef4444' },
-    syncing: { text:'🔄 مزامنة…',       bg:'#1c2440', color:'#4f7cff' },
-    synced:  { text:'🔗 متزامن',         bg:'#052e16', color:'#22c55e' },
-  };
-  const s = states[state] || states.saved;
-  _sbIndicator.textContent = s.text;
-  _sbIndicator.style.background = s.bg;
-  _sbIndicator.style.color      = s.color;
-  _sbIndicator.style.opacity    = '1';
-  if(state==='saved'||state==='synced'||state==='error'){
-    setTimeout(()=>{ if(_sbIndicator) _sbIndicator.style.opacity='0'; }, 2500);
-  }
-}
-
-// ════════════════════════════════════════════════════════
-//  IndexedDB — كـ cache محلي
+//  IndexedDB — المخزن الرئيسي (يستبدل localStorage للـ blob الكبير)
+//  السبب: localStorage محدود (~5-10MB) والكتابة فيه synchronous
+//  وبتحجز الـ main thread. IndexedDB async ومساحته أكبر بكتير.
 // ════════════════════════════════════════════════════════
 const IDB_NAME='EduTrackDB', IDB_VERSION=1, IDB_STORE='kv';
 function _idbOpen(){
@@ -2781,48 +2718,40 @@ function _defaultDB(){
   };
 }
 
+// placeholder فوري (متزامن) — يمنع كراش أي كود يقرأ DB قبل اكتمال التحميل غير المتزامن
+// يُستبدل بالبيانات الحقيقية داخل _boot() بعد تحميلها من IndexedDB
 let DB = _defaultDB();
 
-// ── تحميل DB: Supabase أولاً (المصدر الرئيسي)، ثم IDB كـ fallback محلي ──
+// ── تحميل DB: IndexedDB أولاً، وإلا ترحيل من localStorage القديم، وإلا افتراضي ──
 async function _loadDB(){
-  // ١. حاول من Supabase
-  _sbShowSync('syncing');
-  const sbRow = await _sbGet();
-  if(sbRow?.payload){
-    const sbData = typeof sbRow.payload === 'string' ? JSON.parse(sbRow.payload) : sbRow.payload;
-    // خزّن في IDB كـ cache
-    _idbSet('etp3', sbData).catch(()=>{});
-    _sbShowSync('synced');
-    return Object.assign(_defaultDB(), sbData);
-  }
-
-  // ٢. Supabase فارغ أو offline → IDB المحلي
   let idbDB=null, lsDB=null;
-  try{ idbDB = await _idbGet('etp3'); }catch(e){}
+  try{ idbDB = await _idbGet('etp3'); }catch(e){ console.warn('IndexedDB read failed', e); }
   try{ lsDB = JSON.parse(localStorage.getItem('etp3')||'null'); }catch(e){}
+
   let chosen;
   if(idbDB && lsDB){
+    // اختر الأحدث بينهما (localStorage ممكن يكون فيه نسخة أحدث من شبكة أمان الإغلاق المفاجئ)
     chosen = (lsDB.__lastSave||0) > (idbDB.__lastSave||0) ? lsDB : idbDB;
   } else {
     chosen = idbDB || lsDB;
   }
+
   if(chosen){
-    // ارفع البيانات المحلية لـ Supabase (ترحيل أول مرة)
-    _sbPut(chosen).then(ok=>{ if(ok) _sbShowSync('synced'); }).catch(()=>{});
-    return Object.assign(_defaultDB(), chosen);
+    if(chosen===lsDB){ _idbSet('etp3', chosen).catch(e=>console.warn('IDB migrate/sync failed',e)); }
+    return chosen;
   }
-  _sbShowSync('synced');
   return _defaultDB();
 }
 
 // ════════════════════════════════════════════════════════
-//  حفظ البيانات — يكتب على IDB + Supabase معاً
+//  حفظ البيانات — الصور تُحفظ منفصلة لتخفيف JSON الرئيسي
 // ════════════════════════════════════════════════════════
+// ── الكتابة الفعلية على القرص (IndexedDB — async، غير محدود المساحة تقريبًا) ──
 async function _saveFlush(){
-  try{
-    _sbShowSync('saving');
-    const logo    = DB.settings.logo;
-    const certBgs = {};
+  try {
+    // استخرج الصور الكبيرة من DB مؤقتاً قبل الحفظ
+    const logo        = DB.settings.logo;
+    const certBgs     = {};
     if(DB.certTemplates){
       ['male','female'].forEach(g=>{
         if(DB.certTemplates[g]?.bg){ certBgs[g]=DB.certTemplates[g].bg; DB.certTemplates[g].bg=null; }
@@ -2830,66 +2759,83 @@ async function _saveFlush(){
     }
     DB.settings.logo = null;
 
-    // ── IDB (cache محلي) ──
-    _idbSet('etp3', DB).catch(()=>{});
+    try{
+      await _idbSet('etp3', DB);
+    }catch(idbErr){
+      // خط أمان أخير لو IndexedDB مش متاح (وضع تصفح خاص/متصفح قديم)
+      console.warn('IndexedDB write failed, falling back to localStorage', idbErr);
+      try{ localStorage.setItem('etp3', JSON.stringify(DB)); }catch(e2){ console.error('fallback save failed too', e2); }
+    }
 
-    // ── Supabase (المصدر الرئيسي) ──
-    const ok = await _sbPut(JSON.parse(JSON.stringify(DB)));
-
-    // أعد الصور للذاكرة
+    // أعد الصور للـ DB في الذاكرة فقط
     DB.settings.logo = logo;
     if(DB.certTemplates){
       ['male','female'].forEach(g=>{ if(certBgs[g]) DB.certTemplates[g].bg=certBgs[g]; });
     }
-    // الصور تُحفظ في localStorage (صغيرة الحجم، لا تُرسَل للسيرفر)
-    if(logo)  { try{ localStorage.setItem('etp3_logo',logo); }catch(e){} }
-    else      { localStorage.removeItem('etp3_logo'); }
+
+    // حفظ الصور منفصلة (لا تدخل في JSON الرئيسي) — تفضل في localStorage، حجمها صغير ونادرة التغيير
+    if(logo)          { try{ localStorage.setItem('etp3_logo', logo); }catch(e){} }
+    else              { localStorage.removeItem('etp3_logo'); }
     ['male','female'].forEach(g=>{
-      if(certBgs[g]) { try{ localStorage.setItem('etp3_cert_'+g,certBgs[g]); }catch(e){} }
+      if(certBgs[g])  { try{ localStorage.setItem('etp3_cert_'+g, certBgs[g]); }catch(e){} }
     });
 
     _saveDirty = false;
-    _sbShowSync(ok ? 'saved' : 'error');
-  }catch(e){
-    console.warn('save error',e);
-    _sbShowSync('error');
+  } catch(e) {
+    console.warn('save error', e);
   }
 }
 
+// ── نسخة متزامنة صرفة، تُستخدم فقط كخط أمان وقت إغلاق الصفحة المفاجئ ──
+// (beforeunload لا يضمن اكتمال أي Promise، فبنكتب localStorage مباشرة كضمان أخير)
 function _saveFlushSync(){
   try{
     DB.__lastSave = Date.now();
-    const logo=DB.settings.logo; DB.settings.logo=null;
+    const logo=DB.settings.logo;
+    DB.settings.logo=null;
     localStorage.setItem('etp3', JSON.stringify(DB));
     DB.settings.logo=logo;
-  }catch(e){}
+  }catch(e){ console.warn('sync fallback save failed', e); }
 }
 
-let _saveDirty=false, _saveTimer=null;
-const SAVE_DEBOUNCE_MS=400;
+// ── save() العامة: تُستدعى من 80+ موضع في الكود ──
+// invalidate الكاش فورًا (رخيصة) + تأجيل الكتابة الفعلية على القرص (مكلفة)
+// عشان النقرات المتتالية (مثل تسجيل حضور مجموعة كاملة) متعملش
+// full JSON.stringify(DB) في كل نقرة → وده كان سبب التهنيج التدريجي.
+let _saveDirty = false;
+let _saveTimer = null;
+const SAVE_DEBOUNCE_MS = 400;
 function save(){
-  DB.__lastSave=Date.now();
-  _invalidateCache();
-  _saveDirty=true;
+  DB.__lastSave = Date.now();   // لمزامنة/ترجيح النسخة الأحدث عند القراءة لاحقًا
+  _invalidateCache();   // رخيصة — لازم تفضل فورية عشان القراءات التالية تبقى صحيحة
+  _saveDirty = true;
   if(_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer=setTimeout(()=>{ _saveTimer=null; _saveFlush(); }, SAVE_DEBOUNCE_MS);
+  _saveTimer = setTimeout(()=>{ _saveTimer=null; _saveFlush(); }, SAVE_DEBOUNCE_MS);
 }
 
-window.addEventListener('beforeunload',()=>{
-  if(_saveDirty){ if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; } _saveFlushSync(); }
+// ضمان عدم فقد آخر تغييرات عند إغلاق الصفحة/التبويب أو التنقل بعيدًا
+// beforeunload: لا يضمن اكتمال Promise → نستخدم كتابة متزامنة صريحة كخط أمان
+window.addEventListener('beforeunload', ()=>{
+  if(_saveDirty){
+    if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
+    _saveFlushSync();
+    _idbSet('etp3', DB).catch(()=>{}); // محاولة إضافية، قد تكتمل أو لا
+  }
 });
-document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='hidden'&&_saveDirty){
+// visibilitychange (تبديل تاب/تصغير) — الطريقة الموثوقة لضمان اكتمال الكتابة async فعليًا
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden' && _saveDirty){
     if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
     _saveFlush();
   }
 });
 
+// استعادة الصور عند تحميل البيانات (تُستدعى من _boot() بعد تحميل DB الفعلي)
 function _restoreImages(){
-  const logo=localStorage.getItem('etp3_logo');
-  if(logo) DB.settings.logo=logo;
+  const logo = localStorage.getItem('etp3_logo');
+  if(logo) DB.settings.logo = logo;
   ['male','female'].forEach(g=>{
-    const bg=localStorage.getItem('etp3_cert_'+g);
+    const bg = localStorage.getItem('etp3_cert_'+g);
     if(bg){ if(!DB.certTemplates) DB.certTemplates={}; if(!DB.certTemplates[g]) DB.certTemplates[g]={}; DB.certTemplates[g].bg=bg; }
   });
 }
@@ -3888,7 +3834,7 @@ function printAllCardsPVC(){
         }
         var qr=document.getElementById('pqr-'+s.id);
         if(qr&&!qr.dataset.ok&&qr.innerHTML.trim()===''){
-          try{new QRCode(qr,{text:s.bc||'0',width:40,height:40,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});qr.dataset.ok='1';}catch(e){qr.dataset.ok='e';}
+          try{new QRCode(qr,{text:'https://eslamzaky-312.github.io/teacher-app/',width:40,height:40,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});qr.dataset.ok='1';}catch(e){qr.dataset.ok='e';}
         }
       });
     }
@@ -10399,7 +10345,7 @@ function deleteSelected(){
   DB.students=DB.students.filter(s=>!ids.includes(s.id));
   save(); closeModal('selective-delete-modal'); renderSelectiveDelete(); toast(`✅ تم نقل ${ids.length} طالب لسلة المحذوفات`,'i');
 }
-function deleteAllData(){ if(!confirm('تأكيد حذف كل البيانات نهائياً؟ لا يمكن التراجع!'))return; fetch(`${SB_URL}/rest/v1/app_data?id=eq.${SB_ROW}`,{method:'DELETE',headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}}).catch(()=>{}); _idbDel('etp3').catch(()=>{}); localStorage.removeItem('etp3'); localStorage.removeItem('etp3_logo'); localStorage.removeItem('etp3_cert_male'); localStorage.removeItem('etp3_cert_female'); setTimeout(()=>location.reload(),400); }
+function deleteAllData(){ if(!confirm('تأكيد حذف كل البيانات نهائياً؟ لا يمكن التراجع!'))return; localStorage.removeItem('etp3'); _idbDel('etp3').catch(()=>{}).finally(()=>location.reload()); }
 
 // ── ثابت: الصفوف لكل مرحلة (مستقلة عن DB.classes) ──
 const STAGE_GRADES = {
@@ -10619,7 +10565,7 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{رقم_هاتف_الطالب\}/g,    stuPhone)
     .replace(/\{ملاحظات_الطالب\}/g,     stuNotes)
     .replace(/\{تاريخ_الالتحاق\}/g,     joinDate)
-    .replace(/\{رابط_تقرير_الطالب\}/g,  `${location.href.split('#')[0]}#portal/${stuCode}`)
+    .replace(/\{رابط_تقرير_الطالب\}/g,  `https://eslamzaky-312.github.io/teacher-app/`)
     // ── ولي الأمر ──
     .replace(/\{اسم_ولي_الأمر\}/g,      parentName)
     .replace(/\{اسم_ولي_الأمر_2\}/g,    parentName)
@@ -11349,10 +11295,10 @@ function drawQR(elId, barcode){
   const el=document.getElementById(elId);
   if(!el)return;
   el.innerHTML='';
-  // The URL encoded in QR: points to this same file with hash to auto-open portal
-  // When scanned, browser opens the file + hash triggers initPortalHashRouter
-  const base = location.href.split('#')[0];
-  const url = base + '#portal/' + encodeURIComponent(barcode);
+  // الرابط المشفّر في QR Code: يوجّه لصفحة البوابة العامة على الويب
+  // ولي الأمر يمسح الكود → يفتح الموقع → يسجّل الدخول برقم الطالب والباسورد
+  const APP_URL = 'https://eslamzaky-312.github.io/teacher-app/';
+  const url = APP_URL;
   if(typeof QRCode !== 'undefined'){
     const size = Math.min(parseInt(el.style.width||el.style.height||'54')||54, 200);
     try{
@@ -11360,7 +11306,7 @@ function drawQR(elId, barcode){
         text: url,
         width: size, height: size,
         colorDark:'#111',colorLight:'#fff',
-        correctLevel: QRCode.CorrectLevel.H   // High error correction for small sizes
+        correctLevel: QRCode.CorrectLevel.H
       });
       setTimeout(()=>{
         const img=el.querySelector('img');
@@ -11368,9 +11314,9 @@ function drawQR(elId, barcode){
         const cv=el.querySelector('canvas');
         if(cv){cv.style.cssText='width:100%;height:100%;display:block;';}
       },80);
-    }catch(e){ _drawQRFallback(el,barcode); }
+    }catch(e){ _drawQRFallback(el,url); }
   } else {
-    _drawQRFallback(el,barcode);
+    _drawQRFallback(el,url);
   }
 }
 function _drawQRFallback(el,barcode){
@@ -12521,9 +12467,9 @@ function sendDetailedReportWA(sid){
   const dateStr=now.toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'});
   const joinDate=s.date?new Date(s.date).toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'}):s.date||'—';
 
-  // Build portal base URL — each section gets its own deep-link
-  const base=location.href.split('#')[0];
-  const portalUrl=sec=>base+'#portal/'+encodeURIComponent(bc)+'/'+sec;
+  // رابط البوابة العامة للتطبيق
+  const APP_URL = 'https://eslamzaky-312.github.io/teacher-app/';
+  const portalUrl = sec => APP_URL;
 
   const D='━━━━━━━━━━━━━━━━━━━━━━━';
 
@@ -12540,7 +12486,7 @@ function sendDetailedReportWA(sid){
 
   // ── رابط بوابة الطالب ──
   msg+=`🎓 *بوابة الطالب:*\n`;
-  msg+=`${base}#portal/${encodeURIComponent(bc)}\n\n`;
+  msg+=`${APP_URL}\n\n`;
 
   // ── ملخص سريع ──
   msg+=`${D}\n`;
