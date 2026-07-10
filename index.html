@@ -3834,7 +3834,7 @@ function printAllCardsPVC(){
         }
         var qr=document.getElementById('pqr-'+s.id);
         if(qr&&!qr.dataset.ok&&qr.innerHTML.trim()===''){
-          try{new QRCode(qr,{text:'https://eslamzaky-312.github.io/teacher-app/',width:40,height:40,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});qr.dataset.ok='1';}catch(e){qr.dataset.ok='e';}
+          try{new QRCode(qr,{text:'https://eslamzaky-312.github.io/teacher-app/Rector_Parents.apk',width:40,height:40,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});qr.dataset.ok='1';}catch(e){qr.dataset.ok='e';}
         }
       });
     }
@@ -10565,7 +10565,7 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{رقم_هاتف_الطالب\}/g,    stuPhone)
     .replace(/\{ملاحظات_الطالب\}/g,     stuNotes)
     .replace(/\{تاريخ_الالتحاق\}/g,     joinDate)
-    .replace(/\{رابط_تقرير_الطالب\}/g,  `https://eslamzaky-312.github.io/teacher-app/`)
+    .replace(/\{رابط_تقرير_الطالب\}/g,  `https://eslamzaky-312.github.io/teacher-app/Rector_Parents.apk`)
     // ── ولي الأمر ──
     .replace(/\{اسم_ولي_الأمر\}/g,      parentName)
     .replace(/\{اسم_ولي_الأمر_2\}/g,    parentName)
@@ -11297,7 +11297,7 @@ function drawQR(elId, barcode){
   el.innerHTML='';
   // الرابط المشفّر في QR Code: يوجّه لصفحة البوابة العامة على الويب
   // ولي الأمر يمسح الكود → يفتح الموقع → يسجّل الدخول برقم الطالب والباسورد
-  const APP_URL = 'https://eslamzaky-312.github.io/teacher-app/';
+  const APP_URL = 'https://eslamzaky-312.github.io/teacher-app/Rector_Parents.apk';
   const url = APP_URL;
   if(typeof QRCode !== 'undefined'){
     const size = Math.min(parseInt(el.style.width||el.style.height||'54')||54, 200);
@@ -12468,7 +12468,7 @@ function sendDetailedReportWA(sid){
   const joinDate=s.date?new Date(s.date).toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'}):s.date||'—';
 
   // رابط البوابة العامة للتطبيق
-  const APP_URL = 'https://eslamzaky-312.github.io/teacher-app/';
+  const APP_URL = 'https://eslamzaky-312.github.io/teacher-app/Rector_Parents.apk';
   const portalUrl = sec => APP_URL;
 
   const D='━━━━━━━━━━━━━━━━━━━━━━━';
