@@ -1856,7 +1856,8 @@ tr:hover td{background:rgba(255,255,255,.018);}
     </div>
     <div class="fr"><div class="fg"><label class="fl">تاريخ الالتحاق</label><input type="date" class="fi" id="s-date"></div><div class="fg"><label class="fl">رسوم خاصة (اتركها فارغة للافتراضي)</label><input type="number" class="fi" id="s-fee" placeholder="500"></div></div>
     <div class="fg"><label class="fl">الباركود (أدخله يدوياً أو اتركه للتوليد التلقائي)</label><div style="display:flex;gap:7px;"><input class="fi" id="s-bc" placeholder="باركود خارجي أو اتركه فارغاً..." style="flex:1"><button class="btn btn-secondary btn-sm" onclick="genBC()">⚡ توليد</button></div></div>
-    <div class="fg"><label class="fl">🔑 الرقم السري للطالب</label><input class="fi" id="s-pin" placeholder="أدخل الرقم السري..." type="text"></div>
+    <div class="fg"><label class="fl">🔑 الرقم السري للطالب (يُولَّد تلقائياً)</label><div style="display:flex;gap:7px;"><input class="fi" id="s-pin" placeholder="سيتم التوليد تلقائياً..." type="text" readonly style="flex:1;letter-spacing:1px;font-weight:700;"><button class="btn btn-secondary btn-sm" type="button" onclick="genPin('s-pin')">🔄 توليد جديد</button></div><div style="font-size:10px;color:var(--text2);margin-top:4px;">8 خانات على الأقل، حروف وأرقام — يُستخدم لدخول ولي الأمر/الطالب للتطبيق</div></div>
+    <div class="fg"><label class="fl">ملاحظات</label><textarea class="fta" id="s-notes" rows="2"></textarea></div>
     <div class="fa"><button class="btn btn-secondary" onclick="closeModal('add-student-modal')">إلغاء</button><button class="btn btn-primary" onclick="addStudent()">✅ إضافة الطالب</button></div>
   </div>
 </div>
@@ -1890,21 +1891,23 @@ tr:hover td{background:rgba(255,255,255,.018);}
   <div class="modal">
     <div class="mtt">تعديل بيانات الطالب <button class="mc-btn" onclick="closeModal('edit-student-modal')">✕</button></div>
     <input type="hidden" id="edit-s-id">
-    <div class="fr"><div class="fg"><label class="fl">الاسم الأول</label><input class="fi" id="edit-s-fn"></div><div class="fg"><label class="fl">اسم العائلة</label><input class="fi" id="edit-s-ln"></div></div>
+    <div class="fg"><label class="fl">اسم الطالب</label><input class="fi" id="edit-s-fn" placeholder="الاسم الكامل للطالب"></div>
     <div class="fr">
       <div class="fg"><label class="fl">الجنس</label>
         <div style="display:flex;gap:8px;margin-top:4px;">
-          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;flex:1;justify-content:center;font-size:12.5px;font-weight:700;" id="edit-gender-male-lbl">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;flex:1;justify-content:center;font-size:13px;font-weight:700;transition:all .15s;" id="edit-gender-male-lbl">
             <input type="radio" name="edit-s-gender" id="edit-s-gender-m" value="male" style="accent-color:#4f7cff;" onchange="updateEditGenderLabel()"> 👦 ذكر
           </label>
-          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;flex:1;justify-content:center;font-size:12.5px;font-weight:700;" id="edit-gender-female-lbl">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;flex:1;justify-content:center;font-size:13px;font-weight:700;transition:all .15s;" id="edit-gender-female-lbl">
             <input type="radio" name="edit-s-gender" id="edit-s-gender-f" value="female" style="accent-color:#a855f7;" onchange="updateEditGenderLabel()"> 👧 أنثى
           </label>
         </div>
       </div>
-      <div class="fg"><label class="fl">هاتف الطالب</label><input class="fi" id="edit-s-ph"></div>
     </div>
-    <div class="fr"><div class="fg"><label class="fl">اسم ولي الأمر</label><input class="fi" id="edit-s-pname" placeholder="اسم ولي الأمر..."></div><div class="fg"><label class="fl">هاتف ولي الأمر</label><input class="fi" id="edit-s-pph"></div></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">هاتف الطالب</label><input class="fi" id="edit-s-ph" placeholder="010xxxxxxxx"></div>
+      <div class="fg"><label class="fl">هاتف ولي الأمر</label><input class="fi" id="edit-s-pph" placeholder="012xxxxxxxx"></div>
+    </div>
     <div class="fg">
       <label class="fl">✈️ آيدي محادثة تيليجرام ولي الأمر (Chat ID)</label>
       <div style="display:flex;gap:7px;">
@@ -1920,10 +1923,12 @@ tr:hover td{background:rgba(255,255,255,.018);}
       <div style="font-size:10px;color:var(--text2);margin-top:4px;">يفتح محادثة ولي الأمر مباشرة دون نص جاهز (لا يحتاج بوت)</div>
     </div>
     <div class="fr">
-      <div class="fg"><label class="fl">الصف</label><select class="fs" id="edit-s-cls" onchange="filterGroupsByCls('edit-s-cls','edit-s-grp')"></select></div>
+      <div class="fg"><label class="fl">الصف الدراسي</label><select class="fs" id="edit-s-cls" onchange="filterGroupsByCls('edit-s-cls','edit-s-grp')"></select></div>
       <div class="fg"><label class="fl">المجموعة</label><select class="fs" id="edit-s-grp"></select></div>
     </div>
-    <div class="fr"><div class="fg"><label class="fl">الرسوم</label><input type="number" class="fi" id="edit-s-fee"></div><div class="fg"><label class="fl">الباركود</label><input class="fi" id="edit-s-bc"></div></div>
+    <div class="fr"><div class="fg"><label class="fl">تاريخ الالتحاق</label><input type="date" class="fi" id="edit-s-date"></div><div class="fg"><label class="fl">رسوم خاصة (اتركها فارغة للافتراضي)</label><input type="number" class="fi" id="edit-s-fee"></div></div>
+    <div class="fg"><label class="fl">الباركود</label><div style="display:flex;gap:7px;"><input class="fi" id="edit-s-bc" style="flex:1"><button class="btn btn-secondary btn-sm" type="button" onclick="document.getElementById('edit-s-bc').value=String(parseInt(Date.now().toString().slice(-8)))">⚡ توليد</button></div></div>
+    <div class="fg"><label class="fl">🔑 الرقم السري للطالب</label><div style="display:flex;gap:7px;"><input class="fi" id="edit-s-pin" placeholder="سيتم التوليد تلقائياً..." type="text" readonly style="flex:1;letter-spacing:1px;font-weight:700;"><button class="btn btn-secondary btn-sm" type="button" onclick="genPin('edit-s-pin')">🔄 توليد جديد</button></div><div style="font-size:10px;color:var(--text2);margin-top:4px;">8 خانات على الأقل، حروف وأرقام — يُستخدم لدخول ولي الأمر/الطالب للتطبيق</div></div>
     <div class="fg"><label class="fl">ملاحظات</label><textarea class="fta" id="edit-s-notes" rows="2"></textarea></div>
     <div class="fa"><button class="btn btn-secondary" onclick="closeModal('edit-student-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveEditStudent()">✅ حفظ التعديلات</button></div>
   </div>
@@ -3011,8 +3016,9 @@ function popModal(id){
     const cs=document.getElementById('s-cls'); cs.innerHTML=DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
     filterGroupsByCls('s-cls','s-grp');
     document.getElementById('s-date').value=localDate();
-    ['s-fn','s-ln','s-ph','s-pph','s-bc','s-notes','s-tg-chatid','s-tg-username'].forEach(id=>document.getElementById(id).value='');
+    ['s-fn','s-ph','s-pph','s-bc','s-notes','s-tg-chatid','s-tg-username'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('s-fee').value='';
+    genPin('s-pin');
   }
   // add-group-modal: classId يُمرَّر مباشرة عبر openAddGrpForCls
   if(id==='add-grade-modal'){
@@ -3505,29 +3511,33 @@ function updateEditGenderLabel(){
   document.getElementById('edit-gender-female-lbl').style.background=!isMale?'rgba(168,85,247,.1)':'';
 }
 function addStudent(){
-  const fn=document.getElementById('s-fn').value.trim(), ln=document.getElementById('s-ln').value.trim();
-  if(!fn||!ln){toast('أدخل اسم الطالب','e');return;}
+  const fullName=document.getElementById('s-fn').value.trim();
+  if(!fullName){toast('أدخل اسم الطالب','e');return;}
+  const nameParts=fullName.split(/\s+/);
+  const fn=nameParts[0], ln=nameParts.slice(1).join(' ');
   let bc=document.getElementById('s-bc').value.trim()||(String(parseInt(Date.now().toString().slice(-6))));
   const clsId=document.getElementById('s-cls').value, grpId=document.getElementById('s-grp').value;
   const fee=document.body.dataset.role==='supervisor'?DB.settings.fee:(+document.getElementById('s-fee').value||grp(grpId)?.fee||DB.settings.fee);
   const gender=document.getElementById('s-gender-f').checked?'female':'male';
-  DB.students.push({id:bc,fname:fn,lname:ln,gender,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:document.getElementById('s-pname')?.value.trim()||'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:document.getElementById('s-date').value,fee,notes:document.getElementById('s-notes').value,barcode:bc,color:COLORS[DB.students.length%COLORS.length]});
-  save(); closeModal('add-student-modal'); renderStudents(); toast('✅ تم إضافة '+(gender==='female'?'الطالبة':'الطالب')+' '+fn+' '+ln);
+  let pin=document.getElementById('s-pin')?.value.trim()||'';
+  if(!pin || pin.length<8) pin=genPin('s-pin'); // ضمان وجود رقم سري صالح دائماً حتى لو الحقل فارغ لأي سبب
+  DB.students.push({id:bc,fname:fn,lname:ln,gender,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:document.getElementById('s-date').value,fee,notes:document.getElementById('s-notes').value,barcode:bc,pin,color:COLORS[DB.students.length%COLORS.length]});
+  save(); closeModal('add-student-modal'); renderStudents(); toast('✅ تم إضافة '+(gender==='female'?'الطالبة':'الطالب')+' '+fullName);
 }
 
 function openEditStudent(id){
   const s=stu(id); if(!s)return;
   document.getElementById('edit-s-id').value=id;
-  document.getElementById('edit-s-fn').value=s.fname;
-  document.getElementById('edit-s-ln').value=s.lname;
+  document.getElementById('edit-s-fn').value=(s.fname+' '+(s.lname||'')).trim();
   document.getElementById('edit-s-ph').value=s.phone||'';
   document.getElementById('edit-s-pph').value=s.parentPhone||'';
   const etcid=document.getElementById('edit-s-tg-chatid'); if(etcid) etcid.value=s.tgChatId||'';
   const etuser=document.getElementById('edit-s-tg-username'); if(etuser) etuser.value=s.tgUsername||'';
-  const epn=document.getElementById('edit-s-pname'); if(epn) epn.value=s.parentName||'';
+  document.getElementById('edit-s-date').value=s.date||'';
   document.getElementById('edit-s-fee').value=s.fee||'';
   document.getElementById('edit-s-bc').value=s.barcode||s.id;
   document.getElementById('edit-s-notes').value=s.notes||'';
+  document.getElementById('edit-s-pin').value=(s.pin && s.pin.length>=8) ? s.pin : genPin('edit-s-pin');
   // Set gender
   const isFemale=s.gender==='female';
   document.getElementById('edit-s-gender-m').checked=!isFemale;
@@ -3544,18 +3554,23 @@ function openEditStudent(id){
 function saveEditStudent(){
   const id=document.getElementById('edit-s-id').value;
   const s=stu(id); if(!s)return;
-  s.fname=document.getElementById('edit-s-fn').value.trim()||s.fname;
-  s.lname=document.getElementById('edit-s-ln').value.trim()||s.lname;
+  const fullName=document.getElementById('edit-s-fn').value.trim();
+  if(fullName){
+    const nameParts=fullName.split(/\s+/);
+    s.fname=nameParts[0]; s.lname=nameParts.slice(1).join(' ');
+  }
   s.phone=document.getElementById('edit-s-ph').value;
   s.parentPhone=document.getElementById('edit-s-pph').value;
   const etcid2=document.getElementById('edit-s-tg-chatid'); if(etcid2) s.tgChatId=etcid2.value.trim();
   const etuser2=document.getElementById('edit-s-tg-username'); if(etuser2) s.tgUsername=etuser2.value.trim().replace(/^@/,'');
-  const spn=document.getElementById('edit-s-pname'); if(spn) s.parentName=spn.value.trim();
   s.classId=document.getElementById('edit-s-cls').value;
   s.groupId=document.getElementById('edit-s-grp').value;
+  s.date=document.getElementById('edit-s-date').value||s.date;
   s.fee=document.body.dataset.role==='supervisor'?s.fee:(+document.getElementById('edit-s-fee').value||s.fee);
   s.barcode=document.getElementById('edit-s-bc').value||s.barcode;
   s.notes=document.getElementById('edit-s-notes').value;
+  const editPin=document.getElementById('edit-s-pin').value.trim();
+  s.pin=(editPin && editPin.length>=8) ? editPin : (s.pin||genPin('edit-s-pin'));
   s.gender=document.getElementById('edit-s-gender-f').checked?'female':'male';
   save(); closeModal('edit-student-modal'); renderStudents(); toast('✅ تم تحديث بيانات '+s.fname);
 }
@@ -3565,6 +3580,25 @@ function stuTitle(s){ return (s&&s.gender==='female')?'الطالبة':'الطا
 function stuPronoun(s){ return (s&&s.gender==='female')?'ها':'ه'; }
 
 function genBC(){ document.getElementById('s-bc').value=String(parseInt(Date.now().toString().slice(-8))); }
+
+// ── توليد رقم سري (Pin) 8 خانات على الأقل، حروف وأرقام معاً ──
+// مجموعة أحرف بدون رموز ملتبسة بصرياً (استُبعد: 0/O, 1/I/L) لتقليل أخطاء القراءة عند طباعته على كارت الطالب
+function genPin(targetId){
+  const LETTERS='ABCDEFGHJKMNPQRSTUVWXYZ';
+  const DIGITS='23456789';
+  const ALL=LETTERS+DIGITS;
+  const LEN=8;
+  let pin='';
+  // ضمان وجود حرف واحد ورقم واحد على الأقل
+  pin+=LETTERS[Math.floor(Math.random()*LETTERS.length)];
+  pin+=DIGITS[Math.floor(Math.random()*DIGITS.length)];
+  for(let i=2;i<LEN;i++) pin+=ALL[Math.floor(Math.random()*ALL.length)];
+  // خلط الترتيب حتى لا يكون الحرف والرقم دائماً في نفس الموضع
+  pin=pin.split('').sort(()=>Math.random()-0.5).join('');
+  const el=document.getElementById(targetId);
+  if(el) el.value=pin;
+  return pin;
+}
 
 function delStudent(id){
   if(!confirm('حذف الطالب؟'))return;
@@ -10815,15 +10849,14 @@ function openTgLinkModal(studentId){
 
 // يُستخدم من داخل مودال "إضافة طالب" قبل الحفظ — يعتمد على الباركود المُدخل/المُولَّد يدوياً
 function openTgLinkModalNewStudent(){
-  const fn = document.getElementById('s-fn')?.value.trim()||'';
-  const ln = document.getElementById('s-ln')?.value.trim()||'';
+  const fullName = document.getElementById('s-fn')?.value.trim()||'';
   let bc = document.getElementById('s-bc')?.value.trim()||'';
   if(!bc){
     genBC();
     bc = document.getElementById('s-bc')?.value.trim()||'';
     toast('تم توليد باركود تلقائي للطالب لاستخدامه في رابط الربط','i');
   }
-  const name = (fn||ln) ? `${fn} ${ln}`.trim() : 'الطالب الجديد';
+  const name = fullName || 'الطالب الجديد';
   const pph = document.getElementById('s-pph')?.value.trim()||document.getElementById('s-ph')?.value.trim()||'';
   _renderTgLinkBody(name, bc, document.getElementById('s-tg-chatid')?.value.trim()||'', pph);
 }
