@@ -130,31 +130,6 @@ let schoolData = null;
 let currentStu = null;
 
 // ══ تحميل البيانات من Firebase والاستماع للتحديثات التلقائية ══
-db.ref('schoolData').on('value', snap => {
-  const data = snap.val();
-  if(!data){ 
-    document.getElementById('loading').innerHTML = '<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">⚠️</div><div style="font-size:14px;color:#ff4d6d;font-weight:700;">لم يتم العثور على بيانات</div><div style="font-size:12px;color:#9ba5bf;margin-top:8px;">يرجى التواصل مع المدرس لمزامنة البيانات أولاً</div></div>';
-    return;
-  }
-  schoolData = data;
-  // تحديث شاشة الدخول
-  if(data.settings){
-    document.getElementById('school-name').textContent = data.settings.name || 'بوابة ولي الأمر';
-    document.getElementById('school-sub').textContent = (data.settings.subject||'') + ' — أدخل بيانات الطالب للدخول';
-  }
-  if(data.__syncedAt){
-    const d = new Date(data.__syncedAt);
-    document.getElementById('last-sync').textContent = d.toLocaleString('ar-EG');
-  }
-  // لو ولي الأمر مسجل دخول، حدّث بياناته تلقائياً
-  if(currentStu){
-    const updated = data.students?.find(s => s.id === currentStu.id);
-    if(updated){ currentStu = updated; renderPortal(updated); showSyncBadge(); }
-  }
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('login-screen').style.display = 'flex';
-});
-
 function showSyncBadge(){
   const b = document.getElementById('sync-badge');
   b.style.display = 'block';
@@ -253,6 +228,59 @@ function switchTab(id,btn){
   document.getElementById('tab-'+id).classList.add('active');
   btn.classList.add('active');
 }
+
+// ══ تسجيل دخول تلقائي من الرابط المباشر (#auto:barcode:pin) ══
+function _checkAutoLogin(){
+  const hash = location.hash;
+  if(!hash || !hash.startsWith('#auto:')) return;
+  try{
+    const parts = hash.slice(1).split(':');
+    const barcode = decodeURIComponent(parts[1]||'');
+    const pin     = decodeURIComponent(parts[2]||'');
+    if(!barcode || !pin) return;
+    const tryLogin = ()=>{
+      const s = schoolData?.students?.find(x =>
+        (x.barcode===barcode || x.id===barcode) &&
+        (x.pin===pin || x.portalPassword===pin)
+      );
+      if(s){
+        currentStu = s;
+        document.getElementById('login-screen').style.display = 'none';
+        renderPortal(s);
+        history.replaceState(null,'',location.pathname);
+      } else if(!schoolData){
+        setTimeout(tryLogin, 500);
+      }
+    };
+    setTimeout(tryLogin, 500);
+  }catch(e){ console.warn('Auto-login failed:', e.message); }
+}
+
+// ── تشغيل ──
+db.ref('schoolData').on('value', snap => {
+  const data = snap.val();
+  if(!data){
+    document.getElementById('loading').innerHTML = '<div style="text-align:center;padding:20px;"><div style="font-size:48px;margin-bottom:12px;">⚠️</div><div style="font-size:14px;color:#ff4d6d;font-weight:700;">لم يتم العثور على بيانات</div><div style="font-size:12px;color:#9ba5bf;margin-top:8px;">يرجى التواصل مع المدرس لمزامنة البيانات أولاً</div></div>';
+    return;
+  }
+  schoolData = data;
+  if(data.settings){
+    document.getElementById('school-name').textContent = data.settings.name || 'بوابة ولي الأمر';
+    document.getElementById('school-sub').textContent = (data.settings.subject||'') + ' — أدخل بيانات الطالب للدخول';
+  }
+  if(data.__syncedAt){
+    const d = new Date(data.__syncedAt);
+    document.getElementById('last-sync').textContent = d.toLocaleString('ar-EG');
+  }
+  if(currentStu){
+    const updated = data.students?.find(s => s.id === currentStu.id);
+    if(updated){ currentStu = updated; renderPortal(updated); showSyncBadge(); }
+  }
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
+  // تحقق من الدخول التلقائي بعد تحميل البيانات
+  _checkAutoLogin();
+});
 </script>
 </body>
 </html>
