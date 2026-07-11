@@ -3331,7 +3331,6 @@ const EXPORT_COLS = [
   { id:'negcount', label:'سلوكيات سلبية',     group:'سلوك',    default:false },
   // أخرى
   { id:'notes',    label:'ملاحظات',            group:'أخرى',    default:false },
-  { id:'pin',      label:'الرقم السري',         group:'أخرى',    default:false },
 ];
 
 let _exportMode = 'excel'; // 'excel' | 'pdf'
@@ -3364,7 +3363,7 @@ function exportColsSelectAll(val){
   EXPORT_COLS.forEach(c=>{ const el=document.getElementById('ecol-'+c.id); if(el) el.checked=val; });
 }
 function exportColsPreset(preset){
-  const basic    = ['num','fname','lname','gender','class','group','phone','pphone','barcode','pin'];
+  const basic    = ['num','fname','lname','gender','class','group','phone','pphone','barcode'];
   const finance  = ['num','fullname','gender','class','group','fee','paystatus','totalpaid','lastpay','lastpaydt'];
   const full     = EXPORT_COLS.map(c=>c.id);
   const active   = preset==='basic'?basic : preset==='finance'?finance : full;
@@ -3409,7 +3408,6 @@ function getExportStudentRow(s, selectedIds, idx){
     poscount:  behRec.filter(b=>b.behaviors.some(bh=>BEH_POS.some(p=>p.includes(bh)||bh.includes(p.replace(/^.\s/,''))))).length,
     negcount:  behRec.filter(b=>b.behaviors.some(bh=>BEH_NEG.some(n=>n.includes(bh)||bh.includes(n.replace(/^.\s/,''))))).length,
     notes:     s.notes || '—',
-    pin:       s.pin   || '—',
   };
   const row = {};
   selectedIds.forEach(id => {
@@ -10359,7 +10357,6 @@ function exportExcel(){
       'سلوكيات إيجابية'    : posCount,
       'سلوكيات سلبية'      : negCount,
       'ملاحظات'            : s.notes || '—',
-      'الرقم السري'        : s.pin   || '—',
     };
   });
 
@@ -10370,7 +10367,7 @@ function exportExcel(){
     {wch:4},{wch:12},{wch:14},{wch:22},{wch:8},{wch:22},{wch:22},
     {wch:16},{wch:16},{wch:14},{wch:16},{wch:14},{wch:12},
     {wch:14},{wch:12},{wch:14},{wch:12},{wch:10},{wch:10},
-    {wch:10},{wch:14},{wch:14},{wch:12},{wch:14},{wch:14},{wch:24},{wch:16},
+    {wch:10},{wch:14},{wch:14},{wch:12},{wch:14},{wch:14},{wch:24},
   ];
   ws['!cols'] = colWidths;
 
@@ -12613,11 +12610,56 @@ function sendDetailedReportWA(sid){
   const ph=fmtPhone(s.parentPhone||s.phone||'');
   if(!ph){toast('لا يوجد رقم هاتف لهذا الطالب','e');return;}
 
+  const now=new Date();
+  const month=localMonth();
+  const grpObj=DB.groups.find(g=>g.id===s.groupId);
+  const grpInfo=grpObj?(grpObj.days||grpObj.name||'')+(grpObj.time?' - '+grpObj.time:''):'—';
+  const paid=isPaid(s.id);
+  const spPay=DB.specialPays?.find(x=>x.studentId===s.id);
+  const effectiveFee=spPay?spPay.amount:(grpObj?.fee||s.fee||0);
+  const payPeriod=grpObj?.payPeriod||'شهرياً';
   const bc=s.barcode||s.id;
-  const base=location.href.split('#')[0];
-  const portalUrl=base+'#portal/'+encodeURIComponent(bc);
+  const teacherName=DB.settings.name||'—';
+  const subject=DB.settings.subject||'—';
+  const dateStr=now.toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'});
+  const joinDate=s.date?new Date(s.date).toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'}):s.date||'—';
 
-  const msg=portalUrl;
+  // Build portal base URL — each section gets its own deep-link
+  const base=location.href.split('#')[0];
+  const portalUrl=sec=>base+'#portal/'+encodeURIComponent(bc)+'/'+sec;
+
+  const D='━━━━━━━━━━━━━━━━━━━━━━━';
+
+  let msg='';
+
+  // ── Header ──
+  msg+=`⭐⭐⭐⭐⭐\n`;
+  msg+=`*${teacherName}*\n`;
+  msg+=`${subject}\n`;
+  msg+=`${D}\n\n`;
+
+  // ── اسم الطالب ──
+  msg+=`*${s.fname} ${s.lname}*\n\n`;
+
+  // ── رابط بوابة الطالب ──
+  msg+=`🎓 *بوابة الطالب:*\n`;
+  msg+=`${base}#portal/${encodeURIComponent(bc)}\n\n`;
+
+  // ── ملخص سريع ──
+  msg+=`${D}\n`;
+  msg+=`📊 *ملخص:*\n`;
+  msg+=`الصف: ${clsN(s.classId)||'—'} | ${grpInfo}\n`;
+  msg+=`قيمة الإشتراك: *${fmtM(effectiveFee)}* (${payPeriod})\n`;
+  msg+=`حالة الدفع (${month}): ${paid?'✅ مسدد':'⏳ غير مسدد'}\n`;
+  msg+=`نسبة الحضور: *${attPct(s.id)}%*\n`;
+  const avg2=stuAvg(s.id);
+  if(avg2!==null) msg+=`متوسط الدرجات: *${avg2}%*\n`;
+  msg+=`\n`;
+
+  msg+=`${D}\n`;
+  msg+=`📆 ${dateStr}\n`;
+  if(DB.settings.phone) msg+=`📞 ${DB.settings.phone}\n`;
+  msg+=`_ESLAM-RECTOR — Student Tracking Program_`;
 
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
 }
