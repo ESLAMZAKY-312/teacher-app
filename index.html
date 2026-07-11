@@ -2498,6 +2498,8 @@ async function _loadFromFirebase(){
     <div style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:1.75rem;width:100%;max-width:360px;">
       <div style="text-align:right;margin-bottom:1.25rem;">
         <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:1.2rem;text-align:center;">تسجيل الدخول</div>
+        <label style="font-size:13px;font-weight:700;color:rgba(255,255,255,.75);display:block;margin-bottom:.5rem;">رقم الطالب</label>
+        <input class="fi" id="sp-code-input" type="text" placeholder="أدخل رقم/كود الطالب" style="font-size:14px;font-weight:600;margin-bottom:1rem;" onkeydown="if(event.key==='Enter')document.getElementById('sp-pin-input').focus()">
         <label style="font-size:13px;font-weight:700;color:rgba(255,255,255,.75);display:block;margin-bottom:.5rem;">كلمة المرور</label>
         <div style="position:relative;">
           <input class="fi" id="sp-pin-input" type="password" placeholder="يرجى إدخال كلمة المرور الخاصة بك" style="font-size:14px;font-weight:600;padding-left:2.5rem;margin-bottom:0;" onkeydown="if(event.key==='Enter')spLogin()">
@@ -2506,13 +2508,12 @@ async function _loadFromFirebase(){
         <div style="display:flex;align-items:flex-start;gap:6px;margin-top:.75rem;padding:.6rem .75rem;background:rgba(255,60,60,.08);border:1px solid rgba(255,60,60,.2);border-radius:10px;">
           <span style="color:#ff6b6b;font-size:13px;flex-shrink:0;">⚠️</span>
           <div>
-            <span style="font-size:11.5px;color:rgba(255,255,255,.65);">كلمة المرور في أول مرة هي كودك الشخصي، ويمكنك تغييرها من خلال زر (تغيير كلمة...</span>
-            <a onclick="return false;" href="#" style="font-size:11px;color:#a78bfa;display:block;margin-top:2px;text-decoration:underline;">اقرأ المزيد</a>
+            <span style="font-size:11.5px;color:rgba(255,255,255,.65);">كلمة المرور هي الرقم السري الذي حصلت عليه من المعلم عند التسجيل، وهي ثابتة ولا يمكن تغييرها.</span>
           </div>
         </div>
       </div>
       <button onclick="spLogin()" style="width:100%;padding:13px;border-radius:14px;background:linear-gradient(135deg,#a855f7,#7c5cff);border:none;color:#fff;font-family:Cairo,sans-serif;font-size:15px;font-weight:800;cursor:pointer;margin-top:.5rem;">تحقق</button>
-      <div id="sp-login-err" style="color:#ff4d6d;font-size:12px;text-align:center;margin-top:.7rem;display:none;">❌ كلمة المرور غير صحيحة، حاول مرة أخرى</div>
+      <div id="sp-login-err" style="color:#ff4d6d;font-size:12px;text-align:center;margin-top:.7rem;display:none;">❌ رقم الطالب أو كلمة المرور غير صحيحة، حاول مرة أخرى</div>
       <button onclick="closeStudentPortal()" style="width:100%;margin-top:.75rem;padding:9px;border-radius:12px;background:transparent;border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.5);font-family:Cairo,sans-serif;font-size:12px;cursor:pointer;">إغلاق</button>
     </div>
   </div>
@@ -2540,7 +2541,6 @@ async function _loadFromFirebase(){
           <div id="sp-user-code" style="font-size:14px;color:rgba(255,255,255,.55);margin-top:2px;font-family:monospace;"></div>
         </div>
       </div>
-      <button onclick="spShowPassModal()" style="width:100%;padding:11px;border-radius:25px;background:transparent;border:2px solid rgba(168,85,247,.5);color:rgba(255,255,255,.7);font-family:Cairo,sans-serif;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">✏️ تغيير كلمة المرور</button>
     </div>
 
     <!-- Nav Buttons Grid (Image 1) -->
@@ -2580,17 +2580,6 @@ async function _loadFromFirebase(){
       <div id="sp-section-mcq" class="sp-section"><div id="sp-mcq-body"></div></div>
       <div id="sp-section-files" class="sp-section"><div id="sp-files-body"></div></div>
     </div>
-  </div>
-</div>
-
-<!-- Change Password Modal (Student Portal) -->
-<div class="modal-ov" id="sp-pass-modal">
-  <div class="modal modal-sm">
-    <div class="mtt">🔑 تغيير كلمة المرور <button class="mc-btn" onclick="closeModal('sp-pass-modal')">✕</button></div>
-    <div class="fg"><label class="fl">كلمة المرور الحالية (الباركود)</label><input class="fi" id="sp-old-pass" type="password" placeholder="الباركود الحالي"></div>
-    <div class="fg"><label class="fl">كلمة المرور الجديدة</label><input class="fi" id="sp-new-pass" type="password" placeholder="كلمة المرور الجديدة"></div>
-    <div class="fg"><label class="fl">تأكيد كلمة المرور الجديدة</label><input class="fi" id="sp-confirm-pass" type="password" placeholder="تأكيد كلمة المرور"></div>
-    <div class="fa"><button class="btn btn-secondary" onclick="closeModal('sp-pass-modal')">إلغاء</button><button class="btn btn-primary" onclick="spChangePass()">✅ تغيير</button></div>
   </div>
 </div>
 
@@ -10441,7 +10430,7 @@ function exportPortalData(){
       return {
         id: s.id,
         barcode: s.barcode||s.id,
-        portalPassword: s.portalPassword||s.barcode||s.id,
+        portalPassword: s.pin||'',
         fname: s.fname,
         lname: s.lname,
         gender: s.gender||'male',
@@ -11496,6 +11485,9 @@ let spCurrentStu=null;
 let spCurrentSection='info';
 
 function openStudentPortal(prefilledCode){
+  // إخفاء شاشة دخول المعلم/المشرف الرئيسية — بوابة الطالب مستقلة ولا يجب أن يراها ولي الأمر أبداً
+  const mainLogin=document.getElementById('login-screen');
+  if(mainLogin) mainLogin.style.display='none';
   const overlay=document.getElementById('student-portal-overlay');
   overlay.classList.add('open');
   document.getElementById('sp-login-screen').style.display='flex';
@@ -11507,21 +11499,25 @@ function openStudentPortal(prefilledCode){
   else logo.textContent='🎓';
   document.getElementById('sp-teacher-name').textContent=DB.settings.name||'المدرس';
   document.getElementById('sp-teacher-subj').textContent=DB.settings.subject||'';
-  const inp=document.getElementById('sp-pin-input');
-  inp.value=prefilledCode||'';
-  setTimeout(()=>inp.focus(),200);
+  document.getElementById('sp-code-input').value=prefilledCode||'';
+  document.getElementById('sp-pin-input').value='';
+  setTimeout(()=>{ const el=document.getElementById(prefilledCode?'sp-pin-input':'sp-code-input'); el&&el.focus(); },200);
 }
 
 function closeStudentPortal(){
   document.getElementById('student-portal-overlay').classList.remove('open');
   spCurrentStu=null;
+  // إعادة إظهار شاشة دخول المعلم عند إغلاق بوابة الطالب يدوياً (لو مفتوحة أصلاً لجلسة المعلم)
+  const mainLogin=document.getElementById('login-screen');
+  if(mainLogin && !sessionStorage.getItem('etp_role')) mainLogin.style.display='flex';
 }
 
 function spLogin(){
-  const code=document.getElementById('sp-pin-input').value.trim();
-  if(!code){document.getElementById('sp-login-err').style.display='block';return;}
-  // find student by barcode, custom password, or id
-  let s=DB.students.find(x=>(x.portalPassword&&x.portalPassword===code)||(x.barcode&&x.barcode===code)||x.id===code);
+  const code=document.getElementById('sp-code-input').value.trim();
+  const pass=document.getElementById('sp-pin-input').value.trim();
+  if(!code||!pass){document.getElementById('sp-login-err').style.display='block';return;}
+  // الدخول يتطلب رقم الطالب + الرقم السري (Pin) معاً — لا كلمة مرور بديلة أو قابلة للتغيير
+  let s=DB.students.find(x=>((x.barcode&&x.barcode===code)||x.id===code) && x.pin && x.pin===pass);
   if(!s){ document.getElementById('sp-login-err').style.display='block'; return; }
   spCurrentStu=s;
   document.getElementById('sp-login-screen').style.display='none';
@@ -11532,7 +11528,10 @@ function spLogin(){
   av.style.background=`linear-gradient(135deg,${s.color||'#4f7cff'},${s.color||'#7c5cff'}88)`;
   document.getElementById('sp-user-name').textContent=s.fname+' '+s.lname;
   document.getElementById('sp-user-code').textContent='كود: '+(s.barcode||s.id);
-  document.getElementById('sp-teacher-logo-sm').textContent=DB.settings.name||'';
+  const logoHeader=document.getElementById('sp-teacher-logo-header');
+  if(logoHeader){ logoHeader.innerHTML = DB.settings.logo ? `<img src="${DB.settings.logo}" style="width:100%;height:100%;object-fit:contain;">` : '🎓'; }
+  const nameHeader=document.getElementById('sp-teacher-name-header'); if(nameHeader) nameHeader.textContent=DB.settings.name||'';
+  const subjHeader=document.getElementById('sp-teacher-subj-header'); if(subjHeader) subjHeader.textContent=DB.settings.subject||'';
   spNav('info',document.getElementById('spbtn-info'));
 }
 
@@ -11541,20 +11540,6 @@ function spLogout(){
   document.getElementById('sp-dash-screen').style.display='none';
   document.getElementById('sp-pin-input').value='';
   spCurrentStu=null;
-}
-
-function spShowPassModal(){ openModal('sp-pass-modal'); }
-function spChangePass(){
-  if(!spCurrentStu)return;
-  const oldPass=document.getElementById('sp-old-pass').value.trim();
-  const newPass=document.getElementById('sp-new-pass').value.trim();
-  const confirmPass=document.getElementById('sp-confirm-pass').value.trim();
-  const validOld=spCurrentStu.portalPassword||spCurrentStu.barcode||spCurrentStu.id;
-  if(oldPass!==validOld){toast('كلمة المرور الحالية غير صحيحة','e');return;}
-  if(!newPass){toast('أدخل كلمة المرور الجديدة','e');return;}
-  if(newPass!==confirmPass){toast('كلمتا المرور غير متطابقتين','e');return;}
-  spCurrentStu.portalPassword=newPass;
-  save(); closeModal('sp-pass-modal'); toast('✅ تم تغيير كلمة المرور');
 }
 
 function spNav(section, btn){
@@ -13160,7 +13145,7 @@ loadSubjectsList();
     const section=slashIdx===-1?'info':rest.slice(slashIdx+1)||'info';
     if(!bc)return;
     // Find student by barcode or id
-    const s=DB.students.find(x=>(x.barcode&&x.barcode===bc)||x.id===bc||(x.portalPassword&&x.portalPassword===bc));
+    const s=DB.students.find(x=>(x.barcode&&x.barcode===bc)||x.id===bc);
     // Open the portal overlay
     openStudentPortal(bc);
     if(s){
@@ -13181,27 +13166,14 @@ loadSubjectsList();
             },350);
           }
         },300);
-      } else {
-        // Show login screen - prefill the code but let student confirm
-        setTimeout(()=>{
-          const inp=document.getElementById('sp-pin-input');
-          if(inp){
-            inp.value=bc;
-            inp.style.borderColor='rgba(79,124,255,.5)';
-          }
-        },300);
       }
+      // else: openStudentPortal(bc) above already prefilled the code field and focused the password field
     } else {
-      // Student not found - prefill and show hint
+      // Student not found - show hint (code field already prefilled by openStudentPortal above)
       setTimeout(()=>{
-        const inp=document.getElementById('sp-pin-input');
-        if(inp){
-          inp.value=bc;
-          inp.style.borderColor='rgba(79,124,255,.5)';
-        }
         const hint=document.createElement('div');
         hint.style.cssText='font-size:11px;color:rgba(255,255,255,.4);text-align:center;margin-top:8px;';
-        hint.textContent='💡 كلمة المرور = رقم الباركود الخاص بك';
+        hint.textContent='⚠️ لم يتم العثور على طالب بهذا الرقم — تأكد من الرابط';
         const btn=document.querySelector('#sp-login-screen button[onclick="spLogin()"]');
         if(btn&&!document.getElementById('portal-hint')){
           hint.id='portal-hint';
