@@ -166,7 +166,10 @@ function doLogin(){
   const barcode = document.getElementById('inp-barcode').value.trim();
   const pass = document.getElementById('inp-pass').value.trim();
   if(!barcode || !pass){ document.getElementById('login-err').style.display='block'; return; }
-  const s = schoolData?.students?.find(x => (x.barcode===barcode||x.id===barcode) && x.portalPassword===pass);
+  const s = schoolData?.students?.find(x => 
+    (x.barcode===barcode || x.id===barcode) && 
+    (x.pin===pass || x.portalPassword===pass)
+  );
   if(!s){ document.getElementById('login-err').style.display='block'; return; }
   currentStu = s;
   document.getElementById('login-err').style.display = 'none';
