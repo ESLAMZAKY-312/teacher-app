@@ -13200,13 +13200,32 @@ loadSubjectsList();
     DB = await _loadDB();
     // لو مفيش بيانات محلية → حاول تحمل من Firebase
     if(!DB.students || DB.students.length === 0){
-      const fbData = await _loadFromFirebase();
-      if(fbData){ DB = fbData; await _saveFlush(); }
+      try{
+        // انتظر Firebase SDK يكون جاهز
+        await new Promise(r=>setTimeout(r,1500));
+        const fbData = await _loadFromFirebase();
+        if(fbData && fbData.students && fbData.students.length > 0){
+          DB = fbData;
+          await _saveFlush();
+          console.log('✅ Loaded from Firebase:', DB.students.length, 'students');
+        }
+      }catch(fbErr){
+        console.warn('Firebase load skipped:', fbErr.message);
+      }
     }
   }catch(e){
     console.error('DB load failed, using defaults', e);
     DB = _defaultDB();
   }
+  // تأكد إن DB فيه كل الحقول المطلوبة
+  if(!DB.students) DB.students = [];
+  if(!DB.classes) DB.classes = [];
+  if(!DB.groups) DB.groups = [];
+  if(!DB.attendance) DB.attendance = {};
+  if(!DB.grades) DB.grades = [];
+  if(!DB.payments) DB.payments = [];
+  if(!DB.behaviors) DB.behaviors = [];
+  if(!DB.settings) DB.settings = {};
   _restoreImages();
   _seedDemoDataIfEmpty();
   _invalidateCache();
