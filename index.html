@@ -12596,11 +12596,9 @@ function sendDetailedReportWA(sid){
   if(!ph){toast('لا يوجد رقم هاتف لهذا الطالب','e');return;}
   const bc=s.barcode||s.id;
   const pin=s.pin||'';
-  // رابط مباشر يفتح البوابة بدون طلب باسورد
   const portalBase='https://eslamzaky-312.github.io/teacher-app/portal.html';
   const directLink=portalBase+'#auto:'+encodeURIComponent(bc)+':'+encodeURIComponent(pin);
-  const msg=`مرحباً ولي أمر ${s.fname} ${s.lname} 👋\n\nيمكنكم متابعة بيانات الطالب من خلال الرابط التالي:\n\n🔗 ${directLink}\n\nاضغط على الرابط مباشرة لفتح بيانات ${s.fname} بدون الحاجة لإدخال كلمة السر.\n\n${DB.settings.name?'📚 '+DB.settings.name:''}`;
-  window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
+  window.open(`https://wa.me/${ph}?text=${encodeURIComponent(directLink)}`,'_blank');
 }
 
 // ================================================================
