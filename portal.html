@@ -232,28 +232,26 @@ function switchTab(id,btn){
 // ══ تسجيل دخول تلقائي من الرابط المباشر (#auto:barcode:pin) ══
 function _checkAutoLogin(){
   const hash = location.hash;
-  if(!hash || !hash.startsWith('#auto:')) return;
+  if(!hash || !hash.startsWith('#auto:')) return false;
   try{
     const parts = hash.slice(1).split(':');
     const barcode = decodeURIComponent(parts[1]||'');
     const pin     = decodeURIComponent(parts[2]||'');
-    if(!barcode || !pin) return;
-    const tryLogin = ()=>{
-      const s = schoolData?.students?.find(x =>
-        (x.barcode===barcode || x.id===barcode) &&
-        (x.pin===pin || x.portalPassword===pin)
-      );
-      if(s){
-        currentStu = s;
-        document.getElementById('login-screen').style.display = 'none';
-        renderPortal(s);
-        history.replaceState(null,'',location.pathname);
-      } else if(!schoolData){
-        setTimeout(tryLogin, 500);
-      }
-    };
-    setTimeout(tryLogin, 500);
+    if(!barcode || !pin) return false;
+    const s = schoolData?.students?.find(x =>
+      (x.barcode===barcode || x.id===barcode) &&
+      (x.pin===pin || x.portalPassword===pin)
+    );
+    if(s){
+      currentStu = s;
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('login-screen').style.display = 'none';
+      renderPortal(s);
+      history.replaceState(null,'',location.pathname);
+      return true;
+    }
   }catch(e){ console.warn('Auto-login failed:', e.message); }
+  return false;
 }
 
 // ── تشغيل ──
@@ -276,10 +274,12 @@ db.ref('schoolData').on('value', snap => {
     const updated = data.students?.find(s => s.id === currentStu.id);
     if(updated){ currentStu = updated; renderPortal(updated); showSyncBadge(); }
   }
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('login-screen').style.display = 'flex';
-  // تحقق من الدخول التلقائي بعد تحميل البيانات
-  _checkAutoLogin();
+  // ── محاولة الدخول التلقائي أولاً ──
+  const autoLogged = _checkAutoLogin();
+  if(!autoLogged){
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+  }
 });
 </script>
 </body>
