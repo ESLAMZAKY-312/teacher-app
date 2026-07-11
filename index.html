@@ -631,7 +631,7 @@ async function _loadFromFirebase(){
               <button id="btn-flip-cam" onclick="flipCamera()" class="btn btn-sm" style="flex:1;font-size:11.5px;background:rgba(79,124,255,.1);border:1px solid rgba(79,124,255,.3);color:var(--accent);">🔄 تبديل الكاميرا (أمامية / خلفية)</button>
               <button onclick="setScanMode('ext')" class="btn btn-sm" style="font-size:11.5px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);color:var(--red);">⏹ إيقاف الكاميرا</button>
             </div>
-            <input class="fi" id="manual-id" placeholder="أو اكتب الكود يدوياً..." style="width:100%;font-size:13px;" autocomplete="off" onkeydown="if(event.key==='Enter'){manualCI();}">
+            <input class="fi" id="manual-id-cam" placeholder="أو اكتب الكود يدوياً..." style="width:100%;font-size:13px;" autocomplete="off" onkeydown="if(event.key==='Enter'){manualCI();}">
           </div>
           <div style="margin-top:12px;background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:10px;">
             <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:8px;">📋 تسجيل يدوي — اختر الصف والمجموعة والطالب</div>
@@ -3288,11 +3288,10 @@ function toggleStudentPortal(sid,active){
 const EXPORT_COLS = [
   // هوية
   { id:'num',      label:'#',                 group:'هوية',    default:true },
-  { id:'fname',    label:'الاسم الأول',        group:'هوية',    default:true },
-  { id:'lname',    label:'اسم العائلة',        group:'هوية',    default:true },
-  { id:'fullname', label:'الاسم الكامل',       group:'هوية',    default:false },
+  { id:'fullname', label:'الاسم الكامل',       group:'هوية',    default:true },
   { id:'gender',   label:'الجنس',              group:'هوية',    default:true },
   { id:'barcode',  label:'الكود / الباركود',   group:'هوية',    default:true },
+  { id:'pin',      label:'كلمة المرور',        group:'هوية',    default:false },
   { id:'joindate', label:'تاريخ الالتحاق',     group:'هوية',    default:true },
   // دراسة
   { id:'class',    label:'الصف الدراسي',       group:'دراسة',   default:true },
@@ -3352,7 +3351,7 @@ function exportColsSelectAll(val){
   EXPORT_COLS.forEach(c=>{ const el=document.getElementById('ecol-'+c.id); if(el) el.checked=val; });
 }
 function exportColsPreset(preset){
-  const basic    = ['num','fname','lname','gender','class','group','phone','pphone','barcode'];
+  const basic    = ['num','fullname','gender','class','group','phone','pphone','barcode'];
   const finance  = ['num','fullname','gender','class','group','fee','paystatus','totalpaid','lastpay','lastpaydt'];
   const full     = EXPORT_COLS.map(c=>c.id);
   const active   = preset==='basic'?basic : preset==='finance'?finance : full;
@@ -3372,11 +3371,10 @@ function getExportStudentRow(s, selectedIds, idx){
 
   const map = {
     num:       idx + 1,
-    fname:     s.fname,
-    lname:     s.lname,
     fullname:  s.fname + ' ' + s.lname,
     gender:    s.gender === 'female' ? 'أنثى' : 'ذكر',
     barcode:   s.barcode || s.id,
+    pin:       s.pin || '—',
     joindate:  s.date    || '—',
     class:     clsN(s.classId),
     group:     grpN(s.groupId),
@@ -4695,6 +4693,16 @@ async function startCamera(){
   stopCamera();
   _scanLock=false;
 
+  // الكاميرا تحتاج سياق آمن (HTTPS) أو localhost — لا تعمل عند فتح الملف مباشرة (file://) أو عبر HTTP عادي
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    const msg = location.protocol==='file:'
+      ? '❌ الكاميرا لا تعمل عند فتح الملف مباشرة من جهازك — ارفع الملف على استضافة تدعم HTTPS (مثل GitHub Pages) لتفعيلها'
+      : '❌ متصفحك لا يدعم الوصول للكاميرا، أو الاتصال غير آمن (HTTPS مطلوب)';
+    if(status) status.textContent=msg;
+    toast(msg,'e');
+    return;
+  }
+
   try {
     const constraints={ video:{ facingMode:_camFacing, width:{ideal:1280}, height:{ideal:720} } };
     _camStream=await navigator.mediaDevices.getUserMedia(constraints);
@@ -4774,9 +4782,11 @@ function _processBarcode(code){
   checkIn(s.id);
 }
 
-// ── قراءة من حقل الإدخال (قارئ خارجي أو يدوي) ──
+// ── قراءة من حقل الإدخال (قارئ خارجي أو يدوي، أياً كان الوضع النشط حالياً) ──
 function manualCI(){
-  const inp=document.getElementById('manual-id');
+  const camDiv=document.getElementById('mode-cam');
+  const camActive = camDiv && camDiv.style.display !== 'none';
+  const inp=document.getElementById(camActive ? 'manual-id-cam' : 'manual-id');
   const v=(inp?.value||'').trim();
   if(!v) return;
   inp.value='';
