@@ -11750,14 +11750,17 @@ function spRenderFinance(){
   if(!spCurrentStu)return;
   const s=spCurrentStu;
   const pays=DB.payments.filter(p=>p.studentId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
+  const purchases=DB.sales.filter(p=>p.studentId===s.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const paidTotal=pays.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
+  const purchasesTotal=purchases.reduce((a,b)=>a+(+b.total||0),0);
   const isPaidNow=isPaid(s.id);
   document.getElementById('sp-finance-body').innerHTML=`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:1rem;">
       ${spCard('💰','إجمالي المسدد',fmtM(paidTotal),'#22c97a')}
       ${spCard(isPaidNow?'✅':'⏳','حالة الشهر الحالي',isPaidNow?'مسدد':'غير مسدد',isPaidNow?'#22c97a':'#f5a623')}
     </div>
-    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;">
+    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;margin-bottom:1rem;">
+      <div style="padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px;font-weight:700;color:rgba(255,255,255,.5);">سجل المدفوعات</div>
       ${pays.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.06);">
         <div>
           <div style="font-size:12.5px;font-weight:700;color:#fff;">${p.month}</div>
@@ -11768,6 +11771,19 @@ function spRenderFinance(){
           <div style="font-size:10px;padding:2px 8px;border-radius:10px;background:${p.status==='paid'?'rgba(34,201,122,.15)':'rgba(245,166,35,.15)'};color:${p.status==='paid'?'#22c97a':'#f5a623'};">${{paid:'مسدد',partial:'جزئي',unpaid:'غير مسدد'}[p.status]}</div>
         </div>
       </div>`).join('')||'<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد سجلات مدفوعات</div>'}
+    </div>
+    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;">
+      <div style="padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.5);">🛒 مشتريات المتجر</span>
+        ${purchasesTotal>0?`<span style="font-size:11px;font-weight:700;color:#a855f7;">إجمالي: ${fmtM(purchasesTotal)}</span>`:''}
+      </div>
+      ${purchases.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.06);">
+        <div>
+          <div style="font-size:12.5px;font-weight:700;color:#fff;">${p.productName||'منتج'}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.35);">${p.date||''} · الكمية: ${p.qty||1}</div>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#a855f7;">${fmtM(p.total||0)}</div>
+      </div>`).join('')||'<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد مشتريات من المتجر</div>'}
     </div>`;
 }
 
