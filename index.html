@@ -288,35 +288,117 @@ const _fbConfig = {
 firebase.initializeApp(_fbConfig);
 const _fbDB = firebase.database();
 
-// ══ مزامنة DB مع Firebase (تُستدعى بعد كل حفظ) ══
+// ═══════════════════════════════════════════════════
+//  مؤشر المزامنة في الواجهة
+// ═══════════════════════════════════════════════════
+let _syncIndicator = null;
+function _showSyncIndicator(state){
+  if(!_syncIndicator){
+    _syncIndicator = document.createElement('div');
+    Object.assign(_syncIndicator.style,{
+      position:'fixed', bottom:'56px', left:'14px', zIndex:'9999',
+      padding:'4px 11px', borderRadius:'20px', fontSize:'11px', fontWeight:'700',
+      fontFamily:'Cairo,sans-serif', transition:'opacity .4s', pointerEvents:'none',
+      opacity:'0'
+    });
+    document.body.appendChild(_syncIndicator);
+  }
+  const states = {
+    saving:  { text:'☁️ جارٍ المزامنة…', bg:'#1c2440', color:'#9aa3c7' },
+    saved:   { text:'✅ تمت المزامنة',    bg:'#052e16', color:'#22c55e' },
+    error:   { text:'⚠️ فشلت المزامنة',  bg:'#2d0a0a', color:'#ef4444' },
+    loading: { text:'🔄 تحميل البيانات…', bg:'#1c2440', color:'#4f7cff' },
+  };
+  const s = states[state] || states.saved;
+  _syncIndicator.textContent = s.text;
+  _syncIndicator.style.background = s.bg;
+  _syncIndicator.style.color      = s.color;
+  _syncIndicator.style.opacity    = '1';
+  if(state === 'saved' || state === 'error'){
+    setTimeout(()=>{ if(_syncIndicator) _syncIndicator.style.opacity='0'; }, 2500);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  مزامنة DB → Firebase (بعد كل حفظ)
+// ═══════════════════════════════════════════════════
 let _fbSyncTimer = null;
+let _isSyncing   = false; // منع loop: نحن من بعثنا → لا تقرأ
 function _syncToFirebase(){
   if(_fbSyncTimer) clearTimeout(_fbSyncTimer);
   _fbSyncTimer = setTimeout(async ()=>{
     try{
-      // نرسل البيانات بدون الصور الكبيرة (logo, certBgs) لتوفير المساحة
+      _showSyncIndicator('saving');
       const payload = JSON.parse(JSON.stringify(DB));
       if(payload.settings) payload.settings.logo = null;
       if(payload.certTemplates){
         ['male','female'].forEach(g=>{ if(payload.certTemplates[g]) payload.certTemplates[g].bg = null; });
       }
       payload.__syncedAt = new Date().toISOString();
+      _isSyncing = true;
       await _fbDB.ref('schoolData').set(payload);
-      console.log('✅ Firebase synced');
+      _isSyncing = false;
+      _showSyncIndicator('saved');
     } catch(e){
+      _isSyncing = false;
+      _showSyncIndicator('error');
       console.warn('Firebase sync failed:', e.message);
     }
-  }, 2000); // تأجيل 2 ثانية لتجميع التغييرات المتتالية
+  }, 1500);
 }
 
-// ══ تحميل البيانات من Firebase عند فتح البرنامج لأول مرة (لو مفيش بيانات محلية) ══
+// ═══════════════════════════════════════════════════
+//  Realtime Listener — يستمع للتغييرات من أي جهاز
+//  ويحدّث البيانات المحلية تلقائياً
+// ═══════════════════════════════════════════════════
+let _fbListenerActive = false;
+function _startFirebaseListener(){
+  if(_fbListenerActive) return;
+  _fbListenerActive = true;
+  _fbDB.ref('schoolData').on('value', snap => {
+    // تجاهل لو نحن من أرسلنا التغيير
+    if(_isSyncing) return;
+    const data = snap.val();
+    if(!data || !data.students) return;
+    // تجاهل لو البيانات الواردة أقدم من المحلية
+    if(data.__syncedAt && DB.__syncedAt && data.__syncedAt <= DB.__syncedAt) return;
+    // تحديث DB بالبيانات الجديدة مع الحفاظ على الصور المحلية
+    const logo    = DB.settings?.logo;
+    const certBgs = {};
+    if(DB.certTemplates){
+      ['male','female'].forEach(g=>{ if(DB.certTemplates[g]?.bg) certBgs[g]=DB.certTemplates[g].bg; });
+    }
+    Object.assign(DB, data);
+    if(logo)  DB.settings.logo = logo;
+    if(DB.certTemplates){
+      ['male','female'].forEach(g=>{ if(certBgs[g]) DB.certTemplates[g].bg = certBgs[g]; });
+    }
+    DB.__syncedAt = data.__syncedAt;
+    // حفظ محلي بدون إعادة إرسال لـ Firebase
+    _idbSet('etp3', DB).catch(()=>{});
+    // إعادة رسم الواجهة
+    _invalidateCache();
+    if(typeof renderAll === 'function') renderAll();
+    else if(typeof gp === 'function'){
+      const cur = document.querySelector('.page[style*="block"]')?.id?.replace('page-','') || 'dashboard';
+      gp(cur);
+    }
+    _showSyncIndicator('saved');
+    console.log('🔄 Firebase: تم تحديث البيانات من جهاز آخر');
+  }, err => {
+    console.warn('Firebase listener error:', err.message);
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  تحميل البيانات من Firebase عند الفتح
+//  يفضّل دائماً البيانات الأحدث سواء محلية أو سحابة
+// ═══════════════════════════════════════════════════
 async function _loadFromFirebase(){
   try{
     const snap = await _fbDB.ref('schoolData').once('value');
     const data = snap.val();
-    if(data && data.students){
-      return data;
-    }
+    if(data && data.students) return data;
   } catch(e){
     console.warn('Firebase load failed:', e.message);
   }
@@ -13159,11 +13241,26 @@ loadSubjectsList();
 // ════════════════════════════════════════════════════════
 (async function _boot(){
   try{
-    DB = await _loadDB();
-    // لو مفيش بيانات محلية → حاول تحمل من Firebase
-    if(!DB.students || DB.students.length === 0){
-      const fbData = await _loadFromFirebase();
-      if(fbData){ DB = fbData; await _saveFlush(); }
+    // ١. حمّل البيانات المحلية (IDB / localStorage)
+    const localDB = await _loadDB();
+    // ٢. حمّل من Firebase دائماً للمقارنة
+    _showSyncIndicator('loading');
+    const fbData = await _loadFromFirebase();
+    // ٣. اختر الأحدث
+    if(fbData && fbData.students){
+      const fbTime    = fbData.__syncedAt    ? new Date(fbData.__syncedAt).getTime()    : 0;
+      const localTime = localDB.__syncedAt   ? new Date(localDB.__syncedAt).getTime()   : (localDB.__lastSave || 0);
+      if(fbTime >= localTime){
+        // Firebase أحدث → استخدمه
+        DB = fbData;
+        await _idbSet('etp3', DB).catch(()=>{});
+      } else {
+        // المحلي أحدث → استخدمه وارفع لـ Firebase
+        DB = localDB;
+        _syncToFirebase();
+      }
+    } else {
+      DB = localDB;
     }
   }catch(e){
     console.error('DB load failed, using defaults', e);
@@ -13175,6 +13272,8 @@ loadSubjectsList();
   _bootUI();
   const bl=document.getElementById('boot-loading');
   if(bl) bl.remove();
+  // ٤. ابدأ الاستماع للتغييرات الفورية من أي جهاز
+  _startFirebaseListener();
 })();
 
 // ══════════════════════════════════════════════════════════════════
