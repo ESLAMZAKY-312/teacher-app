@@ -106,8 +106,18 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="tbl-wrap"><table><thead><tr><th>الامتحان</th><th>الدرجة</th><th>النسبة</th><th>التاريخ</th></tr></thead><tbody id="grades-tbody"></tbody></table></div>
   </div>
   <div class="tab-content" id="tab-pays">
-    <div class="kpi-row"><div class="kpi" style="grid-column:span 3;"><div class="kpi-val" id="pays-total" style="color:var(--green);">—</div><div class="kpi-lbl">إجمالي المسدد</div></div></div>
+    <!-- KPIs -->
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-val" id="pays-total" style="color:var(--green);">—</div><div class="kpi-lbl">إجمالي الرسوم</div></div>
+      <div class="kpi"><div class="kpi-val" id="pays-store-total" style="color:var(--accent);">—</div><div class="kpi-lbl">إجمالي المشتريات</div></div>
+      <div class="kpi"><div class="kpi-val" id="pays-grand-total" style="color:#f5a623;">—</div><div class="kpi-lbl">الإجمالي الكلي</div></div>
+    </div>
+    <!-- الرسوم الشهرية -->
+    <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px;">💰 الرسوم الشهرية</div>
     <div class="tbl-wrap"><table><thead><tr><th>الشهر</th><th>المبلغ</th><th>التاريخ</th><th>الحالة</th></tr></thead><tbody id="pays-tbody"></tbody></table></div>
+    <!-- مشتريات المتجر -->
+    <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin:16px 0 8px;display:flex;align-items:center;gap:6px;">🛒 مشتريات المتجر</div>
+    <div class="tbl-wrap"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th></tr></thead><tbody id="pays-store-tbody"></tbody></table></div>
   </div>
   <div class="tab-content" id="tab-beh"><div id="beh-list"></div></div>
 </div>
@@ -205,14 +215,38 @@ function renderGrades(s){
 }
 
 function renderPays(s){
+  // ── الرسوم الشهرية ──
   const pays = (schoolData?.payments||[]).filter(p=>p.studentId===s.id);
-  const total = pays.filter(p=>p.status==='paid').reduce((a,b)=>a+b.amount,0);
-  document.getElementById('pays-total').textContent = total.toLocaleString()+' ج';
+  const totalPays = pays.filter(p=>p.status==='paid').reduce((a,b)=>a+b.amount,0);
   const sl={paid:'✅ مسدد',unpaid:'⏳ غير مسدد',partial:'🔶 جزئي'};
   const sc={paid:'badge-green',unpaid:'badge-red',partial:'badge-amber'};
   document.getElementById('pays-tbody').innerHTML = pays.length
-    ? [...pays].sort((a,b)=>(b.month||'').localeCompare(a.month||'')).map(p=>`<tr><td style="font-weight:700;">${p.month||'—'}</td><td style="color:var(--green);font-weight:800;">${(p.amount||0).toLocaleString()} ج</td><td style="font-size:11px;color:var(--text2);">${p.date||'—'}</td><td><span class="badge ${sc[p.status]||'badge-blue'}">${sl[p.status]||p.status}</span></td></tr>`).join('')
-    : '<tr><td colspan="4"><div class="empty"><div class="empty-ic">💰</div><div>لا توجد مدفوعات</div></div></td></tr>';
+    ? [...pays].sort((a,b)=>(b.month||'').localeCompare(a.month||'')).map(p=>`
+        <tr>
+          <td style="font-weight:700;">${p.month||'—'}</td>
+          <td style="color:var(--green);font-weight:800;">${(p.amount||0).toLocaleString()} ج</td>
+          <td style="font-size:11px;color:var(--text2);">${p.date||'—'}</td>
+          <td><span class="badge ${sc[p.status]||'badge-blue'}">${sl[p.status]||p.status}</span></td>
+        </tr>`).join('')
+    : '<tr><td colspan="4"><div class="empty"><div class="empty-ic">💰</div><div>لا توجد رسوم مسجلة</div></div></td></tr>';
+
+  // ── مشتريات المتجر ──
+  const sales = (schoolData?.sales||[]).filter(x=>x.studentId===s.id);
+  const totalStore = sales.reduce((a,b)=>a+(+b.total||0),0);
+  document.getElementById('pays-store-tbody').innerHTML = sales.length
+    ? [...sales].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(x=>`
+        <tr>
+          <td style="font-weight:700;">${x.productName||'—'}</td>
+          <td style="text-align:center;">${x.qty||1}</td>
+          <td style="color:var(--accent);font-weight:800;">${(+x.total||0).toLocaleString()} ج</td>
+          <td style="font-size:11px;color:var(--text2);">${x.date||'—'}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="4"><div class="empty"><div class="empty-ic">🛒</div><div>لا توجد مشتريات مسجلة</div></div></td></tr>';
+
+  // ── KPIs ──
+  document.getElementById('pays-total').textContent       = totalPays.toLocaleString()+' ج';
+  document.getElementById('pays-store-total').textContent = totalStore.toLocaleString()+' ج';
+  document.getElementById('pays-grand-total').textContent = (totalPays+totalStore).toLocaleString()+' ج';
 }
 
 function renderBeh(s){
