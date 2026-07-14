@@ -288,35 +288,117 @@ const _fbConfig = {
 firebase.initializeApp(_fbConfig);
 const _fbDB = firebase.database();
 
-// ══ مزامنة DB مع Firebase (تُستدعى بعد كل حفظ) ══
+// ═══════════════════════════════════════════════════
+//  مؤشر المزامنة في الواجهة
+// ═══════════════════════════════════════════════════
+let _syncIndicator = null;
+function _showSyncIndicator(state){
+  if(!_syncIndicator){
+    _syncIndicator = document.createElement('div');
+    Object.assign(_syncIndicator.style,{
+      position:'fixed', bottom:'56px', left:'14px', zIndex:'9999',
+      padding:'4px 11px', borderRadius:'20px', fontSize:'11px', fontWeight:'700',
+      fontFamily:'Cairo,sans-serif', transition:'opacity .4s', pointerEvents:'none',
+      opacity:'0'
+    });
+    document.body.appendChild(_syncIndicator);
+  }
+  const states = {
+    saving:  { text:'☁️ جارٍ المزامنة…', bg:'#1c2440', color:'#9aa3c7' },
+    saved:   { text:'✅ تمت المزامنة',    bg:'#052e16', color:'#22c55e' },
+    error:   { text:'⚠️ فشلت المزامنة',  bg:'#2d0a0a', color:'#ef4444' },
+    loading: { text:'🔄 تحميل البيانات…', bg:'#1c2440', color:'#4f7cff' },
+  };
+  const s = states[state] || states.saved;
+  _syncIndicator.textContent = s.text;
+  _syncIndicator.style.background = s.bg;
+  _syncIndicator.style.color      = s.color;
+  _syncIndicator.style.opacity    = '1';
+  if(state === 'saved' || state === 'error'){
+    setTimeout(()=>{ if(_syncIndicator) _syncIndicator.style.opacity='0'; }, 2500);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  مزامنة DB → Firebase (بعد كل حفظ)
+// ═══════════════════════════════════════════════════
 let _fbSyncTimer = null;
+let _isSyncing   = false; // منع loop: نحن من بعثنا → لا تقرأ
 function _syncToFirebase(){
   if(_fbSyncTimer) clearTimeout(_fbSyncTimer);
   _fbSyncTimer = setTimeout(async ()=>{
     try{
-      // نرسل البيانات بدون الصور الكبيرة (logo, certBgs) لتوفير المساحة
+      _showSyncIndicator('saving');
       const payload = JSON.parse(JSON.stringify(DB));
       if(payload.settings) payload.settings.logo = null;
       if(payload.certTemplates){
         ['male','female'].forEach(g=>{ if(payload.certTemplates[g]) payload.certTemplates[g].bg = null; });
       }
       payload.__syncedAt = new Date().toISOString();
+      _isSyncing = true;
       await _fbDB.ref('schoolData').set(payload);
-      console.log('✅ Firebase synced');
+      _isSyncing = false;
+      _showSyncIndicator('saved');
     } catch(e){
+      _isSyncing = false;
+      _showSyncIndicator('error');
       console.warn('Firebase sync failed:', e.message);
     }
-  }, 2000); // تأجيل 2 ثانية لتجميع التغييرات المتتالية
+  }, 1500);
 }
 
-// ══ تحميل البيانات من Firebase عند فتح البرنامج لأول مرة (لو مفيش بيانات محلية) ══
+// ═══════════════════════════════════════════════════
+//  Realtime Listener — يستمع للتغييرات من أي جهاز
+//  ويحدّث البيانات المحلية تلقائياً
+// ═══════════════════════════════════════════════════
+let _fbListenerActive = false;
+function _startFirebaseListener(){
+  if(_fbListenerActive) return;
+  _fbListenerActive = true;
+  _fbDB.ref('schoolData').on('value', snap => {
+    // تجاهل لو نحن من أرسلنا التغيير
+    if(_isSyncing) return;
+    const data = snap.val();
+    if(!data || !data.students) return;
+    // تجاهل لو البيانات الواردة أقدم من المحلية
+    if(data.__syncedAt && DB.__syncedAt && data.__syncedAt <= DB.__syncedAt) return;
+    // تحديث DB بالبيانات الجديدة مع الحفاظ على الصور المحلية
+    const logo    = DB.settings?.logo;
+    const certBgs = {};
+    if(DB.certTemplates){
+      ['male','female'].forEach(g=>{ if(DB.certTemplates[g]?.bg) certBgs[g]=DB.certTemplates[g].bg; });
+    }
+    Object.assign(DB, data);
+    if(logo)  DB.settings.logo = logo;
+    if(DB.certTemplates){
+      ['male','female'].forEach(g=>{ if(certBgs[g]) DB.certTemplates[g].bg = certBgs[g]; });
+    }
+    DB.__syncedAt = data.__syncedAt;
+    // حفظ محلي بدون إعادة إرسال لـ Firebase
+    _idbSet('etp3', DB).catch(()=>{});
+    // إعادة رسم الواجهة
+    _invalidateCache();
+    if(typeof renderAll === 'function') renderAll();
+    else if(typeof gp === 'function'){
+      const cur = document.querySelector('.page[style*="block"]')?.id?.replace('page-','') || 'dashboard';
+      gp(cur);
+    }
+    _showSyncIndicator('saved');
+    console.log('🔄 Firebase: تم تحديث البيانات من جهاز آخر');
+  }, err => {
+    console.warn('Firebase listener error:', err.message);
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  تحميل البيانات من Firebase عند الفتح
+//  يفضّل دائماً البيانات الأحدث سواء محلية أو سحابة
+// ═══════════════════════════════════════════════════
 async function _loadFromFirebase(){
   try{
     const snap = await _fbDB.ref('schoolData').once('value');
     const data = snap.val();
-    if(data && data.students){
-      return data;
-    }
+    if(data && data.students) return data;
   } catch(e){
     console.warn('Firebase load failed:', e.message);
   }
@@ -2703,47 +2785,10 @@ function localMonth(){
 // ════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════
-//  IndexedDB — المخزن الرئيسي (يستبدل localStorage للـ blob الكبير)
-//  السبب: localStorage محدود (~5-10MB) والكتابة فيه synchronous
-//  وبتحجز الـ main thread. IndexedDB async ومساحته أكبر بكتير.
+//  محرك التخزين — Firebase فقط
+//  البيانات تُحفظ وتُقرأ من Firebase Realtime Database حصراً
+//  الصور (logo, certBgs) تبقى في ذاكرة الجلسة فقط
 // ════════════════════════════════════════════════════════
-const IDB_NAME='EduTrackDB', IDB_VERSION=1, IDB_STORE='kv';
-function _idbOpen(){
-  return new Promise((resolve,reject)=>{
-    if(!window.indexedDB){ reject(new Error('IndexedDB غير مدعوم')); return; }
-    const req=indexedDB.open(IDB_NAME, IDB_VERSION);
-    req.onupgradeneeded=()=>{ if(!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE); };
-    req.onsuccess=()=>resolve(req.result);
-    req.onerror=()=>reject(req.error);
-  });
-}
-async function _idbGet(key){
-  const db=await _idbOpen();
-  return new Promise((resolve,reject)=>{
-    const tx=db.transaction(IDB_STORE,'readonly');
-    const req=tx.objectStore(IDB_STORE).get(key);
-    req.onsuccess=()=>resolve(req.result ?? null);
-    req.onerror=()=>reject(req.error);
-  });
-}
-async function _idbSet(key,val){
-  const db=await _idbOpen();
-  return new Promise((resolve,reject)=>{
-    const tx=db.transaction(IDB_STORE,'readwrite');
-    tx.objectStore(IDB_STORE).put(val,key);
-    tx.oncomplete=()=>resolve(true);
-    tx.onerror=()=>reject(tx.error);
-  });
-}
-async function _idbDel(key){
-  const db=await _idbOpen();
-  return new Promise((resolve,reject)=>{
-    const tx=db.transaction(IDB_STORE,'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
-    tx.oncomplete=()=>resolve(true);
-    tx.onerror=()=>reject(tx.error);
-  });
-}
 
 function _defaultDB(){
   return {
@@ -2767,113 +2812,82 @@ function _defaultDB(){
   };
 }
 
-// placeholder فوري (متزامن) — يمنع كراش أي كود يقرأ DB قبل اكتمال التحميل غير المتزامن
-// يُستبدل بالبيانات الحقيقية داخل _boot() بعد تحميلها من IndexedDB
+// نسخة عمل مؤقتة حتى يكتمل التحميل من Firebase
 let DB = _defaultDB();
 
-// ── تحميل DB: IndexedDB أولاً، وإلا ترحيل من localStorage القديم، وإلا افتراضي ──
+// ── تحميل DB من Firebase ──
 async function _loadDB(){
-  let idbDB=null, lsDB=null;
-  try{ idbDB = await _idbGet('etp3'); }catch(e){ console.warn('IndexedDB read failed', e); }
-  try{ lsDB = JSON.parse(localStorage.getItem('etp3')||'null'); }catch(e){}
-
-  let chosen;
-  if(idbDB && lsDB){
-    // اختر الأحدث بينهما (localStorage ممكن يكون فيه نسخة أحدث من شبكة أمان الإغلاق المفاجئ)
-    chosen = (lsDB.__lastSave||0) > (idbDB.__lastSave||0) ? lsDB : idbDB;
-  } else {
-    chosen = idbDB || lsDB;
-  }
-
-  if(chosen){
-    if(chosen===lsDB){ _idbSet('etp3', chosen).catch(e=>console.warn('IDB migrate/sync failed',e)); }
-    return chosen;
-  }
+  if(!_fbDB){ console.warn('Firebase غير متاح'); return _defaultDB(); }
+  try{
+    const snap = await _fbDB.ref('schoolData').once('value');
+    const data = snap.val();
+    if(data && (data.students || data.settings)){
+      return Object.assign(_defaultDB(), data);
+    }
+  }catch(e){ console.warn('Firebase load failed:', e.message); }
   return _defaultDB();
 }
 
 // ════════════════════════════════════════════════════════
-//  حفظ البيانات — الصور تُحفظ منفصلة لتخفيف JSON الرئيسي
+//  حفظ البيانات — Firebase فقط
 // ════════════════════════════════════════════════════════
-// ── الكتابة الفعلية على القرص (IndexedDB — async، غير محدود المساحة تقريبًا) ──
 async function _saveFlush(){
-  try {
-    // استخرج الصور الكبيرة من DB مؤقتاً قبل الحفظ
-    const logo        = DB.settings.logo;
-    const certBgs     = {};
+  if(!_fbDB){ console.warn('Firebase غير متاح — لا يمكن الحفظ'); _showSyncIndicator('error'); return; }
+  try{
+    _showSyncIndicator('saving');
+    const logo    = DB.settings.logo;
+    const certBgs = {};
     if(DB.certTemplates){
       ['male','female'].forEach(g=>{
         if(DB.certTemplates[g]?.bg){ certBgs[g]=DB.certTemplates[g].bg; DB.certTemplates[g].bg=null; }
       });
     }
     DB.settings.logo = null;
-
-    try{
-      await _idbSet('etp3', DB);
-    }catch(idbErr){
-      // خط أمان أخير لو IndexedDB مش متاح (وضع تصفح خاص/متصفح قديم)
-      console.warn('IndexedDB write failed, falling back to localStorage', idbErr);
-      try{ localStorage.setItem('etp3', JSON.stringify(DB)); }catch(e2){ console.error('fallback save failed too', e2); }
-    }
-
-    // أعد الصور للـ DB في الذاكرة فقط
+    DB.__lastSave    = Date.now();
+    DB.__syncedAt    = new Date().toISOString();
+    _isSyncing = true;
+    await _fbDB.ref('schoolData').set(JSON.parse(JSON.stringify(DB)));
+    _isSyncing = false;
     DB.settings.logo = logo;
     if(DB.certTemplates){
       ['male','female'].forEach(g=>{ if(certBgs[g]) DB.certTemplates[g].bg=certBgs[g]; });
     }
-
-    // حفظ الصور منفصلة (لا تدخل في JSON الرئيسي) — تفضل في localStorage، حجمها صغير ونادرة التغيير
-    if(logo)          { try{ localStorage.setItem('etp3_logo', logo); }catch(e){} }
-    else              { localStorage.removeItem('etp3_logo'); }
-    ['male','female'].forEach(g=>{
-      if(certBgs[g])  { try{ localStorage.setItem('etp3_cert_'+g, certBgs[g]); }catch(e){} }
-    });
-
     _saveDirty = false;
-    // ══ مزامنة تلقائية مع Firebase بعد كل حفظ ══
-    _syncToFirebase();
-  } catch(e) {
-    console.warn('save error', e);
+    _showSyncIndicator('saved');
+  }catch(e){
+    _isSyncing = false;
+    _showSyncIndicator('error');
+    console.warn('Firebase save error:', e.message);
   }
 }
 
-// ── نسخة متزامنة صرفة، تُستخدم فقط كخط أمان وقت إغلاق الصفحة المفاجئ ──
-// (beforeunload لا يضمن اكتمال أي Promise، فبنكتب localStorage مباشرة كضمان أخير)
 function _saveFlushSync(){
+  if(!_fbDB || !_saveDirty) return;
   try{
-    DB.__lastSave = Date.now();
-    const logo=DB.settings.logo;
-    DB.settings.logo=null;
-    localStorage.setItem('etp3', JSON.stringify(DB));
-    DB.settings.logo=logo;
-  }catch(e){ console.warn('sync fallback save failed', e); }
+    const payload = JSON.parse(JSON.stringify(DB));
+    payload.settings.logo = null;
+    if(payload.certTemplates){
+      ['male','female'].forEach(g=>{ if(payload.certTemplates[g]) payload.certTemplates[g].bg=null; });
+    }
+    payload.__lastSave = Date.now();
+    _fbDB.ref('schoolData').set(payload);
+  }catch(e){}
 }
 
-// ── save() العامة: تُستدعى من 80+ موضع في الكود ──
-// invalidate الكاش فورًا (رخيصة) + تأجيل الكتابة الفعلية على القرص (مكلفة)
-// عشان النقرات المتتالية (مثل تسجيل حضور مجموعة كاملة) متعملش
-// full JSON.stringify(DB) في كل نقرة → وده كان سبب التهنيج التدريجي.
 let _saveDirty = false;
 let _saveTimer = null;
-const SAVE_DEBOUNCE_MS = 400;
+const SAVE_DEBOUNCE_MS = 600;
 function save(){
-  DB.__lastSave = Date.now();   // لمزامنة/ترجيح النسخة الأحدث عند القراءة لاحقًا
-  _invalidateCache();   // رخيصة — لازم تفضل فورية عشان القراءات التالية تبقى صحيحة
+  DB.__lastSave = Date.now();
+  _invalidateCache();
   _saveDirty = true;
   if(_saveTimer) clearTimeout(_saveTimer);
   _saveTimer = setTimeout(()=>{ _saveTimer=null; _saveFlush(); }, SAVE_DEBOUNCE_MS);
 }
 
-// ضمان عدم فقد آخر تغييرات عند إغلاق الصفحة/التبويب أو التنقل بعيدًا
-// beforeunload: لا يضمن اكتمال Promise → نستخدم كتابة متزامنة صريحة كخط أمان
 window.addEventListener('beforeunload', ()=>{
-  if(_saveDirty){
-    if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
-    _saveFlushSync();
-    _idbSet('etp3', DB).catch(()=>{}); // محاولة إضافية، قد تكتمل أو لا
-  }
+  if(_saveDirty){ if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; } _saveFlushSync(); }
 });
-// visibilitychange (تبديل تاب/تصغير) — الطريقة الموثوقة لضمان اكتمال الكتابة async فعليًا
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='hidden' && _saveDirty){
     if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
@@ -2881,15 +2895,8 @@ document.addEventListener('visibilitychange', ()=>{
   }
 });
 
-// استعادة الصور عند تحميل البيانات (تُستدعى من _boot() بعد تحميل DB الفعلي)
-function _restoreImages(){
-  const logo = localStorage.getItem('etp3_logo');
-  if(logo) DB.settings.logo = logo;
-  ['male','female'].forEach(g=>{
-    const bg = localStorage.getItem('etp3_cert_'+g);
-    if(bg){ if(!DB.certTemplates) DB.certTemplates={}; if(!DB.certTemplates[g]) DB.certTemplates[g]={}; DB.certTemplates[g].bg=bg; }
-  });
-}
+// الصور تبقى في الذاكرة فقط
+function _restoreImages(){ /* الصور في الذاكرة فقط — لا تُحفظ خارجياً */ }
 
 // ════════════════════════════════════════════════════════
 //  Cache للدوال المكلفة — يُبطَّل عند كل save()
@@ -3133,6 +3140,7 @@ function gp(id){
   if(PR[id]) requestAnimationFrame(()=>PR[id]());
   if(id==='payments') setTimeout(()=>{ document.getElementById('pay-search')?.focus(); },80);
   if(id==='store') setTimeout(()=>{ document.getElementById('store-barcode-search')?.focus(); },80);
+  if(id==='attendance') focusBarcodeInput();
   if(id==='students') setTimeout(()=>{ document.getElementById('st-q')?.focus(); },80);
 }
 
@@ -4481,14 +4489,11 @@ function renderAttPage(){
 // ── تركيز المؤشر دائماً في خانة الباركود ──
 function focusBarcodeInput(){
   setTimeout(()=>{
-    // فقط في وضع القارئ الخارجي (ext) وعندما تكون صفحة الحضور نشطة
     const page=document.getElementById('page-attendance');
     if(!page||!page.classList.contains('active')) return;
-    const extDiv=document.getElementById('mode-ext');
-    if(extDiv && extDiv.style.display==='none') return; // وضع الكاميرا نشط
     const f=document.getElementById('manual-id');
-    if(f) f.focus();
-  }, 200);
+    if(f){ f.focus(); f.select(); }
+  }, 250);
 }
 function attFilterGroup(){
   const cid=document.getElementById('att-cls')?.value||'';
@@ -8715,14 +8720,21 @@ function switchRep(tab,btn){
       const attAvg=sts.length?Math.round(sts.reduce((a,b)=>a+attPct(b.id),0)/sts.length):null;
       const pd=sts.filter(s=>isPaid(s.id)).length;
       const payRate=sts.length?Math.round(pd/sts.length*100):0;
-      return `<tr>
-        <td><div style="font-weight:700;font-size:12.5px;">${g.name}</div><div style="font-size:10px;color:var(--text2);">${clsN(g.classId)}</div></td>
-        <td style="text-align:center;"><span style="font-size:17px;font-weight:800;color:var(--accent);">${sts.length}</span></td>
-        <td><div class="rep-bar-wrap">${avg!==null?`<div class="rep-bar-bg"><div class="rep-bar-fg" style="width:${avg}%;background:${grCol(avg)};"></div></div><span style="font-size:12px;font-weight:700;color:${grCol(avg)};min-width:36px;">${avg}%</span>`:'<span style="color:var(--text3);">—</span>'}</div></td>
-        <td><div class="rep-bar-wrap">${attAvg!==null?`<div class="rep-bar-bg"><div class="rep-bar-fg" style="width:${attAvg}%;background:${grCol(attAvg)};"></div></div><span style="font-size:12px;font-weight:700;color:${grCol(attAvg)};min-width:36px;">${attAvg}%</span>`:'<span style="color:var(--text3);">—</span>'}</div></td>
-        <td><div class="rep-bar-wrap"><div class="rep-bar-bg"><div class="rep-bar-fg" style="width:${payRate}%;background:var(--green);"></div></div><span style="font-size:12px;font-weight:700;color:var(--green);min-width:36px;">${pd}/${sts.length}</span></div></td>
-        <td style="text-align:center;"><span class="badge ${avg!==null?(avg>=70?'bg-g':avg>=50?'bg-a':'bg-r'):'bg-gr'}">${avg!==null?grChar(avg):'—'}</span></td>
-      </tr>`;
+      const avgBar=avg!==null
+        ? '<div class="rep-bar-bg"><div class="rep-bar-fg" style="width:'+avg+'%;background:'+grCol(avg)+';"></div></div><span style="font-size:12px;font-weight:700;color:'+grCol(avg)+';min-width:36px;">'+avg+'%</span>'
+        : '<span style="color:var(--text3);">—</span>';
+      const attBar=attAvg!==null
+        ? '<div class="rep-bar-bg"><div class="rep-bar-fg" style="width:'+attAvg+'%;background:'+grCol(attAvg)+';"></div></div><span style="font-size:12px;font-weight:700;color:'+grCol(attAvg)+';min-width:36px;">'+attAvg+'%</span>'
+        : '<span style="color:var(--text3);">—</span>';
+      const badge=avg!==null?(avg>=70?'bg-g':avg>=50?'bg-a':'bg-r'):'bg-gr';
+      return '<tr>'
+        +'<td><div style="font-weight:700;font-size:12.5px;">'+g.name+'</div><div style="font-size:10px;color:var(--text2);">'+clsN(g.classId)+'</div></td>'
+        +'<td style="text-align:center;"><span style="font-size:17px;font-weight:800;color:var(--accent);">'+sts.length+'</span></td>'
+        +'<td><div class="rep-bar-wrap">'+avgBar+'</div></td>'
+        +'<td><div class="rep-bar-wrap">'+attBar+'</div></td>'
+        +'<td><div class="rep-bar-wrap"><div class="rep-bar-bg"><div class="rep-bar-fg" style="width:'+payRate+'%;background:var(--green);"></div></div><span style="font-size:12px;font-weight:700;color:var(--green);min-width:36px;">'+pd+'/'+sts.length+'</span></div></td>'
+        +'<td style="text-align:center;"><span class="badge '+badge+'">'+(avg!==null?grChar(avg):'—')+'</span></td>'
+        +'</tr>';
     }).join('');
     const totalStu=DB.students.length;
     const allAvgs=DB.students.map(s=>stuAvg(s.id)).filter(Boolean);
@@ -8897,18 +8909,21 @@ function switchRep(tab,btn){
         </div>`:'';
 
       // صفوف الجدول
-      if(tbody) tbody.innerHTML=ranked.map((x,i)=>`<tr>
-        <td style="text-align:center;width:44px;">${i<3?`<span style="font-size:18px;">${top3[i][0]}</span>`:`<span class="rep-rank-badge">${i+1}</span>`}</td>
-        <td><div style="display:flex;align-items:center;gap:8px;"><div style="width:32px;height:32px;border-radius:50%;background:${x.s.color}20;color:${x.s.color};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;">${x.s.fname[0]}</div><div><div style="font-weight:700;">${x.s.fname} ${x.s.lname}</div></div></div></td>
-        <td style="font-size:11px;color:var(--text2);">${clsN(x.s.classId)}</td>
-        <td style="font-size:11px;color:var(--text2);">${grpN(x.s.groupId)}</td>
-        <td style="font-size:11px;color:var(--text2);">${x.examName}</td>
-        <td><div class="rep-bar-wrap"><div class="rep-bar-bg"><div class="rep-bar-fg" style="width:${x.avg}%;background:${grCol(x.avg)};"></div></div><span style="font-size:12px;font-weight:700;color:${grCol(x.avg)};min-width:36px;">${x.avg}%</span></div></td>
-        <td style="text-align:center;"><span style="font-size:17px;font-weight:900;color:${grCol(x.avg)};">${grChar(x.avg)}</span></td>
-        <td><div class="rep-bar-wrap"><div class="rep-bar-bg"><div class="rep-bar-fg" style="width:${x.att}%;background:${grCol(x.att)};"></div></div><span style="font-size:12px;font-weight:700;color:${grCol(x.att)};min-width:36px;">${x.att}%</span></div></td>
-        <td style="text-align:center;"><span class="badge bg-a">⭐ ${x.pts}</span></td>
-        <td style="text-align:center;" class="no-print"><button class="btn btn-wa btn-xs" onclick="sendStuWA('${x.s.id}','grade')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG('${x.s.id}','grade')">✈️</button></td>
-      </tr>`).join('')||'<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">لا توجد درجات في هذا الاختيار</td></tr>';
+      if(tbody) tbody.innerHTML=ranked.map((x,i)=>{
+        const rankCell=i<3?'<span style="font-size:18px;">'+top3[i][0]+'</span>':'<span class="rep-rank-badge">'+(i+1)+'</span>';
+        return '<tr>'
+          +'<td style="text-align:center;width:44px;">'+rankCell+'</td>'
+          +'<td><div style="display:flex;align-items:center;gap:8px;"><div style="width:32px;height:32px;border-radius:50%;background:'+x.s.color+'20;color:'+x.s.color+';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;">'+x.s.fname[0]+'</div><div><div style="font-weight:700;">'+x.s.fname+' '+x.s.lname+'</div></div></div></td>'
+          +'<td style="font-size:11px;color:var(--text2);">'+clsN(x.s.classId)+'</td>'
+          +'<td style="font-size:11px;color:var(--text2);">'+grpN(x.s.groupId)+'</td>'
+          +'<td style="font-size:11px;color:var(--text2);">'+x.examName+'</td>'
+          +'<td><div class="rep-bar-wrap"><div class="rep-bar-bg"><div class="rep-bar-fg" style="width:'+x.avg+'%;background:'+grCol(x.avg)+';"></div></div><span style="font-size:12px;font-weight:700;color:'+grCol(x.avg)+';min-width:36px;">'+x.avg+'%</span></div></td>'
+          +'<td style="text-align:center;"><span style="font-size:17px;font-weight:900;color:'+grCol(x.avg)+';">'+grChar(x.avg)+'</span></td>'
+          +'<td><div class="rep-bar-wrap"><div class="rep-bar-bg"><div class="rep-bar-fg" style="width:'+x.att+'%;background:'+grCol(x.att)+';"></div></div><span style="font-size:12px;font-weight:700;color:'+grCol(x.att)+';min-width:36px;">'+x.att+'%</span></div></td>'
+          +'<td style="text-align:center;"><span class="badge bg-a">⭐ '+x.pts+'</span></td>'
+          +'<td style="text-align:center;" class="no-print"><button class="btn btn-wa btn-xs" onclick="sendStuWA(\''+x.s.id+'\',\'grade\')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG(\''+x.s.id+'\',\'grade\')">✈️</button></td>'
+          +'</tr>';
+      }).join('')||'<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">لا توجد درجات في هذا الاختيار</td></tr>';
     };
 
     // ── طباعة PDF للقائمة المختارة ──
@@ -9295,7 +9310,7 @@ function switchRep(tab,btn){
             <td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
             <td style="text-align:center;font-weight:800;color:var(--green);">
               ${st.present}
-              ${st.exceptional>0?`<span style="display:block;font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);color:var(--amber);font-weight:700;margin-top:2px;">⚠️ ${st.exceptional} استثنائي</span>`:''}
+              ${st.exceptional>0?'<span style="display:block;font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);color:var(--amber);font-weight:700;margin-top:2px;">⚠️ '+st.exceptional+' استثنائي</span>':''}
             </td>
             <td style="text-align:center;font-weight:800;color:var(--red);">${st.absent}</td>
             <td style="text-align:center;font-weight:800;color:var(--amber);">${st.late}</td>
@@ -9306,7 +9321,7 @@ function switchRep(tab,btn){
                 <span style="font-size:11.5px;font-weight:800;color:${pctColor};">${st.pct}%</span>
               </div>
             </td>
-            <td style="text-align:center;" class="no-print">${st.absent>0?`<button class="btn btn-wa btn-xs" onclick="sendStuWA('${s.id}','absent')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG('${s.id}','absent')">✈️</button>`:''}</td>
+            <td style="text-align:center;" class="no-print">${st.absent>0?'<button class="btn btn-wa btn-xs" onclick="sendStuWA(\''+s.id+'\',\'absent\')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG(\''+s.id+'\',\'absent\')">✈️</button>':''}</td>
           </tr>`;
       }).join('');
     };
@@ -9361,7 +9376,7 @@ function switchRep(tab,btn){
           <td style="padding:8px 10px;font-size:11px;color:#555;">${grpN(s.groupId)}</td>
           <td style="padding:8px 10px;text-align:center;font-weight:800;color:#22c97a;">
             ${st.present}
-            ${st.exceptional>0?`<div style="font-size:8.5px;margin-top:2px;padding:1px 5px;border-radius:6px;background:#fff8e1;border:1px solid #f5a623;color:#c27c00;font-weight:700;display:inline-block;">⚠️ ${st.exceptional} استثنائي</div>`:''}
+            ${st.exceptional>0?'<div style="font-size:8.5px;margin-top:2px;padding:1px 5px;border-radius:6px;background:#fff8e1;border:1px solid #f5a623;color:#c27c00;font-weight:700;display:inline-block;">⚠️ '+st.exceptional+' استثنائي</div>':''}
           </td>
           <td style="padding:8px 10px;text-align:center;font-weight:800;color:#ff4d6d;">${st.absent}</td>
           <td style="padding:8px 10px;text-align:center;font-weight:800;color:#f5a623;">${st.late}</td>
@@ -9612,12 +9627,13 @@ function switchRep(tab,btn){
           <div style="font-size:20px;font-weight:900;margin-bottom:1.8rem;">🔍 تقرير مفصل للطالب</div>
           <div style="margin-bottom:1.1rem;text-align:right;">
             <label class="fl" style="font-size:13px;">البحث بالكود</label>
-            <input class="fi" id="dr-code" placeholder="أدخل كود الطالب" style="margin-top:4px;">
+            <input class="fi" id="rep-dr-code" placeholder="أدخل كود الطالب" style="margin-top:4px;" onkeydown="if(event.key==='Enter') showDetailedReportInline()">
           </div>
-          <button onclick="showDetailedReport()" style="width:100%;padding:12px;border-radius:var(--rs);background:linear-gradient(135deg,var(--accent2),var(--accent));border:none;color:#fff;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:1rem;">بحث</button>
-          <div id="dr-result"></div>
+          <button onclick="showDetailedReportInline()" style="width:100%;padding:12px;border-radius:var(--rs);background:linear-gradient(135deg,var(--accent2),var(--accent));border:none;color:#fff;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:1rem;">بحث</button>
+          <div id="rep-dr-result"></div>
         </div>
       </div>`;
+    setTimeout(()=>document.getElementById('rep-dr-code')?.focus(),100);
   }
 }
 
@@ -10502,7 +10518,14 @@ function deleteSelected(){
   DB.students=DB.students.filter(s=>!ids.includes(s.id));
   save(); closeModal('selective-delete-modal'); renderSelectiveDelete(); toast(`✅ تم نقل ${ids.length} طالب لسلة المحذوفات`,'i');
 }
-function deleteAllData(){ if(!confirm('تأكيد حذف كل البيانات نهائياً؟ لا يمكن التراجع!'))return; localStorage.removeItem('etp3'); _idbDel('etp3').catch(()=>{}).finally(()=>location.reload()); }
+function deleteAllData(){
+  if(!confirm('تأكيد حذف كل البيانات نهائياً؟ لا يمكن التراجع!'))return;
+  if(_fbDB){
+    _fbDB.ref('schoolData').remove().then(()=>location.reload()).catch(()=>location.reload());
+  } else {
+    location.reload();
+  }
+}
 
 // ── ثابت: الصفوف لكل مرحلة (مستقلة عن DB.classes) ──
 const STAGE_GRADES = {
@@ -11668,14 +11691,17 @@ function spRenderFinance(){
   if(!spCurrentStu)return;
   const s=spCurrentStu;
   const pays=DB.payments.filter(p=>p.studentId===s.id).sort((a,b)=>b.date.localeCompare(a.date));
+  const purchases=DB.sales.filter(p=>p.studentId===s.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const paidTotal=pays.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
+  const purchasesTotal=purchases.reduce((a,b)=>a+(+b.total||0),0);
   const isPaidNow=isPaid(s.id);
   document.getElementById('sp-finance-body').innerHTML=`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:1rem;">
       ${spCard('💰','إجمالي المسدد',fmtM(paidTotal),'#22c97a')}
       ${spCard(isPaidNow?'✅':'⏳','حالة الشهر الحالي',isPaidNow?'مسدد':'غير مسدد',isPaidNow?'#22c97a':'#f5a623')}
     </div>
-    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;">
+    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;margin-bottom:1rem;">
+      <div style="padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px;font-weight:700;color:rgba(255,255,255,.5);">سجل المدفوعات</div>
       ${pays.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.06);">
         <div>
           <div style="font-size:12.5px;font-weight:700;color:#fff;">${p.month}</div>
@@ -11686,6 +11712,19 @@ function spRenderFinance(){
           <div style="font-size:10px;padding:2px 8px;border-radius:10px;background:${p.status==='paid'?'rgba(34,201,122,.15)':'rgba(245,166,35,.15)'};color:${p.status==='paid'?'#22c97a':'#f5a623'};">${{paid:'مسدد',partial:'جزئي',unpaid:'غير مسدد'}[p.status]}</div>
         </div>
       </div>`).join('')||'<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد سجلات مدفوعات</div>'}
+    </div>
+    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;">
+      <div style="padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:12px;font-weight:700;color:rgba(255,255,255,.5);">🛒 مشتريات المتجر</span>
+        ${purchasesTotal>0?`<span style="font-size:11px;font-weight:700;color:#a855f7;">إجمالي: ${fmtM(purchasesTotal)}</span>`:''}
+      </div>
+      ${purchases.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.06);">
+        <div>
+          <div style="font-size:12.5px;font-weight:700;color:#fff;">${p.productName||'منتج'}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.35);">${p.date||''} · الكمية: ${p.qty||1}</div>
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#a855f7;">${fmtM(p.total||0)}</div>
+      </div>`).join('')||'<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد مشتريات من المتجر</div>'}
     </div>`;
 }
 
@@ -12565,8 +12604,21 @@ function showDetailedReport(){
   if(!code){toast('أدخل كود الطالب','e');return;}
   const s=DB.students.find(x=>(x.barcode||x.id)===code||x.id===code);
   if(!s){toast('لم يتم العثور على طالب','e');document.getElementById('dr-result').innerHTML='<div style="color:var(--red);text-align:center;margin-top:1rem;">❌ الكود غير صحيح</div>';return;}
-  const now=new Date();
-  const month=localMonth();
+  _renderDetailedReportResult(s,'dr-result');
+}
+
+// نسخة التقارير (تقرأ من rep-dr-code وتعرض في rep-dr-result)
+function showDetailedReportInline(){
+  const code=document.getElementById('rep-dr-code')?.value.trim()||'';
+  if(!code){toast('أدخل كود الطالب','e');return;}
+  const s=DB.students.find(x=>(x.barcode||x.id)===code||x.id===code||
+    (x.fname+' '+x.lname).includes(code));
+  if(!s){toast('لم يتم العثور على طالب','e');document.getElementById('rep-dr-result').innerHTML='<div style="color:var(--red);text-align:center;margin-top:1rem;">❌ الكود غير صحيح</div>';return;}
+  _renderDetailedReportResult(s,'rep-dr-result');
+}
+
+// الدالة المشتركة لعرض نتيجة التقرير المفصل
+function _renderDetailedReportResult(s, resultId){
   const grpObj=DB.groups.find(g=>g.id===s.groupId);
   const grpInfo=grpObj?(grpObj.days||'')+(grpObj.time?' - '+grpObj.time:''):'—';
   const attPc=attPct(s.id);
@@ -12574,8 +12626,9 @@ function showDetailedReport(){
   const paid=isPaid(s.id);
   const spPay=DB.specialPays?.find(x=>x.studentId===s.id);
   const effectiveFee=spPay?spPay.amount:s.fee;
-
-  document.getElementById('dr-result').innerHTML=`
+  const el=document.getElementById(resultId);
+  if(!el) return;
+  el.innerHTML=`
     <div style="margin-top:1.2rem;display:flex;flex-direction:column;gap:9px;text-align:right;">
       ${[
         ['اسم الطالب',s.fname+' '+s.lname],
@@ -13159,14 +13212,11 @@ loadSubjectsList();
 // ════════════════════════════════════════════════════════
 (async function _boot(){
   try{
+    // تحميل من Firebase مباشرة (المصدر الوحيد)
+    _showSyncIndicator('loading');
     DB = await _loadDB();
-    // لو مفيش بيانات محلية → حاول تحمل من Firebase
-    if(!DB.students || DB.students.length === 0){
-      const fbData = await _loadFromFirebase();
-      if(fbData){ DB = fbData; await _saveFlush(); }
-    }
   }catch(e){
-    console.error('DB load failed, using defaults', e);
+    console.error('Firebase load failed, using defaults', e);
     DB = _defaultDB();
   }
   _restoreImages();
@@ -13175,6 +13225,8 @@ loadSubjectsList();
   _bootUI();
   const bl=document.getElementById('boot-loading');
   if(bl) bl.remove();
+  // ابدأ الاستماع للتغييرات الفورية من أي جهاز
+  _startFirebaseListener();
 })();
 
 // ══════════════════════════════════════════════════════════════════
