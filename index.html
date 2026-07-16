@@ -802,6 +802,7 @@ async function _loadFromFirebase(){
         <select class="fs" style="width:120px" id="gr-cls-f" onchange="renderGrades()"><option value="">كل الصفوف</option></select>
         <select class="fs" style="width:120px" id="gr-grp-f" onchange="renderGrades()"><option value="">كل المجموعات</option></select>
         <select class="fs" style="width:130px" id="gr-sort-f" onchange="renderGrades()"><option value="">الترتيب</option><option value="desc">الأعلى أولاً</option><option value="asc">الأقل أولاً</option><option value="top10">أوائل 10</option></select>
+        <input class="fi" style="width:170px" id="gr-stu-f" placeholder="🔍 بحث بالاسم أو الباركود" oninput="renderGrades()">
         <button class="btn btn-wa btn-sm" onclick="sendGradesWA()">📱 إرسال واتساب</button><button class="btn btn-tg btn-sm" onclick="sendGradesTG()">✈️ إرسال تيليجرام</button>
       </div>
     </div>
@@ -5186,6 +5187,8 @@ function sendDefaultAbsenceWA(){
 // ================================================================
 function renderGrades(){
   const ef=document.getElementById('gr-ex-f')?.value||'', cf=document.getElementById('gr-cls-f')?.value||'', gf=document.getElementById('gr-grp-f')?.value||'', sf=document.getElementById('gr-sort-f')?.value||'';
+  const stuf=(document.getElementById('gr-stu-f')?.value||'').trim().toLowerCase();
+  const matchesStuSearch = s => { if(!stuf) return true; if(!s) return false; const full=(s.fname+' '+(s.lname||'')).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); return full.includes(stuf) || bc.includes(stuf); };
 
   // ── خانة الامتحانات ──
   const esel=document.getElementById('gr-ex-f'); if(esel){ const v=esel.value; esel.innerHTML='<option value="">كل الامتحانات</option>'+DB.exams.map(e=>`<option value="${e.id}">${e.title}</option>`).join(''); esel.value=v; }
@@ -5224,11 +5227,11 @@ function renderGrades(){
   const activeGf = gsel?.value || '';
   const tbody = document.getElementById('gr-tbody');
 
-  // ── شرط العرض: يجب اختيار الامتحان ──
-  if(!ef){
+  // ── شرط العرض: يجب اختيار الامتحان (إلا لو في بحث باسم/باركود طالب) ──
+  if(!ef && !stuf){
     tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:3rem;color:var(--text3);">
       <div style="font-size:40px;margin-bottom:.75rem;">📊</div>
-      <div style="font-size:13px;font-weight:600;">اختر <b>الامتحان</b> لعرض الدرجات<br>
+      <div style="font-size:13px;font-weight:600;">اختر <b>الامتحان</b> أو ابحث باسم/باركود طالب لعرض الدرجات<br>
       <span style="font-size:11px;font-weight:400;margin-top:.4rem;display:block;color:var(--text2);">سيتم تخصيص الصفوف والمجموعات تلقائياً</span></div>
     </td></tr>`;
     return;
@@ -5238,7 +5241,7 @@ function renderGrades(){
   if(ef && realCf && activeGf){
     const outOfVal = exam?.outOf || 100;
     // كل طلاب المجموعة
-    let students = DB.students.filter(s=>s.classId===realCf && s.groupId===activeGf);
+    let students = DB.students.filter(s=>s.classId===realCf && s.groupId===activeGf && matchesStuSearch(s));
 
     // ── تطبيق الترتيب المختار ──
     if(sf==='desc'){
@@ -5275,7 +5278,7 @@ function renderGrades(){
     }
 
     if(!students.length){
-      tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">لا يوجد طلاب في هذه المجموعة</td></tr>`;
+      tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">${stuf?'لا يوجد طالب مطابق للبحث في هذه المجموعة':'لا يوجد طلاب في هذه المجموعة'}</td></tr>`;
       return;
     }
 
@@ -5395,12 +5398,13 @@ function renderGrades(){
   // ── الوضع العادي: عرض الدرجات المسجلة فقط بدون كشف كامل ──
   let list=DB.grades.filter(g=>{
     const s=stu(g.studentId);
-    return (!ef||g.examId===ef) && (!realCf||s?.classId===realCf) && (!activeGf||s?.groupId===activeGf);
+    return (!ef||g.examId===ef) && (!realCf||s?.classId===realCf) && (!activeGf||s?.groupId===activeGf) && matchesStuSearch(s);
   });
   if(sf==='desc') list.sort((a,b)=>b.score/b.outOf-a.score/a.outOf);
   else if(sf==='asc') list.sort((a,b)=>a.score/a.outOf-b.score/b.outOf);
   else if(sf==='top10') list=list.sort((a,b)=>b.score/b.outOf-a.score/a.outOf).slice(0,10);
-  tbody.innerHTML=list.map((g,i)=>{ const s=stu(g.studentId); if(!s)return ''; const pct=Math.round(g.score/g.outOf*100); const editBtns=g.locked?`<span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span>`:`<button class="btn btn-amber btn-xs" onclick="openEditGrade('${g.id}')">✏️</button><button class="btn btn-danger btn-xs" onclick="delGrade('${g.id}')" title="حذف الدرجة">🗑</button>`; return `<tr><td style="font-weight:700;color:var(--text2);">${i+1}</td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td><td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td><td style="font-size:11px;color:var(--text2);">${g.examTitle||'—'}</td><td><span class="badge ${grBadge(pct)}">${g.score}/${g.outOf}</span></td><td style="font-size:17px;font-weight:700;color:${grCol(pct)};">${grChar(pct)}</td><td style="font-size:11px;color:var(--text2);">${g.date}</td><td style="font-size:11px;color:var(--text2);">${g.note||'—'}</td><td style="display:flex;gap:3px;align-items:center;">${editBtns}<button class="btn btn-wa btn-xs" onclick="sendGradeWA('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendGradeTG('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">✈️</button></div></td></tr>`; }).join('')||`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3)"><div style="font-size:28px;margin-bottom:.5rem;">📋</div>لا توجد درجات مسجلة${ef?` لهذا الامتحان${realCf?' في هذا الصف':''}`:''}<br><span style="font-size:11px;color:var(--text2);margin-top:.4rem;display:block;">اختر مجموعة محددة لعرض كشف كامل بكل الطلاب وإدخال درجاتهم</span></td></tr>`;
+  else if(stuf) list.sort((a,b)=>new Date(b.date)-new Date(a.date));
+  tbody.innerHTML=list.map((g,i)=>{ const s=stu(g.studentId); if(!s)return ''; const pct=Math.round(g.score/g.outOf*100); const editBtns=g.locked?`<span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span>`:`<button class="btn btn-amber btn-xs" onclick="openEditGrade('${g.id}')">✏️</button><button class="btn btn-danger btn-xs" onclick="delGrade('${g.id}')" title="حذف الدرجة">🗑</button>`; return `<tr><td style="font-weight:700;color:var(--text2);">${i+1}</td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td><td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td><td style="font-size:11px;color:var(--text2);">${g.examTitle||'—'}</td><td><span class="badge ${grBadge(pct)}">${g.score}/${g.outOf}</span></td><td style="font-size:17px;font-weight:700;color:${grCol(pct)};">${grChar(pct)}</td><td style="font-size:11px;color:var(--text2);">${g.date}</td><td style="font-size:11px;color:var(--text2);">${g.note||'—'}</td><td style="display:flex;gap:3px;align-items:center;">${editBtns}<button class="btn btn-wa btn-xs" onclick="sendGradeWA('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendGradeTG('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">✈️</button></div></td></tr>`; }).join('')||`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3)"><div style="font-size:28px;margin-bottom:.5rem;">📋</div>${stuf?'لا توجد درجات لطالب مطابق لهذا البحث':`لا توجد درجات مسجلة${ef?` لهذا الامتحان${realCf?' في هذا الصف':''}`:''}`}<br><span style="font-size:11px;color:var(--text2);margin-top:.4rem;display:block;">${stuf?'جرّب اسماً أو باركود آخر':'اختر مجموعة محددة لعرض كشف كامل بكل الطلاب وإدخال درجاتهم'}</span></td></tr>`;
 }
 
 // ── تحديث التقدير فوراً عند الكتابة ──
@@ -11899,22 +11903,34 @@ function spRenderAttend(){
 function spRenderDaily(){
   if(!spCurrentStu)return;
   const s=spCurrentStu;
-  const behs=DB.behaviors.filter(b=>b.studentId===s.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const entries=DB.behaviors.filter(b=>b.studentId===s.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const pts=stuPts(s.id);
+  // ── تحديد نوع السلوك (إيجابي/سلبي) بمطابقة نص السلوك مع قوائم BEH_POS / BEH_NEG ──
+  const isPosBeh = bh => BEH_POS.includes(bh) || BEH_POS.some(p=>bh.includes(p.replace(/^\S+\s/,'')));
+  const isNegBeh = bh => BEH_NEG.includes(bh) || BEH_NEG.some(n=>bh.includes(n.replace(/^\S+\s/,'')));
+  // ── فكّ كل سجل إلى سلوكيات مفردة، كل واحدة بلونها الصحيح ──
+  const items=[];
+  entries.forEach(entry=>{
+    const list=(entry.behaviors&&entry.behaviors.length)?entry.behaviors:(entry.note?['📝 '+entry.note]:[]);
+    list.forEach(bh=>{
+      const pos=isPosBeh(bh), neg=!pos&&isNegBeh(bh);
+      const sp=bh.indexOf(' ');
+      const icon=sp>0?bh.slice(0,sp):'📌';
+      const label=sp>0?bh.slice(sp+1):bh;
+      items.push({icon,label,date:entry.date,color:pos?'#22c97a':(neg?'#ff4d6d':'#4f7cff')});
+    });
+  });
   document.getElementById('sp-daily-body').innerHTML=`
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-bottom:1rem;">
       ${spCard('⭐','مجموع النقاط',pts,'#f5a623')}
-      ${spCard('📊','عدد السجلات',behs.length,'#4f7cff')}
+      ${spCard('📊','عدد السجلات',items.length,'#4f7cff')}
     </div>
-    <div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;overflow:hidden;">
-      ${behs.map(b=>`<div style="display:flex;align-items:center;gap:10px;padding:.65rem .9rem;border-bottom:1px solid rgba(255,255,255,.06);">
-        <span style="font-size:20px;">${b.icon||'📌'}</span>
-        <div style="flex:1;">
-          <div style="font-size:12.5px;font-weight:700;color:${b.type==='pos'?'#22c97a':'#ff4d6d'};">${b.label||b.note||'—'}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,.35);">${b.date||''}</div>
-        </div>
-        <span style="font-size:11px;color:${b.type==='pos'?'#22c97a':'#ff4d6d'};font-weight:700;">${b.type==='pos'?'+':'-'}${b.val||1}</span>
-      </div>`).join('')||'<div style="padding:1.5rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد سجلات</div>'}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      ${items.length?items.map(it=>`
+        <div style="display:flex;align-items:center;gap:7px;background:${it.color}14;border:1px solid ${it.color}40;border-radius:20px;padding:5px 12px 5px 5px;" title="${it.date||''}">
+          <span style="width:24px;height:24px;border-radius:50%;background:${it.color}25;display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;">${it.icon}</span>
+          <span style="font-size:12px;font-weight:700;color:${it.color};">${it.label}</span>
+        </div>`).join(''):'<div style="width:100%;padding:1.5rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد سجلات</div>'}
     </div>`;
 }
 
@@ -12300,7 +12316,22 @@ function buildComprehensiveReportHTML(sid){
     <!-- Behavior -->
     <div style="background:var(--glass2);border:1px solid var(--border);border-radius:10px;padding:.85rem;margin-bottom:.75rem;">
       <div style="font-size:12px;font-weight:700;color:var(--teal);margin-bottom:.55rem;">🧠 سجل السلوك</div>
-      ${behaviors.length?`<div style="display:flex;flex-direction:column;gap:5px;">${behaviors.map(b=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:${b.type==='pos'?'rgba(34,201,122,.07)':'rgba(255,77,109,.07)'};border-radius:7px;border-right:3px solid ${b.type==='pos'?'var(--green)':'var(--red)'};"><span style="font-size:12px;">${b.icon||'📌'}</span><span style="flex:1;font-size:11.5px;">${b.label||b.note||'—'}</span><span style="font-size:10px;color:var(--text2);">${b.date||''}</span></div>`).join('')}</div>`:'<div style="color:var(--text3);text-align:center;padding:.75rem;">لا توجد سجلات سلوك</div>'}
+      ${(()=>{
+        const isPosBeh = bh => BEH_POS.includes(bh) || BEH_POS.some(p=>bh.includes(p.replace(/^\S+\s/,'')));
+        const isNegBeh = bh => BEH_NEG.includes(bh) || BEH_NEG.some(n=>bh.includes(n.replace(/^\S+\s/,'')));
+        const behItems=[];
+        behaviors.forEach(entry=>{
+          const list=(entry.behaviors&&entry.behaviors.length)?entry.behaviors:(entry.note?['📝 '+entry.note]:[]);
+          list.forEach(bh=>{
+            const pos=isPosBeh(bh), neg=!pos&&isNegBeh(bh);
+            const sp=bh.indexOf(' ');
+            const icon=sp>0?bh.slice(0,sp):'📌';
+            const label=sp>0?bh.slice(sp+1):bh;
+            behItems.push({icon,label,date:entry.date,color:pos?'var(--green)':(neg?'var(--red)':'var(--accent)')});
+          });
+        });
+        return behItems.length?`<div style="display:flex;flex-direction:column;gap:5px;">${behItems.map(b=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:${b.color}12;border-radius:7px;border-right:3px solid ${b.color};"><span style="font-size:12px;">${b.icon}</span><span style="flex:1;font-size:11.5px;">${b.label}</span><span style="font-size:10px;color:var(--text2);">${b.date||''}</span></div>`).join('')}</div>`:'<div style="color:var(--text3);text-align:center;padding:.75rem;">لا توجد سجلات سلوك</div>';
+      })()}
     </div>
 
     <!-- Payments -->
