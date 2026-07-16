@@ -3200,21 +3200,31 @@ function popModal(id){
     document.getElementById('p-amt').value=DB.settings.fee;
   }
   if(id==='create-exam-modal'){
-    const clsSelect=document.getElementById('ex-cls'); clsSelect.innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    // إذا كان المودال مفتوحاً من editExam() فسيكون ex-edit-id محتوياً على معرف الامتحان بالفعل
+    // في هذه الحالة يجب عدم إعادة تصفير الأسئلة/العنوان/التاريخ التي جهّزها editExam() للتو
+    const editingId = document.getElementById('ex-edit-id').value;
+    const clsSelect=document.getElementById('ex-cls');
+    const grpSelect=document.getElementById('ex-grp');
+    const prevClsVal = clsSelect.value, prevGrpVal = grpSelect ? grpSelect.value : '';
+    clsSelect.innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    if(editingId) clsSelect.value = prevClsVal; // حافظ على اختيار الصف عند التعديل
     filterExamGroups();
-    document.getElementById('ex-date').value=localDate();
-    document.getElementById('q-build').innerHTML=''; qCount=0; addQ();
-    document.getElementById('ex-edit-id').value='';
-    document.getElementById('create-exam-title').innerHTML='إنشاء امتحان <button class="mc-btn" onclick="closeModal(\'create-exam-modal\')">✕</button>';
-    document.getElementById('exam-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('create-exam-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveExam()">✅ حفظ الامتحان</button>`;
-    // إخفاء القسم الإلكتروني إذا كان النوع ورقي
-    const exType = document.getElementById('ex-type')?.value || 'paper';
-    const elecSec = document.getElementById('ex-electronic-only');
-    if(elecSec) elecSec.style.display = exType === 'electronic' ? 'block' : 'none';
-    // خانة الدرجة — تظهر فقط في الورقي
-    const paperScoreRow = document.getElementById('ex-paper-score-row');
-    if(paperScoreRow){ paperScoreRow.style.display = exType === 'paper' ? 'block' : 'none'; }
-    if(document.getElementById('ex-out-of')) document.getElementById('ex-out-of').value='100';
+    if(editingId && grpSelect) grpSelect.value = prevGrpVal; // حافظ على اختيار المجموعة عند التعديل
+    if(!editingId){
+      document.getElementById('ex-date').value=localDate();
+      document.getElementById('q-build').innerHTML=''; qCount=0; addQ();
+      document.getElementById('ex-edit-id').value='';
+      document.getElementById('create-exam-title').innerHTML='إنشاء امتحان <button class="mc-btn" onclick="closeModal(\'create-exam-modal\')">✕</button>';
+      document.getElementById('exam-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('create-exam-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveExam()">✅ حفظ الامتحان</button>`;
+      // إخفاء القسم الإلكتروني إذا كان النوع ورقي
+      const exType = document.getElementById('ex-type')?.value || 'paper';
+      const elecSec = document.getElementById('ex-electronic-only');
+      if(elecSec) elecSec.style.display = exType === 'electronic' ? 'block' : 'none';
+      // خانة الدرجة — تظهر فقط في الورقي
+      const paperScoreRow = document.getElementById('ex-paper-score-row');
+      if(paperScoreRow){ paperScoreRow.style.display = exType === 'paper' ? 'block' : 'none'; }
+      if(document.getElementById('ex-out-of')) document.getElementById('ex-out-of').value='100';
+    }
   }
   if(id==='add-points-modal'){ document.getElementById('pt-st').innerHTML=DB.students.map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join(''); }
   if(id==='add-product-modal'){ document.getElementById('pr-cls').innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); const pub=document.getElementById('pr-type-public'); const azh=document.getElementById('pr-type-azhar'); if(pub) pub.checked=true; if(azh) azh.checked=false; const editId=document.getElementById('pr-edit-id'); if(editId && !editId.value){ document.getElementById('pr-modal-title').innerHTML='إضافة منتج <button class="mc-btn" onclick="closeModal(\'add-product-modal\')">✕</button>'; document.getElementById('pr-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('add-product-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveProduct()">✅ إضافة</button>`; document.getElementById('pr-name').value=''; document.getElementById('pr-icon').value=''; document.getElementById('pr-price').value=''; document.getElementById('pr-stock').value=''; } }
@@ -5332,7 +5342,7 @@ function renderGrades(){
   if(sf==='desc') list.sort((a,b)=>b.score/b.outOf-a.score/a.outOf);
   else if(sf==='asc') list.sort((a,b)=>a.score/a.outOf-b.score/b.outOf);
   else if(sf==='top10') list=list.sort((a,b)=>b.score/b.outOf-a.score/a.outOf).slice(0,10);
-  tbody.innerHTML=list.map((g,i)=>{ const s=stu(g.studentId); if(!s)return ''; const pct=Math.round(g.score/g.outOf*100); return `<tr><td style="font-weight:700;color:var(--text2);">${i+1}</td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td><td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td><td style="font-size:11px;color:var(--text2);">${g.examTitle||'—'}</td><td><span class="badge ${grBadge(pct)}">${g.score}/${g.outOf}</span></td><td style="font-size:17px;font-weight:700;color:${grCol(pct)};">${grChar(pct)}</td><td style="font-size:11px;color:var(--text2);">${g.date}</td><td style="font-size:11px;color:var(--text2);">${g.note||'—'}</td><td style="display:flex;gap:3px;"><button class="btn btn-amber btn-xs" onclick="openEditGrade('${g.id}')">✏️</button><button class="btn btn-wa btn-xs" onclick="sendGradeWA('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendGradeTG('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">✈️</button><button class="btn btn-danger btn-xs" onclick="delGrade('${g.id}')" title="حذف الدرجة">🗑</button></div></td></tr>`; }).join('')||`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3)"><div style="font-size:28px;margin-bottom:.5rem;">📋</div>لا توجد درجات مسجلة${ef?` لهذا الامتحان${realCf?' في هذا الصف':''}`:''}<br><span style="font-size:11px;color:var(--text2);margin-top:.4rem;display:block;">اختر مجموعة محددة لعرض كشف كامل بكل الطلاب وإدخال درجاتهم</span></td></tr>`;
+  tbody.innerHTML=list.map((g,i)=>{ const s=stu(g.studentId); if(!s)return ''; const pct=Math.round(g.score/g.outOf*100); const editBtns=g.locked?`<span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span>`:`<button class="btn btn-amber btn-xs" onclick="openEditGrade('${g.id}')">✏️</button><button class="btn btn-danger btn-xs" onclick="delGrade('${g.id}')" title="حذف الدرجة">🗑</button>`; return `<tr><td style="font-weight:700;color:var(--text2);">${i+1}</td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td><td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td><td style="font-size:11px;color:var(--text2);">${g.examTitle||'—'}</td><td><span class="badge ${grBadge(pct)}">${g.score}/${g.outOf}</span></td><td style="font-size:17px;font-weight:700;color:${grCol(pct)};">${grChar(pct)}</td><td style="font-size:11px;color:var(--text2);">${g.date}</td><td style="font-size:11px;color:var(--text2);">${g.note||'—'}</td><td style="display:flex;gap:3px;align-items:center;">${editBtns}<button class="btn btn-wa btn-xs" onclick="sendGradeWA('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendGradeTG('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">✈️</button></div></td></tr>`; }).join('')||`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3)"><div style="font-size:28px;margin-bottom:.5rem;">📋</div>لا توجد درجات مسجلة${ef?` لهذا الامتحان${realCf?' في هذا الصف':''}`:''}<br><span style="font-size:11px;color:var(--text2);margin-top:.4rem;display:block;">اختر مجموعة محددة لعرض كشف كامل بكل الطلاب وإدخال درجاتهم</span></td></tr>`;
 }
 
 // ── تحديث التقدير فوراً عند الكتابة ──
@@ -5559,6 +5569,7 @@ function editExam(id){
   openModal('create-exam-modal');
 }
 function cancelEditExam(){
+  document.getElementById('ex-edit-id').value='';
   closeModal('create-exam-modal');
 }
 function terminateExam(id){
@@ -5641,7 +5652,7 @@ function endExam(){
   let score=0; curExam.questions.forEach((q,i)=>{ if(exAns[i]===q.correct)score++; });
   const pct=Math.round(score/total*100);
   DB.examSessions.push({id:nid('ses'),examId:curExam.id,studentId:DB.students[0]?.id||'',score,answers:{...exAns},date:localDate()});
-  if(DB.students.length) DB.grades.push({id:nid('g'),studentId:DB.students[0].id,examId:curExam.id,examTitle:curExam.title,score:pct,outOf:100,date:localDate(),note:'امتحان أونلاين'}); save();
+  if(DB.students.length) DB.grades.push({id:nid('g'),studentId:DB.students[0].id,examId:curExam.id,examTitle:curExam.title,score:pct,outOf:100,date:localDate(),note:'امتحان أونلاين',locked:true,source:'online_exam'}); save();
   // Update header button to exit after exam done
   document.getElementById('take-ex-tt').innerHTML=curExam.title+' <button class="mc-btn" onclick="closeModal(\'take-exam-modal\')">✕ خروج</button>';
   document.getElementById('take-ex-body').innerHTML=`
@@ -12006,7 +12017,7 @@ function spEndExam(){
   // Save session
   DB.examSessions.push({id:nid('ses'),examId:exam.id,studentId:sid,score,answers:{...ans},date:localDate()});
   // Save grade
-  DB.grades.push({id:nid('g'),studentId:sid,examId:exam.id,examTitle:exam.title,score:pct,outOf:100,date:localDate(),note:'امتحان أونلاين'});
+  DB.grades.push({id:nid('g'),studentId:sid,examId:exam.id,examTitle:exam.title,score:pct,outOf:100,date:localDate(),note:'امتحان أونلاين',locked:true,source:'online_exam'});
   save();
   // Show result screen
   const showResult=exam.showResult!=='no';
