@@ -272,27 +272,40 @@ tr:hover td{background:rgba(255,255,255,.018);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <!-- ══ Firebase SDK ══ -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" onerror="console.warn('Firebase SDK فشل في التحميل')"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js" onerror="console.warn('Firebase DB SDK فشل في التحميل')"></script>
 <script>
-// ══ إعداد Firebase ══
-const _fbConfig = {
-  apiKey: "AIzaSyC6oIsmHhRdIdAWLQUemReLhLByVT9l-5g",
-  authDomain: "eslam-ractor.firebaseapp.com",
-  databaseURL: "https://eslam-ractor-default-rtdb.firebaseio.com",
-  projectId: "eslam-ractor",
-  storageBucket: "eslam-ractor.firebasestorage.app",
-  messagingSenderId: "427775655222",
-  appId: "1:427775655222:web:ca42852340b8670ff4c797"
-};
-firebase.initializeApp(_fbConfig);
-const _fbDB = firebase.database();
+// ══ إعداد Firebase مع حماية كاملة ══
+let _fbDB = null;
+let _fbAvailable = false;
+try {
+  if(typeof firebase !== 'undefined'){
+    const _fbConfig = {
+      apiKey: "AIzaSyC6oIsmHhRdIdAWLQUemReLhLByVT9l-5g",
+      authDomain: "eslam-ractor.firebaseapp.com",
+      databaseURL: "https://eslam-ractor-default-rtdb.firebaseio.com",
+      projectId: "eslam-ractor",
+      storageBucket: "eslam-ractor.firebasestorage.app",
+      messagingSenderId: "427775655222",
+      appId: "1:427775655222:web:ca42852340b8670ff4c797"
+    };
+    if(!firebase.apps || !firebase.apps.length) firebase.initializeApp(_fbConfig);
+    _fbDB = firebase.database();
+    _fbAvailable = true;
+  } else {
+    console.warn('Firebase غير محمّل — البرنامج يعمل محلياً');
+  }
+} catch(e){
+  console.warn('Firebase خطأ:', e.message, '— البرنامج يعمل محلياً');
+}
 
 // ═══════════════════════════════════════════════════
 //  مؤشر المزامنة في الواجهة
 // ═══════════════════════════════════════════════════
 let _syncIndicator = null;
 function _showSyncIndicator(state){
+  // تأجيل إنشاء العنصر حتى يكون DOM جاهزاً
+  if(!document.body) return;
   if(!_syncIndicator){
     _syncIndicator = document.createElement('div');
     Object.assign(_syncIndicator.style,{
@@ -308,6 +321,7 @@ function _showSyncIndicator(state){
     saved:   { text:'✅ تمت المزامنة',    bg:'#052e16', color:'#22c55e' },
     error:   { text:'⚠️ فشلت المزامنة',  bg:'#2d0a0a', color:'#ef4444' },
     loading: { text:'🔄 تحميل البيانات…', bg:'#1c2440', color:'#4f7cff' },
+    pending: { text:'💾 محفوظ محلياً',   bg:'#1c1a00', color:'#eab308' },
   };
   const s = states[state] || states.saved;
   _syncIndicator.textContent = s.text;
@@ -2832,7 +2846,8 @@ async function _loadDB(){
 //  حفظ البيانات — Firebase فقط
 // ════════════════════════════════════════════════════════
 async function _saveFlush(){
-  if(!_fbDB){ console.warn('Firebase غير متاح — لا يمكن الحفظ'); _showSyncIndicator('error'); return; }
+  // ══ الإرسال الفعلي لـ Firebase ══
+  if(!_fbDB){ _showSyncIndicator('error'); return; }
   try{
     _showSyncIndicator('saving');
     const logo    = DB.settings.logo;
@@ -2842,9 +2857,9 @@ async function _saveFlush(){
         if(DB.certTemplates[g]?.bg){ certBgs[g]=DB.certTemplates[g].bg; DB.certTemplates[g].bg=null; }
       });
     }
-    DB.settings.logo = null;
-    DB.__lastSave    = Date.now();
-    DB.__syncedAt    = new Date().toISOString();
+    DB.settings.logo  = null;
+    DB.__lastSave     = Date.now();
+    DB.__syncedAt     = new Date().toISOString();
     _isSyncing = true;
     await _fbDB.ref('schoolData').set(JSON.parse(JSON.stringify(DB)));
     _isSyncing = false;
@@ -2862,6 +2877,7 @@ async function _saveFlush(){
 }
 
 function _saveFlushSync(){
+  // ══ إرسال اضطراري عند إغلاق الصفحة ══
   if(!_fbDB || !_saveDirty) return;
   try{
     const payload = JSON.parse(JSON.stringify(DB));
@@ -2874,23 +2890,57 @@ function _saveFlushSync(){
   }catch(e){}
 }
 
-let _saveDirty = false;
-let _saveTimer = null;
-const SAVE_DEBOUNCE_MS = 600;
+// ══════════════════════════════════════════════════════════
+//  نظام الحفظ — Local First + Firebase كل 10 دقائق
+//
+//  كل تغيير:
+//    ١. يُحفظ في IndexedDB فوراً  ← أمان فوري بدون نت
+//    ٢. يُجدوَل إرسال لـ Firebase بعد 10 دقائق
+//
+//  عند إغلاق الصفحة أو تبديل التاب:
+//    → إرسال فوري لأي بيانات لم تُرسل بعد
+//
+//  النتيجة:
+//    - لا فقدان بيانات حتى لو انقطع النت
+//    - إرسال واحد كل 10 دقائق بدل إرسال مع كل نقرة
+//    - توفير ~95% من استهلاك النت
+// ══════════════════════════════════════════════════════════
+
+const FIREBASE_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 10 دقائق
+let _saveDirty    = false;
+let _fbSyncPending = null; // مؤقت الـ 10 دقائق
+
 function save(){
   DB.__lastSave = Date.now();
   _invalidateCache();
   _saveDirty = true;
-  if(_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(()=>{ _saveTimer=null; _saveFlush(); }, SAVE_DEBOUNCE_MS);
+
+  // ── ١. حفظ محلي فوري في IndexedDB ──
+  _idbSet('etp3', DB).catch(()=>{});
+
+  // ── ٢. جدولة إرسال Firebase بعد 10 دقائق (لو مش مجدول) ──
+  if(!_fbSyncPending){
+    _fbSyncPending = setTimeout(()=>{
+      _fbSyncPending = null;
+      if(_saveDirty) _saveFlush();
+    }, FIREBASE_SYNC_INTERVAL_MS);
+    // أظهر مؤشر "انتظار مزامنة"
+    _showSyncIndicator('pending');
+  }
 }
 
+// ── عند إغلاق الصفحة — إرسال فوري ──
 window.addEventListener('beforeunload', ()=>{
-  if(_saveDirty){ if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; } _saveFlushSync(); }
+  if(_saveDirty){
+    if(_fbSyncPending){ clearTimeout(_fbSyncPending); _fbSyncPending=null; }
+    _saveFlushSync();
+  }
 });
+
+// ── عند تبديل التاب أو تصغير المتصفح — إرسال فوري ──
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='hidden' && _saveDirty){
-    if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer=null; }
+    if(_fbSyncPending){ clearTimeout(_fbSyncPending); _fbSyncPending=null; }
     _saveFlush();
   }
 });
@@ -10482,7 +10532,7 @@ function exportPortalData(){
   a.click();
   toast('🌐 تم تصدير بيانات البوابة — ارفع الملف على GitHub');
 }
-function importJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=async ev=>{ try{ DB=JSON.parse(ev.target.result); DB.__lastSave=Date.now(); if(_saveTimer){clearTimeout(_saveTimer);_saveTimer=null;} await _saveFlush(); location.reload(); }catch(err){toast('خطأ في الملف','e');} }; r.readAsText(f); }
+function importJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=async ev=>{ try{ DB=JSON.parse(ev.target.result); DB.__lastSave=Date.now(); if(_fbSyncPending){clearTimeout(_fbSyncPending);_fbSyncPending=null;} _idbSet('etp3',DB).catch(()=>{}); await _saveFlush(); location.reload(); }catch(err){toast('خطأ في الملف','e');} }; r.readAsText(f); }
 function importExcel(e){
   const f=e.target.files[0]; if(!f)return;
   const r=new FileReader(); r.onload=ev=>{ try{ const wb=XLSX.read(ev.target.result,{type:'binary'}); const ws=wb.Sheets[wb.SheetNames[0]]; const data=XLSX.utils.sheet_to_json(ws); let added=0;
