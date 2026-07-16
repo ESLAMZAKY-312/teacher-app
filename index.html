@@ -2065,6 +2065,7 @@ async function _loadFromFirebase(){
 <div class="modal-ov" id="edit-student-modal">
   <div class="modal">
     <div class="mtt">تعديل بيانات الطالب <button class="mc-btn" onclick="closeModal('edit-student-modal')">✕</button></div>
+    <div id="edit-s-last-access" style="font-size:11px;color:var(--text2);margin-bottom:.6rem;"></div>
     <input type="hidden" id="edit-s-id">
     <div class="fg"><label class="fl">اسم الطالب</label><input class="fi" id="edit-s-fn" placeholder="الاسم الكامل للطالب"></div>
     <div class="fr">
@@ -2641,6 +2642,13 @@ async function _loadFromFirebase(){
   <div id="sp-dash-screen" style="display:none;">
     <!-- Teacher Profile Header (Image 1 top section) -->
     <div style="background:linear-gradient(135deg,#0d0f20,#14163a);padding:1.8rem 1.2rem 1.4rem;text-align:center;position:relative;">
+      <button onclick="spToggleNotifPanel()" style="position:absolute;top:14px;left:14px;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;">
+        🔔<span id="sp-notif-badge" style="display:none;position:absolute;top:-3px;left:-3px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--red,#ff4d6d);color:#fff;font-size:10px;font-weight:800;align-items:center;justify-content:center;line-height:18px;"></span>
+      </button>
+      <div id="sp-notif-panel" style="display:none;position:absolute;top:58px;left:10px;width:290px;max-height:360px;overflow-y:auto;background:#181c3a;border:1px solid rgba(79,124,255,.3);border-radius:14px;box-shadow:0 10px 32px rgba(0,0,0,.5);z-index:50;text-align:right;">
+        <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-size:13px;font-weight:800;color:#fff;">🔔 الإشعارات</div>
+        <div id="sp-notif-list"></div>
+      </div>
       <div id="sp-teacher-logo-header" style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#4f7cff,#00c9b1);display:flex;align-items:center;justify-content:center;font-size:36px;margin:0 auto .7rem;overflow:hidden;"></div>
       <div id="sp-teacher-name-header" style="font-size:20px;font-weight:800;color:#fff;margin-bottom:3px;"></div>
       <div id="sp-teacher-subj-header" style="font-size:13px;color:rgba(255,255,255,.5);margin-bottom:.7rem;"></div>
@@ -2845,7 +2853,8 @@ function _defaultDB(){
     payments:[],expenses:[],products:[],sales:[],assignments:[],behaviors:[],
     points:[],rewards:[],rewardGiven:[],supervisors:[],trash:[],
     retakeRequests:[],retakePermissions:[],
-    specialPays:[],pinnedMessages:[],tgPinnedMessages:[]
+    specialPays:[],pinnedMessages:[],tgPinnedMessages:[],
+    notifications:[]
   };
 }
 
@@ -3119,6 +3128,13 @@ function grCol(p){ return p>=70?'var(--green)':p>=50?'var(--amber)':'var(--red)'
 function grBadge(p){ return p>=70?'bg-g':p>=50?'bg-a':'bg-r'; }
 function fmtM(n){ return Number(n||0).toLocaleString()+' ج'; }
 function nid(p=''){ return p+Date.now()+Math.floor(Math.random()*999); }
+// ── مركز إشعارات بوابة ولي الأمر — يُستدعى عند إضافة أي بيانات جديدة (دفعة/درجة/امتحان...) ──
+function pushNotif(studentId, type, icon, title, body){
+  if(!studentId) return;
+  if(!DB.notifications) DB.notifications=[];
+  DB.notifications.unshift({id:nid('ntf'), studentId, type, icon:icon||'🔔', title, body:body||'', date:new Date().toISOString(), read:false});
+  if(DB.notifications.length>500) DB.notifications.length=500; // حفظ آخر 500 إشعار فقط لتفادي التضخم
+}
 
 // ================================================================
 // MODAL
@@ -3694,6 +3710,12 @@ function addStudent(){
 function openEditStudent(id){
   const s=stu(id); if(!s)return;
   document.getElementById('edit-s-id').value=id;
+  const laEl=document.getElementById('edit-s-last-access');
+  if(laEl){
+    laEl.textContent = s.lastAccessed
+      ? '👁️ آخر دخول ولي الأمر للبوابة: ' + new Date(s.lastAccessed).toLocaleString('ar-EG')
+      : '👁️ لم يفتح ولي الأمر رابط البوابة بعد';
+  }
   document.getElementById('edit-s-fn').value=(s.fname+' '+(s.lname||'')).trim();
   document.getElementById('edit-s-ph').value=s.phone||'';
   document.getElementById('edit-s-pph').value=s.parentPhone||'';
@@ -5257,6 +5279,7 @@ function renderGrades(){
       return;
     }
 
+    const isElecExam = exam?.type === 'electronic';
     tbody.innerHTML = students.map((s,i)=>{
       const g = DB.grades.find(x=>x.studentId===s.id && x.examId===ef);
       const pct = g ? Math.round(g.score/g.outOf*100) : null;
@@ -5265,6 +5288,41 @@ function renderGrades(){
       const noteVal = g ? (g.note||'') : '';
       const gradeId = g ? g.id : '';
       const hasSaved = !!g;
+      const isLocked = isElecExam || (g && g.locked);
+      // ── امتحان إلكتروني: الدرجة تُرصد تلقائياً من الامتحان أونلاين، لا يمكن إدخالها أو تعديلها هنا ──
+      if(isLocked){
+        return `<tr id="gr-row-${s.id}">
+          <td style="font-weight:700;color:var(--text2);text-align:center;width:36px;">${i+1}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="av av28" style="background:${s.color}20;color:${s.color};flex-shrink:0;">${s.fname[0]}</div>
+              <span style="font-weight:600;">${s.fname} ${s.lname}</span>
+            </div>
+          </td>
+          <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td>
+          <td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
+          <td style="font-size:11px;color:var(--text2);">${exam?.title||'—'}</td>
+          <td>
+            ${hasSaved
+              ? `<span style="font-weight:700;">${g.score} <span style="color:var(--text3);font-size:11px;">/ ${g.outOf}</span></span>`
+              : `<span style="color:var(--text3);font-size:11px;">لم يؤدِّ الامتحان بعد</span>`}
+          </td>
+          <td style="font-size:17px;font-weight:700;color:${pct!==null?grCol(pct):'var(--text3)'};">
+            ${pct!==null?grChar(pct):'—'}
+          </td>
+          <td style="font-size:11px;color:var(--text2);">${g?.date||'—'}</td>
+          <td style="font-size:11px;color:var(--text2);">${noteVal||'—'}</td>
+          <td>
+            <div style="display:flex;gap:3px;align-items:center;">
+              <span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span>
+              ${hasSaved?`
+              <button class="btn btn-wa btn-xs" onclick="sendGradeWA('${s.id}','${g.score}/${g.outOf}','${exam?.title||''}')" title="إرسال واتساب">📱</button>
+              <button class="btn btn-tg btn-xs" onclick="sendGradeTG('${s.id}','${g.score}/${g.outOf}','${exam?.title||''}')" title="إرسال تيليجرام">✈️</button>
+              `:''}
+            </div>
+          </td>
+        </tr>`;
+      }
       return `<tr id="gr-row-${s.id}">
         <td style="font-weight:700;color:var(--text2);text-align:center;width:36px;">${i+1}</td>
         <td>
@@ -5326,9 +5384,9 @@ function renderGrades(){
         · <span style="color:var(--accent);font-weight:700;">${sortLabel}</span>
       </td>
       <td colspan="5" style="padding:8px 12px;text-align:left;">
-        <button class="btn btn-primary btn-sm" onclick="_gradeInlineSaveAll('${ef}',${outOfVal})" style="font-size:11px;">
-          💾 حفظ الكل
-        </button>
+        ${isElecExam
+          ? `<span style="font-size:11px;color:var(--accent);font-weight:700;">🔒 امتحان إلكتروني — الدرجات مقفلة وتُرصد تلقائياً</span>`
+          : `<button class="btn btn-primary btn-sm" onclick="_gradeInlineSaveAll('${ef}',${outOfVal})" style="font-size:11px;">💾 حفظ الكل</button>`}
       </td>
     </tr>`;
     return;
@@ -5368,16 +5426,20 @@ function _gradeInlineSave(sid, eid, existingGid, outOf){
   const score = +scStr;
   if(isNaN(score)||score<0){ toast('درجة غير صحيحة','e'); return; }
   const exam = DB.exams.find(e=>e.id===eid);
+  if(exam && exam.type==='electronic'){ toast('🔒 امتحان إلكتروني — الدرجة تُرصد تلقائياً ولا يمكن إدخالها من هنا','e'); return; }
   const note = noteEl?.value||'';
 
   if(existingGid){
     // تعديل درجة موجودة
     const g = DB.grades.find(x=>x.id===existingGid);
+    if(g && g.locked){ toast('🔒 درجة مقفلة — لا يمكن تعديلها من داخل البرنامج','e'); return; }
     if(g){ g.score=score; g.outOf=outOf; g.note=note; }
+    pushNotif(sid,'grade','📝','تعديل درجة',`${exam?exam.title:'امتحان'}: ${score}/${outOf}`);
   } else {
     // إضافة درجة جديدة
     const s = stu(sid);
     DB.grades.push({id:nid('g'),studentId:sid,examId:eid,examTitle:exam?exam.title:'',score,outOf,date:localDate(),note});
+    pushNotif(sid,'grade','📝','درجة جديدة',`${exam?exam.title:'امتحان'}: ${score}/${outOf}`);
   }
   save();
   toast(`✅ تم حفظ درجة ${stu(sid)?.fname||''}`, 'i', 1500);
@@ -5387,6 +5449,7 @@ function _gradeInlineSave(sid, eid, existingGid, outOf){
 // ── حفظ كل الدرجات الظاهرة دفعة واحدة ──
 function _gradeInlineSaveAll(eid, outOf){
   const exam = DB.exams.find(e=>e.id===eid);
+  if(exam && exam.type==='electronic'){ toast('🔒 امتحان إلكتروني — الدرجات تُرصد تلقائياً ولا يمكن إدخالها من هنا','e'); return; }
   let saved=0, skipped=0;
   document.querySelectorAll('[id^="gr-sc-"]').forEach(inp=>{
     const sid = inp.id.replace('gr-sc-','');
@@ -5397,8 +5460,9 @@ function _gradeInlineSaveAll(eid, outOf){
     const noteEl = document.getElementById(`gr-note-${sid}`);
     const note = noteEl?.value||'';
     const existing = DB.grades.find(x=>x.studentId===sid&&x.examId===eid);
-    if(existing){ existing.score=score; existing.outOf=outOf; existing.note=note; }
-    else { DB.grades.push({id:nid('g'),studentId:sid,examId:eid,examTitle:exam?exam.title:'',score,outOf,date:localDate(),note}); }
+    if(existing && existing.locked){ skipped++; return; }
+    if(existing){ existing.score=score; existing.outOf=outOf; existing.note=note; pushNotif(sid,'grade','📝','تعديل درجة',`${exam?exam.title:'امتحان'}: ${score}/${outOf}`); }
+    else { DB.grades.push({id:nid('g'),studentId:sid,examId:eid,examTitle:exam?exam.title:'',score,outOf,date:localDate(),note}); pushNotif(sid,'grade','📝','درجة جديدة',`${exam?exam.title:'امتحان'}: ${score}/${outOf}`); }
     saved++;
   });
   if(saved>0){ save(); toast(`✅ تم حفظ ${saved} درجة${skipped>0?` (${skipped} فارغ)`:''}`); renderGrades(); }
@@ -5407,6 +5471,8 @@ function _gradeInlineSaveAll(eid, outOf){
 
 // ── حذف درجة مع إعادة رسم الكشف ──
 function _gradeInlineDelete(gid){
+  const g=DB.grades.find(x=>x.id===gid);
+  if(g && g.locked){ toast('🔒 درجة امتحان إلكتروني مقفلة — لا يمكن حذفها من داخل البرنامج','e'); return; }
   if(!confirm('حذف هذه الدرجة نهائياً؟'))return;
   DB.grades=DB.grades.filter(g=>g.id!==gid);
   save(); renderGrades(); toast('تم حذف الدرجة','e');
@@ -5474,14 +5540,17 @@ function onGradeExamChange(){
   // ── فلتر الطلاب بعد تثبيت القيم ──
   filterGradeModalStudents();
 }
-function addGrade(){ const sid=document.getElementById('g-st').value, eid=document.getElementById('g-ex').value, score=+document.getElementById('g-sc').value, outOf=+document.getElementById('g-of').value||100; if(!sid||isNaN(score)){toast('أكمل البيانات','e');return;} const exam=DB.exams.find(e=>e.id===eid); DB.grades.push({id:nid('g'),studentId:sid,examId:eid,examTitle:exam?exam.title:'يدوي',score,outOf,date:localDate(),note:document.getElementById('g-note').value}); save(); closeModal('add-grade-modal'); renderGrades(); toast('✅ تم حفظ الدرجة'); }
+function addGrade(){ const sid=document.getElementById('g-st').value, eid=document.getElementById('g-ex').value, score=+document.getElementById('g-sc').value, outOf=+document.getElementById('g-of').value||100; if(!sid||isNaN(score)){toast('أكمل البيانات','e');return;} const exam=DB.exams.find(e=>e.id===eid); if(exam && exam.type==='electronic'){ toast('🔒 هذا امتحان إلكتروني — الدرجة تُرصد تلقائياً من الامتحان أونلاين ولا يمكن إدخالها يدوياً','e'); return; } const existing = eid ? DB.grades.find(g=>g.studentId===sid && g.examId===eid && g.locked) : null; if(existing){ toast('🔒 توجد درجة مقفلة لهذا الطالب في هذا الامتحان','e'); return; } DB.grades.push({id:nid('g'),studentId:sid,examId:eid,examTitle:exam?exam.title:'يدوي',score,outOf,date:localDate(),note:document.getElementById('g-note').value}); pushNotif(sid,'grade','📝','درجة جديدة',`${exam?exam.title:'امتحان يدوي'}: ${score}/${outOf}`); save(); closeModal('add-grade-modal'); renderGrades(); toast('✅ تم حفظ الدرجة'); }
 function delGrade(id){
+  const g=DB.grades.find(x=>x.id===id);
+  if(g && g.locked){ toast('🔒 درجة امتحان إلكتروني مقفلة تلقائياً — لا يمكن حذفها أو تعديلها من داخل البرنامج','e'); return; }
   if(!confirm('حذف هذه الدرجة نهائياً؟'))return;
   DB.grades=DB.grades.filter(g=>g.id!==id);
   save(); renderGrades(); toast('تم حذف الدرجة','e');
 }
 function openEditGrade(gid){
   const g=DB.grades.find(x=>x.id===gid); if(!g)return;
+  if(g.locked){ toast('🔒 درجة امتحان إلكتروني مقفلة تلقائياً — لا يمكن تعديلها من داخل البرنامج','e'); return; }
   const s=stu(g.studentId);
   const html=`<div style="padding:1rem;">
     <div style="font-weight:700;font-size:14px;margin-bottom:1rem;">تعديل درجة — ${s?s.fname+' '+s.lname:'طالب'}</div>
@@ -5499,6 +5568,7 @@ function openEditGrade(gid){
 function saveEditGrade(){
   const gid=document.getElementById('eg-id').value;
   const g=DB.grades.find(x=>x.id===gid); if(!g)return;
+  if(g.locked){ toast('🔒 درجة امتحان إلكتروني مقفلة تلقائياً — لا يمكن تعديلها من داخل البرنامج','e'); closeModal('edit-grade-modal'); return; }
   g.score=+document.getElementById('eg-sc').value;
   g.outOf=+document.getElementById('eg-of').value||100;
   g.note=document.getElementById('eg-note').value;
@@ -5617,7 +5687,11 @@ function saveExam(){
   } else {
     // للامتحان الورقي: نحفظ مصفوفة فيها placeholder عشان Firebase ما يحذفهاش
     const finalQs = examType==='paper' && !qs.length ? [{_placeholder:true}] : qs;
-    DB.exams.push({id:nid('EX'),...baseData,questions:finalQs});
+    const newExam = {id:nid('EX'),...baseData,questions:finalQs};
+    DB.exams.push(newExam);
+    // ── إشعار أولياء أمور كل طلاب الصف/المجموعة المستهدفة بامتحان جديد ──
+    const targetStudents = DB.students.filter(s => s.classId===newExam.classId && (!newExam.group || newExam.group==='الكل' || s.groupId===newExam.group));
+    targetStudents.forEach(s => pushNotif(s.id,'exam','📋','امتحان جديد',`تم إضافة امتحان "${newExam.title}" (${examType==='electronic'?'إلكتروني':'ورقي'})`));
     toast('✅ تم حفظ الامتحان');
   }
   save(); closeModal('create-exam-modal');
@@ -6011,7 +6085,7 @@ function _showInvDetails(code){
     </div>`;
   openModal('inv-details-modal');
 }
-function addPayment(){ const sid=document.getElementById('p-st').value, amt=+document.getElementById('p-amt').value; if(!sid||!amt){toast('أكمل البيانات','e');return;} const s=stu(sid); const finalAmt=document.body.dataset.role==='supervisor'?(s?s.fee:amt):amt; DB.payments.push({id:nid('p'),studentId:sid,amount:finalAmt,month:document.getElementById('p-month').value,date:document.getElementById('p-date').value,status:document.getElementById('p-status').value,note:document.getElementById('p-note').value}); save(); closeModal('add-payment-modal'); renderPayments(); toast('✅ تم تسجيل الدفعة'); }
+function addPayment(){ const sid=document.getElementById('p-st').value, amt=+document.getElementById('p-amt').value; if(!sid||!amt){toast('أكمل البيانات','e');return;} const s=stu(sid); const finalAmt=document.body.dataset.role==='supervisor'?(s?s.fee:amt):amt; const pMonth=document.getElementById('p-month').value, pStatus=document.getElementById('p-status').value; DB.payments.push({id:nid('p'),studentId:sid,amount:finalAmt,month:pMonth,date:document.getElementById('p-date').value,status:pStatus,note:document.getElementById('p-note').value}); pushNotif(sid,'payment','💳','دفعة جديدة',`تم تسجيل دفعة بقيمة ${fmtM(finalAmt)} لشهر ${pMonth}${pStatus==='paid'?' (مسددة)':''}`); save(); closeModal('add-payment-modal'); renderPayments(); toast('✅ تم تسجيل الدفعة'); }
 function openPayInvoice(pid){
   // View/print receipt only — does NOT edit
   const p=DB.payments.find(x=>x.id===pid); if(!p)return;
@@ -7054,6 +7128,7 @@ function saveInvoicePay(){
       return;
     }
     DB.payments.push({id:nid('p'),studentId:_invoiceMode.sid,amount:amt,month,date,status,note,invCode,durType:_payDurType||'full',createdAt:new Date().toISOString()});
+    pushNotif(_invoiceMode.sid,'payment','💳','دفعة جديدة',`تم تسجيل دفعة بقيمة ${fmtM(amt)} لشهر ${month}${status==='paid'?' (مسددة)':''}`);
     save();
     renderPayments();
     // ── تسجيل الدفعة تلقائياً لباقي الإخوة ──
@@ -11672,6 +11747,7 @@ function spLogin(){
   let s=DB.students.find(x=>((x.barcode&&x.barcode===code)||x.id===code) && x.pin && x.pin===pass);
   if(!s){ document.getElementById('sp-login-err').style.display='block'; return; }
   spCurrentStu=s;
+  s.lastAccessed=new Date().toISOString(); save();
   document.getElementById('sp-login-screen').style.display='none';
   document.getElementById('sp-dash-screen').style.display='block';
   // Set user info
@@ -11685,13 +11761,49 @@ function spLogin(){
   const nameHeader=document.getElementById('sp-teacher-name-header'); if(nameHeader) nameHeader.textContent=DB.settings.name||'';
   const subjHeader=document.getElementById('sp-teacher-subj-header'); if(subjHeader) subjHeader.textContent=DB.settings.subject||'';
   spNav('info',document.getElementById('spbtn-info'));
+  spRenderNotifBadge();
 }
 
 function spLogout(){
   document.getElementById('sp-login-screen').style.display='flex';
   document.getElementById('sp-dash-screen').style.display='none';
   document.getElementById('sp-pin-input').value='';
+  const panel=document.getElementById('sp-notif-panel'); if(panel) panel.style.display='none';
   spCurrentStu=null;
+}
+
+// ── مركز إشعارات بوابة ولي الأمر ──
+function spRenderNotifBadge(){
+  const badge=document.getElementById('sp-notif-badge');
+  if(!badge||!spCurrentStu) return;
+  const unread=(DB.notifications||[]).filter(n=>n.studentId===spCurrentStu.id && !n.read).length;
+  if(unread>0){ badge.style.display='flex'; badge.textContent=unread>99?'99+':unread; }
+  else { badge.style.display='none'; }
+}
+function spToggleNotifPanel(){
+  const panel=document.getElementById('sp-notif-panel');
+  if(!panel||!spCurrentStu) return;
+  const opening = panel.style.display==='none';
+  panel.style.display = opening?'block':'none';
+  if(opening){
+    const mine=(DB.notifications||[]).filter(n=>n.studentId===spCurrentStu.id).sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,50);
+    const list=document.getElementById('sp-notif-list');
+    list.innerHTML = mine.length ? mine.map(n=>`
+      <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06);${n.read?'':'background:rgba(79,124,255,.08);'}">
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <span style="font-size:16px;flex-shrink:0;">${n.icon||'🔔'}</span>
+          <div style="flex:1;">
+            <div style="font-size:12.5px;font-weight:700;color:#fff;">${n.title||''}</div>
+            <div style="font-size:11.5px;color:rgba(255,255,255,.55);margin-top:2px;">${n.body||''}</div>
+            <div style="font-size:10px;color:rgba(255,255,255,.35);margin-top:4px;">${new Date(n.date).toLocaleString('ar-EG')}</div>
+          </div>
+        </div>
+      </div>`).join('') : `<div style="padding:2rem 1rem;text-align:center;color:rgba(255,255,255,.4);font-size:12.5px;">لا توجد إشعارات بعد</div>`;
+    // تعليم الكل كمقروء عند الفتح
+    let changed=false;
+    (DB.notifications||[]).forEach(n=>{ if(n.studentId===spCurrentStu.id && !n.read){ n.read=true; changed=true; } });
+    if(changed){ save(); spRenderNotifBadge(); }
+  }
 }
 
 function spNav(section, btn){
@@ -12018,6 +12130,7 @@ function spEndExam(){
   DB.examSessions.push({id:nid('ses'),examId:exam.id,studentId:sid,score,answers:{...ans},date:localDate()});
   // Save grade
   DB.grades.push({id:nid('g'),studentId:sid,examId:exam.id,examTitle:exam.title,score:pct,outOf:100,date:localDate(),note:'امتحان أونلاين',locked:true,source:'online_exam'});
+  pushNotif(sid,'grade','💻','نتيجة امتحان إلكتروني',`${exam.title}: ${pct}/100`);
   save();
   // Show result screen
   const showResult=exam.showResult!=='no';
@@ -13314,9 +13427,11 @@ loadSubjectsList();
         // Auto-login: skip login screen, go directly to student dashboard
         setTimeout(()=>{
           spCurrentStu=s;
+          s.lastAccessed=new Date().toISOString(); save();
           document.getElementById('sp-login-screen').style.display='none';
           document.getElementById('sp-dash-screen').style.display='flex';
-          spRenderDash();
+          if(typeof spRenderDash==='function') spRenderDash();
+          spRenderNotifBadge();
           // Navigate to requested section
           if(section&&section!=='info'){
             setTimeout(()=>{
