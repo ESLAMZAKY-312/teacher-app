@@ -303,8 +303,7 @@ try {
 //  مؤشر المزامنة في الواجهة
 // ═══════════════════════════════════════════════════
 let _syncIndicator = null;
-function _showSyncIndicator(state){
-  // تأجيل إنشاء العنصر حتى يكون DOM جاهزاً
+function _showSyncIndicator(state, customText){
   if(!document.body) return;
   if(!_syncIndicator){
     _syncIndicator = document.createElement('div');
@@ -324,42 +323,23 @@ function _showSyncIndicator(state){
     pending: { text:'💾 محفوظ محلياً',   bg:'#1c1a00', color:'#eab308' },
   };
   const s = states[state] || states.saved;
-  _syncIndicator.textContent = s.text;
+  _syncIndicator.textContent = customText || s.text;
   _syncIndicator.style.background = s.bg;
   _syncIndicator.style.color      = s.color;
   _syncIndicator.style.opacity    = '1';
   if(state === 'saved' || state === 'error'){
+    if(_countdownTimer){ clearInterval(_countdownTimer); _countdownTimer=null; }
     setTimeout(()=>{ if(_syncIndicator) _syncIndicator.style.opacity='0'; }, 2500);
   }
 }
 
 // ═══════════════════════════════════════════════════
-//  مزامنة DB → Firebase (بعد كل حفظ)
+//  مزامنة DB → Firebase (كل 10 دقائق)
+//  الدالة الفعلية موجودة في نظام الحفظ أسفل الملف
+//  (save → _fbSyncPending → _saveFlush)
 // ═══════════════════════════════════════════════════
 let _fbSyncTimer = null;
 let _isSyncing   = false; // منع loop: نحن من بعثنا → لا تقرأ
-function _syncToFirebase(){
-  if(_fbSyncTimer) clearTimeout(_fbSyncTimer);
-  _fbSyncTimer = setTimeout(async ()=>{
-    try{
-      _showSyncIndicator('saving');
-      const payload = JSON.parse(JSON.stringify(DB));
-      if(payload.settings) payload.settings.logo = null;
-      if(payload.certTemplates){
-        ['male','female'].forEach(g=>{ if(payload.certTemplates[g]) payload.certTemplates[g].bg = null; });
-      }
-      payload.__syncedAt = new Date().toISOString();
-      _isSyncing = true;
-      await _fbDB.ref('schoolData').set(payload);
-      _isSyncing = false;
-      _showSyncIndicator('saved');
-    } catch(e){
-      _isSyncing = false;
-      _showSyncIndicator('error');
-      console.warn('Firebase sync failed:', e.message);
-    }
-  }, 1500);
-}
 
 // ═══════════════════════════════════════════════════
 //  Realtime Listener — يستمع للتغييرات من أي جهاز
@@ -2909,6 +2889,8 @@ function _saveFlushSync(){
 const FIREBASE_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 10 دقائق
 let _saveDirty    = false;
 let _fbSyncPending = null; // مؤقت الـ 10 دقائق
+let _fbSyncStartTime = null; // وقت بدء العد التنازلي
+let _countdownTimer = null; // مؤقت عرض العد التنازلي
 
 function save(){
   DB.__lastSave = Date.now();
@@ -2920,13 +2902,26 @@ function save(){
 
   // ── ٢. جدولة إرسال Firebase بعد 10 دقائق (لو مش مجدول) ──
   if(!_fbSyncPending){
+    _fbSyncStartTime = Date.now();
     _fbSyncPending = setTimeout(()=>{
       _fbSyncPending = null;
+      _fbSyncStartTime = null;
+      if(_countdownTimer){ clearInterval(_countdownTimer); _countdownTimer=null; }
       if(_saveDirty) _saveFlush();
     }, FIREBASE_SYNC_INTERVAL_MS);
-    // أظهر مؤشر "انتظار مزامنة"
-    _showSyncIndicator('pending');
+    // ── عداد تنازلي في المؤشر ──
+    _updateCountdown();
+    if(_countdownTimer) clearInterval(_countdownTimer);
+    _countdownTimer = setInterval(_updateCountdown, 30000); // تحديث كل 30 ثانية
   }
+}
+
+function _updateCountdown(){
+  if(!_fbSyncStartTime || !_saveDirty) return;
+  const elapsed = Date.now() - _fbSyncStartTime;
+  const remaining = Math.max(0, FIREBASE_SYNC_INTERVAL_MS - elapsed);
+  const mins = Math.ceil(remaining / 60000);
+  _showSyncIndicator('pending', `💾 محفوظ محلياً — مزامنة بعد ${mins} د`);
 }
 
 // ── عند إغلاق الصفحة — إرسال فوري ──
