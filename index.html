@@ -594,6 +594,15 @@ async function _loadFromFirebase(){
     <button class="btn btn-secondary" style="padding:6px 9px;" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">☰</button>
     <div class="pg-title" id="pg-title">لوحة التحكم</div>
     <div style="flex:1"></div>
+    <div style="position:relative;display:inline-block;">
+      <button onclick="toggleAdminNotifPanel()" style="position:relative;width:38px;height:38px;border-radius:50%;background:var(--glass);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;">
+        🔔<span id="admin-notif-badge" style="display:none;position:absolute;top:-4px;left:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:800;align-items:center;justify-content:center;line-height:18px;box-shadow:0 0 0 2px var(--bg2);"></span>
+      </button>
+      <div id="admin-notif-panel" style="display:none;position:absolute;top:50px;left:0;width:330px;max-height:440px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 34px rgba(0,0,0,.4);z-index:500;">
+        <div style="padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;font-weight:800;color:var(--text);">🔔 الإشعارات</div>
+        <div id="admin-notif-list"></div>
+      </div>
+    </div>
 
   </div>
   <div class="content" id="content">
@@ -3204,13 +3213,60 @@ function grBadge(p){ return p>=70?'bg-g':p>=50?'bg-a':'bg-r'; }
 function fmtM(n){ return Number(n||0).toLocaleString()+' ج'; }
 function nid(p=''){ return p+Date.now()+Math.floor(Math.random()*999); }
 // ── مركز إشعارات بوابة ولي الأمر — يُستدعى عند إضافة أي بيانات جديدة (دفعة/درجة/امتحان...) ──
-// ── تحديث شارة "طلبات إعادة الامتحان" في القائمة الجانبية — قابلة للاستدعاء من أي مكان ──
+// ── تحديث شارة "طلبات إعادة الامتحان" في القائمة الجانبية وجرس الإشعارات — قابلة للاستدعاء من أي مكان ──
 function updateRetakeBadge(){
-  const badge=document.getElementById('retake-req-badge');
-  if(!badge) return;
   const n=(DB.retakeRequests||[]).filter(r=>r.status==='pending').length;
-  badge.textContent=n; badge.style.display=n?'':'none';
+  const badge=document.getElementById('retake-req-badge');
+  if(badge){ badge.textContent=n; badge.style.display=n?'':'none'; }
+  const topBadge=document.getElementById('admin-notif-badge');
+  if(topBadge){ topBadge.textContent=n>99?'99+':n; topBadge.style.display=n?'flex':'none'; }
+  const panel=document.getElementById('admin-notif-panel');
+  if(panel && panel.style.display!=='none') renderAdminNotifPanel();
 }
+
+// ── جرس إشعارات المدرّس (أعلى يسار الصفحة) — تفاصيل كاملة: مين أرسل ولأي امتحان ──
+function toggleAdminNotifPanel(){
+  const panel=document.getElementById('admin-notif-panel');
+  if(!panel) return;
+  const opening = panel.style.display==='none';
+  panel.style.display = opening?'block':'none';
+  if(opening) renderAdminNotifPanel();
+}
+function renderAdminNotifPanel(){
+  const list=document.getElementById('admin-notif-list'); if(!list) return;
+  const reqs=(DB.retakeRequests||[]).filter(r=>r.status==='pending').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  list.innerHTML = reqs.length ? reqs.map(r=>{
+    const s=stu(r.studentId);
+    const ex=(DB.exams||[]).find(e=>e.id===r.examId);
+    const sName = s ? (s.fname+' '+(s.lname||'')) : 'طالب محذوف';
+    return `<div style="padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:flex-start;gap:9px;">
+        <div class="av av28" style="background:${s?s.color+'20':'rgba(245,166,35,.15)'};color:${s?s.color:'var(--amber)'};flex-shrink:0;">${s?s.fname[0]:'📩'}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12.5px;font-weight:800;color:var(--text);">📩 طلب إعادة امتحان</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px;"><b>${sName}</b>${s?` — ${clsN(s.classId)}${s.groupId?' / '+grpN(s.groupId):''}`:''}</div>
+          <div style="font-size:11.5px;color:var(--accent);margin-top:2px;">📋 ${ex?ex.title:'امتحان محذوف'}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px;">${r.date||''}</div>
+          <div style="display:flex;gap:6px;margin-top:7px;">
+            <button class="btn btn-success btn-xs" onclick="panelGrantRetake('${r.examId}','${r.studentId}')">✅ موافقة</button>
+            <button class="btn btn-danger btn-xs" onclick="panelDenyRetake('${r.examId}','${r.studentId}')">❌ رفض</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }).join('') : `<div style="padding:2rem 1rem;text-align:center;color:var(--text3);font-size:12.5px;">لا توجد إشعارات جديدة</div>`;
+}
+function panelGrantRetake(examId,studentId){ grantRetakePermission(examId,studentId); renderAdminNotifPanel(); }
+function panelDenyRetake(examId,studentId){ denyRetakePermission(examId,studentId); renderAdminNotifPanel(); }
+// إغلاق لوحة الإشعارات عند الضغط خارجها
+document.addEventListener('click', e=>{
+  const panel=document.getElementById('admin-notif-panel');
+  if(!panel || panel.style.display==='none') return;
+  if(panel.contains(e.target)) return;
+  if(e.target.closest('button')?.getAttribute('onclick')==='toggleAdminNotifPanel()') return;
+  panel.style.display='none';
+});
+
 function pushNotif(studentId, type, icon, title, body){
   if(!studentId) return;
   if(!DB.notifications) DB.notifications=[];
