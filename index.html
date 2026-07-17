@@ -4493,6 +4493,12 @@ function saveBeh(sendWA){
   if(!selBeh.length&&!note){toast('اختر سلوكاً على الأقل','e');return;}
   const entry={id:nid('bh'),studentId:sid,behaviors:[...selBeh],note,date:localDate(),time:new Date().toLocaleTimeString('ar-EG')};
   DB.behaviors.push(entry);
+  if(selBeh.length){
+    const s=stu(sid);
+    const hasNeg=selBeh.some(bh=>BEH_NEG.some(n=>n.includes(bh)||bh.includes(n.replace(/^.\s/,''))));
+    const icon=hasNeg?'⚠️':'🌟';
+    pushNotif(sid,'behavior',icon,'تقييم سلوك جديد',`${s?s.fname+' '+s.lname:''}: ${selBeh.join('، ')}${note?' — '+note:''}`);
+  }
   save();
   selBeh=[];
   document.querySelectorAll('#beh-pos .beh-btn,#beh-neg .beh-btn').forEach(b=>b.classList.remove('sel'));
@@ -4698,7 +4704,18 @@ function updateAttCounts(students){
   const p=students.filter(s=>attState[s.id]==='present').length, a=students.filter(s=>attState[s.id]==='absent').length, l=students.filter(s=>attState[s.id]==='late').length;
   document.getElementById('att-p').textContent='حاضر: '+p; document.getElementById('att-a').textContent='غائب: '+a; document.getElementById('att-l').textContent='متأخر: '+l;
 }
-function saveAtt(){ const date=document.getElementById('att-date').value; if(!DB.attendance[date])DB.attendance[date]={}; Object.assign(DB.attendance[date],attState); save(); toast('✅ تم حفظ الحضور'); renderTodayLog(); }
+function saveAtt(){
+  const date=document.getElementById('att-date').value;
+  if(!DB.attendance[date])DB.attendance[date]={};
+  Object.assign(DB.attendance[date],attState);
+  const STATUS_LBL={present:'حضور',absent:'غياب',late:'تأخير'};
+  const STATUS_ICON={present:'✅',absent:'❌',late:'⏰'};
+  Object.entries(attState).forEach(([sid,status])=>{
+    const s=stu(sid); if(!s) return;
+    pushNotif(sid,'attendance',STATUS_ICON[status]||'📅',`تسجيل ${STATUS_LBL[status]||status}`,`تم تسجيل ${STATUS_LBL[status]||status} ${s.fname} ${s.lname} بتاريخ ${date}`);
+  });
+  save(); toast('✅ تم حفظ الحضور'); renderTodayLog();
+}
 function renderTodayLog(){
   // سجل اليوم يعرض اليوم الحالي دائماً — بغض النظر عن التاريخ المختار في حقل att-date
   const date = localDate();
@@ -4999,6 +5016,7 @@ function checkIn(sid, forceAll){
   if((!wrongGroup && !wrongTime) || forceAll){
     if(!DB.attendance[today]) DB.attendance[today]={};
     DB.attendance[today][sid]='present'; attState[sid]='present'; save();
+    pushNotif(sid,'attendance','✅','تسجيل حضور',`تم تسجيل حضور ${s.fname} ${s.lname} بتاريخ ${today}`);
 
     const extras=[];
     if(forceAll && wrongGroup) extras.push('مجموعة أخرى ✔');
