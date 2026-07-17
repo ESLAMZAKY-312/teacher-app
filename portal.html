@@ -324,17 +324,88 @@ function renderInfo(s){
 
 // ── تبويب: الملفات ──
 function renderFiles(s){
-  const files = (schoolData?.studentFiles || s.files || []).filter(f=>!f.studentId || f.studentId===s.id);
-  document.getElementById('files-list').innerHTML = files.length
-    ? files.map(f=>`
-        <div class="file-card">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:20px;">📄</span>
-            <div><div style="font-weight:700;font-size:13px;">${f.name||'ملف'}</div><div style="font-size:10.5px;color:var(--text2);">${f.date||''}</div></div>
-          </div>
-          ${f.url ? `<a href="${f.url}" target="_blank" style="padding:7px 14px;border-radius:8px;background:rgba(79,124,255,.12);color:var(--accent);font-size:11.5px;font-weight:700;text-decoration:none;">تحميل ⬇</a>` : ''}
-        </div>`).join('')
-    : '<div class="empty"><div class="empty-ic">📁</div><div>لا توجد ملفات مرفوعة حالياً</div></div>';
+  const el = document.getElementById('files-list');
+
+  // ── واجبات الطالب ──
+  const allAsgn = schoolData?.assignments || [];
+  const grp     = grpInfo(s.groupId);
+
+  const myAsgn  = allAsgn.filter(a=>{
+    // تخص الكل
+    if(!a.classId && (!a.groupIds || !a.groupIds.length)) return true;
+    // تخص الصف
+    const clsOk = !a.classId || a.classId === s.classId;
+    // تخص المجموعة
+    const grpOk = !a.groupIds || !a.groupIds.length ||
+                  a.groupIds.includes(s.groupId) ||
+                  a.groupIds.includes('الكل');
+    return clsOk && grpOk;
+  }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  // ── ملفات الطالب المرفوعة ──
+  const stuFiles = (schoolData?.studentFiles || s.files || [])
+    .filter(f=>!f.studentId || f.studentId===s.id);
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const asgnHtml = myAsgn.length
+    ? myAsgn.map(a=>{
+        const overdue = a.due && a.due < today;
+        const dueStr  = a.due
+          ? (overdue
+              ? '<span style="color:var(--red);font-weight:700;">⚠️ انتهى '+a.due+'</span>'
+              : '<span style="color:var(--amber);">📅 موعد التسليم: '+a.due+'</span>')
+          : '';
+        const filesHtml = (a.files||[]).length
+          ? '<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;">'
+            +(a.files||[]).map(f=>'<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:6px;background:rgba(79,124,255,.1);border:1px solid rgba(79,124,255,.2);color:var(--accent);font-size:11px;font-weight:700;">📄 '+f+'</span>').join('')
+            +'</div>'
+          : '';
+        return '<div class="file-card" style="flex-direction:column;align-items:stretch;gap:8px;">'
+          +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;">'
+          +'<div style="display:flex;align-items:flex-start;gap:10px;">'
+          +'<span style="font-size:22px;flex-shrink:0;">📝</span>'
+          +'<div>'
+          +'<div style="font-weight:800;font-size:13.5px;">'+(a.title||'واجب')+'</div>'
+          +'<div style="font-size:10.5px;color:var(--text2);margin-top:2px;">📆 تاريخ الإضافة: '+(a.date||'—')+'</div>'
+          +(a.desc ? '<div style="font-size:12px;color:var(--text2);margin-top:5px;line-height:1.5;">'+a.desc+'</div>' : '')
+          +'</div>'
+          +'</div>'
+          +(dueStr ? '<div style="font-size:11px;white-space:nowrap;">'+dueStr+'</div>' : '')
+          +'</div>'
+          +filesHtml
+          +'</div>';
+      }).join('')
+    : '<div class="empty" style="padding:20px 0;"><div class="empty-ic">📝</div><div>لا توجد واجبات مضافة</div></div>';
+
+  const stuFilesHtml = stuFiles.length
+    ? stuFiles.map(f=>'<div class="file-card">'
+        +'<div style="display:flex;align-items:center;gap:10px;">'
+        +'<span style="font-size:22px;">📄</span>'
+        +'<div>'
+        +'<div style="font-weight:700;font-size:13px;">'+(f.name||'ملف')+'</div>'
+        +'<div style="font-size:10.5px;color:var(--text2);">'+(f.date||'')+'</div>'
+        +'</div>'
+        +'</div>'
+        +(f.url
+          ? '<a href="'+f.url+'" target="_blank" style="padding:7px 14px;border-radius:8px;background:rgba(79,124,255,.12);color:var(--accent);font-size:11.5px;font-weight:700;text-decoration:none;white-space:nowrap;">تحميل ⬇</a>'
+          : '<span style="font-size:11px;color:var(--text3);">بدون رابط</span>')
+        +'</div>').join('')
+    : '<div class="empty" style="padding:20px 0;"><div class="empty-ic">📁</div><div>لا توجد ملفات مرفوعة</div></div>';
+
+  el.innerHTML =
+    // ── قسم الواجبات ──
+    '<div style="font-size:12px;font-weight:800;color:var(--amber);margin-bottom:10px;display:flex;align-items:center;gap:6px;">'
+    +'📝 الواجبات المدرسية'
+    +'<span style="background:rgba(245,166,35,.15);color:var(--amber);padding:2px 8px;border-radius:10px;font-size:10px;">'+myAsgn.length+'</span>'
+    +'</div>'
+    +asgnHtml
+    // ── قسم الملفات ──
+    +'<div style="font-size:12px;font-weight:800;color:var(--accent);margin:18px 0 10px;display:flex;align-items:center;gap:6px;">'
+    +'📁 الملفات المرفوعة'
+    +'<span style="background:rgba(79,124,255,.15);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:10px;">'+stuFiles.length+'</span>'
+    +'</div>'
+    +stuFilesHtml;
 }
 
 // ══ MCQ ══
@@ -373,7 +444,16 @@ function renderMcq(s){
       const g   = grades.find(x=>x.studentId===s.id && x.examId===e.id);
       const pct = g ? Math.round(g.score/g.outOf*100) : 0;
       const cls = pct>=85?'badge-green':pct>=60?'badge-amber':'badge-red';
-      return '<div class="mcq-card">'
+      const canRetake = pct < 50;
+      // تحقق هل يوجد طلب إعادة معلق مسبقاً
+      const hasRequest = (schoolData?.retakeRequests||[]).some(r=>r.studentId===currentStu.id && r.examId===e.id && r.status==='pending');
+      const retakeBtn = canRetake
+        ? (hasRequest
+            ? '<button disabled style="margin-top:8px;width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text3);font-family:Cairo,sans-serif;font-size:11.5px;font-weight:700;cursor:not-allowed;">⏳ تم إرسال الطلب</button>'
+            : '<button onclick="requestRetake(\''+e.id+'\',\''+e.title+'\')" style="margin-top:8px;width:100%;padding:7px;border-radius:8px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.08);color:var(--red);font-family:Cairo,sans-serif;font-size:11.5px;font-weight:700;cursor:pointer;">🔄 طلب إعادة الامتحان</button>')
+        : '<button disabled style="margin-top:8px;width:100%;padding:7px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text3);font-family:Cairo,sans-serif;font-size:11.5px;font-weight:700;cursor:not-allowed;opacity:.45;">🔄 طلب إعادة الامتحان</button>';
+      return '<div class="mcq-card" style="flex-direction:column;align-items:stretch;gap:10px;">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">'
         +'<div>'
         +'<div style="font-weight:800;font-size:13.5px;margin-bottom:3px;">'+e.title+'</div>'
         +'<div style="font-size:11px;color:var(--text2);">📅 '+(g?.date||'—')+'</div>'
@@ -382,6 +462,8 @@ function renderMcq(s){
         +'<span class="badge '+cls+'" style="font-size:13px;padding:5px 14px;">'+pct+'%</span>'
         +'<div style="font-size:10px;color:var(--text2);margin-top:4px;text-align:center;">'+(g?.score||0)+'/'+(g?.outOf||0)+'</div>'
         +'</div>'
+        +'</div>'
+        +retakeBtn
         +'</div>';
     }).join('');
   } else {
@@ -688,6 +770,42 @@ db.ref('schoolData').on('value', snap => {
     document.getElementById('login-screen').style.display = 'flex';
   }
 });
+
+function requestRetake(examId, examTitle){
+  if(!currentStu) return;
+  const grades = schoolData?.grades || [];
+  const g      = grades.find(x=>x.studentId===currentStu.id && x.examId===examId);
+  const pct    = g ? Math.round(g.score/g.outOf*100) : 100;
+  if(pct >= 50){ alert('لا يمكن طلب الإعادة — درجتك أعلى من 50%'); return; }
+
+  const already = (schoolData?.retakeRequests||[]).some(r=>r.studentId===currentStu.id && r.examId===examId && r.status==='pending');
+  if(already){ alert('تم إرسال طلبك مسبقاً، يرجى انتظار رد المعلم.'); return; }
+
+  const req = {
+    id:          'rtr_'+Date.now(),
+    studentId:   currentStu.id,
+    studentName: (currentStu.fname||'')+' '+(currentStu.lname||''),
+    examId,
+    examTitle,
+    score:  g?.score||0,
+    outOf:  g?.outOf||0,
+    pct,
+    date:   new Date().toISOString().split('T')[0],
+    status: 'pending'
+  };
+
+  try{
+    const ref = firebase.database().ref('schoolData/retakeRequests');
+    ref.once('value').then(snap=>{
+      const arr = snap.val() ? (Array.isArray(snap.val()) ? snap.val() : Object.values(snap.val())) : [];
+      arr.push(req);
+      return ref.set(arr);
+    }).then(()=>{
+      alert('✅ تم إرسال طلب إعادة الامتحان!\nسيتم مراجعة طلبك من قِبل المعلم.');
+      renderMcq(currentStu);
+    }).catch(()=>{ alert('⚠️ فشل إرسال الطلب، حاول مرة أخرى.'); });
+  }catch(e){ alert('⚠️ فشل الاتصال بقاعدة البيانات.'); }
+}
 </script>
 </body>
 </html>
