@@ -433,6 +433,7 @@ function _startFirebaseListener(){
     if(DB.certTemplates){
       ['male','female'].forEach(g=>{ if(certBgs[g]) DB.certTemplates[g].bg = certBgs[g]; });
     }
+    _dedupeRetakeRequests();
     DB.__syncedAt = data.__syncedAt;
     // حفظ محلي بدون إعادة إرسال لـ Firebase
     _idbSet('etp3', DB).catch(()=>{});
@@ -3213,6 +3214,24 @@ function grBadge(p){ return p>=70?'bg-g':p>=50?'bg-a':'bg-r'; }
 function fmtM(n){ return Number(n||0).toLocaleString()+' ج'; }
 function nid(p=''){ return p+Date.now()+Math.floor(Math.random()*999); }
 // ── مركز إشعارات بوابة ولي الأمر — يُستدعى عند إضافة أي بيانات جديدة (دفعة/درجة/امتحان...) ──
+// ── تنظيف التكرارات في طلبات إعادة الامتحان: نبقي سجل واحد فقط لكل (طالب+امتحان) ──
+// أولوية الاحتفاظ: مرفوض > مقبول > معلّق، ولو نفس الحالة يُحتفظ بالأحدث تاريخاً
+function _dedupeRetakeRequests(){
+  if(!DB.retakeRequests || DB.retakeRequests.length<2) return false;
+  const priority={denied:3, approved:2, pending:1};
+  const byKey={};
+  DB.retakeRequests.forEach(r=>{
+    const key=r.examId+'|'+r.studentId;
+    const cur=byKey[key];
+    if(!cur || (priority[r.status]||0)>(priority[cur.status]||0) || ((priority[r.status]||0)===(priority[cur.status]||0) && (r.date||'')>(cur.date||''))){
+      byKey[key]=r;
+    }
+  });
+  const deduped=Object.values(byKey);
+  if(deduped.length!==DB.retakeRequests.length){ DB.retakeRequests=deduped; return true; }
+  return false;
+}
+
 // ── تحديث شارة "طلبات إعادة الامتحان" في القائمة الجانبية وجرس الإشعارات — قابلة للاستدعاء من أي مكان ──
 function updateRetakeBadge(){
   const n=(DB.retakeRequests||[]).filter(r=>r.status==='pending').length;
@@ -3234,6 +3253,7 @@ function toggleAdminNotifPanel(){
 }
 function renderAdminNotifPanel(){
   const list=document.getElementById('admin-notif-list'); if(!list) return;
+  _dedupeRetakeRequests();
   const reqs=(DB.retakeRequests||[]).filter(r=>r.status==='pending').sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   list.innerHTML = reqs.length ? reqs.map(r=>{
     const s=stu(r.studentId);
@@ -3460,6 +3480,7 @@ function renderDashboard(){
   const alerts=[];
   if(absents.length) alerts.push(`<div style="padding:7px 11px;background:rgba(255,77,109,.07);border:1px solid rgba(255,77,109,.2);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;">⚠️ <b>${absents.length} طالب</b> غاب 3 أيام متواصلة أو أكثر</div>`);
   if(unpaidN>3) alerts.push(`<div style="padding:7px 11px;background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.2);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;">💳 <b>${unpaidN} طالب</b> لم يسدد رسوم هذا الشهر</div>`);
+  _dedupeRetakeRequests();
   const pendingRetakes=(DB.retakeRequests||[]).filter(r=>r.status==='pending');
   if(pendingRetakes.length) alerts.push(`<div style="padding:7px 11px;background:rgba(79,124,255,.08);border:1px solid rgba(79,124,255,.25);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;cursor:pointer;" onclick="gp('exams')">📩 <b>${pendingRetakes.length} طلب</b> إعادة امتحان بانتظار الموافقة</div>`);
   document.getElementById('dash-alerts').innerHTML=alerts.join('')||'<div style="padding:1rem;color:var(--text3);font-size:12.5px;text-align:center;">✅ لا توجد تنبيهات</div>';
@@ -12357,6 +12378,7 @@ function selExam(id){
     : Object.values(rawQs).filter(q=>!q._placeholder);
   curExam._realQs = realQs; // cached clean questions
   const sessions=(DB.examSessions||[]).filter(s=>s.examId===id);
+  _dedupeRetakeRequests();
   const retakeReqs=(DB.retakeRequests||[]).filter(r=>r.examId===id&&r.status==='pending');
   const isPaper = curExam.type!=='electronic';
   document.getElementById('exam-detail').innerHTML=`
@@ -13685,6 +13707,7 @@ updateRetakeBadge();
   }
   _restoreImages();
   _seedDemoDataIfEmpty();
+  if(_dedupeRetakeRequests()) save();
   _invalidateCache();
   _bootUI();
   const bl=document.getElementById('boot-loading');
