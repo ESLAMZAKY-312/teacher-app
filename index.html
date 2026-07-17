@@ -418,6 +418,10 @@ function _startFirebaseListener(){
     if(!data || !data.students) return;
     // تجاهل لو البيانات الواردة أقدم من المحلية
     if(data.__syncedAt && DB.__syncedAt && data.__syncedAt <= DB.__syncedAt) return;
+    // ── رصد طلبات إعادة امتحان جديدة وصلت للتو من بوابة ولي الأمر ──
+    const prevPendingIds = new Set((DB.retakeRequests||[]).filter(r=>r.status==='pending').map(r=>r.id));
+    const incomingPending = (data.retakeRequests||[]).filter(r=>r.status==='pending');
+    const newRetakeReqs = incomingPending.filter(r=>!prevPendingIds.has(r.id));
     // تحديث DB بالبيانات الجديدة مع الحفاظ على الصور المحلية
     const logo    = DB.settings?.logo;
     const certBgs = {};
@@ -441,6 +445,16 @@ function _startFirebaseListener(){
     }
     _showSyncIndicator('saved');
     console.log('🔄 Firebase: تم تحديث البيانات من جهاز آخر');
+    // ── تنبيه فوري للمدرّس بأي طلب إعادة امتحان جديد ──
+    if(newRetakeReqs.length){
+      newRetakeReqs.forEach(r=>{
+        const s=stu(r.studentId)||(data.students||[]).find(x=>x.id===r.studentId);
+        const ex=(DB.exams||[]).find(e=>e.id===r.examId);
+        const sName=s?(s.fname+' '+(s.lname||'')):'طالب';
+        toast(`📩 طلب إعادة امتحان جديد من ${sName}${ex?' — '+ex.title:''}`,'i');
+      });
+    }
+    updateRetakeBadge();
   }, err => {
     console.warn('Firebase listener error:', err.message);
   });
@@ -555,7 +569,7 @@ async function _loadFromFirebase(){
 
     <div class="nav-sec">الأكاديمي</div>
     <div class="ni" onclick="gp('grades')"><span class="ni-ic">📝</span><span class="sb-txt">الدرجات</span></div>
-    <div class="ni" onclick="gp('exams')"><span class="ni-ic">📋</span><span class="sb-txt">الامتحانات</span></div>
+    <div class="ni" onclick="gp('exams')"><span class="ni-ic">📋</span><span class="sb-txt">الامتحانات</span><span class="ni-badge" id="retake-req-badge">0</span></div>
     <div class="ni" onclick="gp('assignments')"><span class="ni-ic">📎</span><span class="sb-txt">الواجبات والملفات</span></div>
     <div class="nav-sec">المالية</div>
     <div class="ni" onclick="gp('payments')"><span class="ni-ic">💰</span><span class="sb-txt">المدفوعات</span><span class="ni-badge" id="pay-badge">0</span></div>
@@ -3190,6 +3204,13 @@ function grBadge(p){ return p>=70?'bg-g':p>=50?'bg-a':'bg-r'; }
 function fmtM(n){ return Number(n||0).toLocaleString()+' ج'; }
 function nid(p=''){ return p+Date.now()+Math.floor(Math.random()*999); }
 // ── مركز إشعارات بوابة ولي الأمر — يُستدعى عند إضافة أي بيانات جديدة (دفعة/درجة/امتحان...) ──
+// ── تحديث شارة "طلبات إعادة الامتحان" في القائمة الجانبية — قابلة للاستدعاء من أي مكان ──
+function updateRetakeBadge(){
+  const badge=document.getElementById('retake-req-badge');
+  if(!badge) return;
+  const n=(DB.retakeRequests||[]).filter(r=>r.status==='pending').length;
+  badge.textContent=n; badge.style.display=n?'':'none';
+}
 function pushNotif(studentId, type, icon, title, body){
   if(!studentId) return;
   if(!DB.notifications) DB.notifications=[];
@@ -3383,7 +3404,11 @@ function renderDashboard(){
   const alerts=[];
   if(absents.length) alerts.push(`<div style="padding:7px 11px;background:rgba(255,77,109,.07);border:1px solid rgba(255,77,109,.2);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;">⚠️ <b>${absents.length} طالب</b> غاب 3 أيام متواصلة أو أكثر</div>`);
   if(unpaidN>3) alerts.push(`<div style="padding:7px 11px;background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.2);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;">💳 <b>${unpaidN} طالب</b> لم يسدد رسوم هذا الشهر</div>`);
+  const pendingRetakes=(DB.retakeRequests||[]).filter(r=>r.status==='pending');
+  if(pendingRetakes.length) alerts.push(`<div style="padding:7px 11px;background:rgba(79,124,255,.08);border:1px solid rgba(79,124,255,.25);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;cursor:pointer;" onclick="gp('exams')">📩 <b>${pendingRetakes.length} طلب</b> إعادة امتحان بانتظار الموافقة</div>`);
   document.getElementById('dash-alerts').innerHTML=alerts.join('')||'<div style="padding:1rem;color:var(--text3);font-size:12.5px;text-align:center;">✅ لا توجد تنبيهات</div>';
+
+  updateRetakeBadge();
 
   // Top 5
   const ranked=DB.students.map(s=>({s,avg:stuAvg(s.id)||0})).filter(x=>x.avg>0).sort((a,b)=>b.avg-a.avg).slice(0,5);
@@ -12128,6 +12153,7 @@ function spRequestRetake(examId){
   if(existing){toast('تم إرسال طلبك مسبقاً — يرجى انتظار موافقة المدرس','i');return;}
   DB.retakeRequests.push({id:nid('rtr'),examId,studentId:spCurrentStu.id,date:localDate(),status:'pending'});
   save();
+  updateRetakeBadge();
   toast('✅ تم إرسال طلب الإعادة — ستحتاج موافقة المدرس');
   spRenderMCQ();
 }
@@ -12250,6 +12276,7 @@ function grantRetakePermission(examId,studentId){
   // Remove pending request
   if(DB.retakeRequests) DB.retakeRequests=DB.retakeRequests.filter(r=>!(r.examId===examId&&r.studentId===studentId));
   save();
+  updateRetakeBadge();
   toast('✅ تم منح إذن إعادة الامتحان');
   selExam(examId);
 }
@@ -12309,7 +12336,7 @@ function selExam(id){
 
 function denyRetakePermission(examId,studentId){
   if(DB.retakeRequests) DB.retakeRequests=DB.retakeRequests.filter(r=>!(r.examId===examId&&r.studentId===studentId));
-  save(); toast('تم رفض الطلب','e'); selExam(examId);
+  save(); updateRetakeBadge(); toast('تم رفض الطلب','e'); selExam(examId);
 }
 
 // ================================================================
@@ -13511,6 +13538,7 @@ _savedPage=sessionStorage.getItem('etp_page')||'dashboard';
 
 gp(_savedPage);
 loadSubjectsList();
+updateRetakeBadge();
 
 // ── PORTAL HASH ROUTER ──
 // When QR code is scanned, URL becomes file.html#portal/BARCODE
