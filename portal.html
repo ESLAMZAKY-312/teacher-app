@@ -6,6 +6,7 @@
 <title>بوابة ولي الأمر</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -248,6 +249,18 @@ firebase.initializeApp({
 const db = firebase.database();
 let schoolData = null;
 let currentStu = null;
+
+// ── تسجيل دخول مجهول (Anonymous Auth) ──
+// لازم يكون موجود هنا بنفس طريقة التطبيق الرئيسي، لأن قواعد أمان RTDB
+// بقت بتشترط "auth != null" على عقدة schoolData بالكامل. من غيره،
+// بوابة ولي الأمر هتاخد Permission Denied على أي قراءة أو كتابة.
+let _fbAuthReady = new Promise(resolve=>{
+  firebase.auth().signInAnonymously().catch(e=>{
+    console.warn('Firebase Anonymous Auth فشل:', e.message);
+  });
+  firebase.auth().onAuthStateChanged(user=>{ if(user) resolve(user); });
+  setTimeout(()=>resolve(null), 5000); // ما نستناش للأبد لو حصل عطل
+});
 
 // ══ تحميل البيانات من Firebase والاستماع للتحديثات التلقائية ══
 function showSyncBadge(){
@@ -671,7 +684,11 @@ function renderGrades(s){
 
 function renderPays(s){
   // ── الرسوم الشهرية ──
-  const pays = (schoolData?.payments||[]).filter(p=>p.studentId===s.id);
+  // ملحوظة: المدفوعات بقت متخزنة جوه بيانات الطالب نفسه (s.payments) بدل
+  // مصفوفة منفصلة على مستوى القاعدة كلها (schoolData.payments) — توفيراً
+  // لحجم البيانات المنقولة. بنقرأ من الشكلين لضمان التوافق مع أي بيانات
+  // قديمة لسه متخزنة بالشكل القديم.
+  const pays = (s.payments || (schoolData?.payments||[]).filter(p=>p.studentId===s.id));
   const totalPays = pays.filter(p=>p.status==='paid').reduce((a,b)=>a+b.amount,0);
   const sl={paid:'✅ مسدد',unpaid:'⏳ غير مسدد',partial:'🔶 جزئي'};
   const sc={paid:'badge-green',unpaid:'badge-red',partial:'badge-amber'};
@@ -763,6 +780,7 @@ function _checkAutoLogin(){
 }
 
 // ── تشغيل ──
+_fbAuthReady.then(()=>{
 db.ref('schoolData').on('value', snap => {
   const data = snap.val();
   if(!data){
@@ -788,6 +806,7 @@ db.ref('schoolData').on('value', snap => {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('login-screen').style.display = 'flex';
   }
+});
 });
 
 function requestRetake(examId, examTitle){
