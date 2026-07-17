@@ -12173,6 +12173,7 @@ function spRenderMCQ(){
         const session=DB.examSessions.find(ses=>ses.examId===e.id&&ses.studentId===s.id);
         const permitRetake=DB.retakePermissions&&DB.retakePermissions.find(p=>p.examId===e.id&&p.studentId===s.id&&!p.used);
         const canTake=!session||permitRetake;
+        const retakeReq=(DB.retakeRequests||[]).find(r=>r.examId===e.id&&r.studentId===s.id);
         const pct=session?Math.round(session.score/e.questions.length*100):null;
         return `<div style="background:rgba(255,255,255,.05);border:1px solid ${canTake?'rgba(79,124,255,.3)':'rgba(255,255,255,.08)'};border-radius:14px;padding:1rem;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.6rem;">
@@ -12187,7 +12188,10 @@ function spRenderMCQ(){
           ${session&&e.showResult!=='no'?`<div style="margin-bottom:.6rem;padding:.5rem .8rem;background:rgba(34,201,122,.07);border-radius:8px;display:flex;justify-content:space-between;"><span style="font-size:12px;color:rgba(255,255,255,.5);">نتيجتك السابقة:</span><span style="font-size:14px;font-weight:700;color:${grCol(pct)};">${grChar(pct)} — ${session.score}/${e.questions.length} (${pct}%)</span></div>`:''}
           ${session&&e.showResult==='no'?`<div style="margin-bottom:.6rem;padding:.5rem .8rem;background:rgba(79,124,255,.07);border-radius:8px;font-size:11.5px;color:rgba(255,255,255,.4);">النتيجة غير متاحة — ستظهر بعد مراجعة المدرس</div>`:''}
           <div style="display:flex;gap:8px;">
-            ${canTake?`<button onclick="spStartExam('${e.id}')" style="flex:1;padding:10px;border-radius:10px;background:linear-gradient(135deg,#4f7cff,#7c5cff);border:none;color:#fff;font-family:Cairo,sans-serif;font-size:13px;font-weight:700;cursor:pointer;">${session&&permitRetake?'🔄 إعادة الامتحان':'▶️ ابدأ الامتحان'}</button>`:`<button onclick="spRequestRetake('${e.id}')" style="flex:1;padding:10px;border-radius:10px;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.3);color:#f5a623;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;cursor:pointer;">📩 طلب إذن إعادة</button>`}
+            ${canTake?`<button onclick="spStartExam('${e.id}')" style="flex:1;padding:10px;border-radius:10px;background:linear-gradient(135deg,#4f7cff,#7c5cff);border:none;color:#fff;font-family:Cairo,sans-serif;font-size:13px;font-weight:700;cursor:pointer;">${session&&permitRetake?'🔄 إعادة الامتحان':'▶️ ابدأ الامتحان'}</button>`
+              :retakeReq&&retakeReq.status==='pending'?`<span style="flex:1;padding:10px;border-radius:10px;background:rgba(79,124,255,.1);border:1px solid rgba(79,124,255,.3);color:#4f7cff;font-size:12px;font-weight:700;text-align:center;">⏳ طلبك قيد المراجعة</span>`
+              :retakeReq&&retakeReq.status==='denied'?`<span style="flex:1;padding:10px;border-radius:10px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);color:#ff4d6d;font-size:12px;font-weight:700;text-align:center;">❌ تم رفض طلب الإعادة</span>`
+              :`<button onclick="spRequestRetake('${e.id}')" style="flex:1;padding:10px;border-radius:10px;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.3);color:#f5a623;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;cursor:pointer;">📩 طلب إذن إعادة</button>`}
           </div>
         </div>`;
       }).join('')||'<div style="padding:2rem;text-align:center;color:rgba(255,255,255,.3);">لا توجد امتحانات متاحة</div>'}
@@ -12205,8 +12209,14 @@ function spRenderFiles(){
 function spRequestRetake(examId){
   if(!spCurrentStu)return;
   if(!DB.retakeRequests) DB.retakeRequests=[];
-  const existing=DB.retakeRequests.find(r=>r.examId===examId&&r.studentId===spCurrentStu.id&&r.status==='pending');
-  if(existing){toast('تم إرسال طلبك مسبقاً — يرجى انتظار موافقة المدرس','i');return;}
+  // ── الامتحان له طلب إعادة واحد فقط: أي طلب سابق (معلّق/مقبول/مرفوض) يمنع إرسال طلب جديد ──
+  const existing=DB.retakeRequests.find(r=>r.examId===examId&&r.studentId===spCurrentStu.id);
+  if(existing){
+    if(existing.status==='pending') toast('تم إرسال طلبك مسبقاً — يرجى انتظار موافقة المدرس','i');
+    else if(existing.status==='denied') toast('❌ تم رفض طلب إعادة هذا الامتحان مسبقاً — لا يمكن إرسال طلب آخر','e');
+    else toast('تم التعامل مع طلبك لهذا الامتحان مسبقاً','i');
+    return;
+  }
   DB.retakeRequests.push({id:nid('rtr'),examId,studentId:spCurrentStu.id,date:localDate(),status:'pending'});
   save();
   updateRetakeBadge();
@@ -12329,8 +12339,8 @@ function spEndExam(){
 function grantRetakePermission(examId,studentId){
   if(!DB.retakePermissions) DB.retakePermissions=[];
   DB.retakePermissions.push({id:nid('perm'),examId,studentId,used:false,date:localDate()});
-  // Remove pending request
-  if(DB.retakeRequests) DB.retakeRequests=DB.retakeRequests.filter(r=>!(r.examId===examId&&r.studentId===studentId));
+  // ── تحديث حالة الطلب إلى "مقبول" مع الاحتفاظ بالسجل (بدل حذفه) لمنع إرسال طلب آخر لاحقاً ──
+  if(DB.retakeRequests) DB.retakeRequests.forEach(r=>{ if(r.examId===examId&&r.studentId===studentId&&r.status==='pending') r.status='approved'; });
   save();
   updateRetakeBadge();
   toast('✅ تم منح إذن إعادة الامتحان');
@@ -12391,7 +12401,8 @@ function selExam(id){
 }
 
 function denyRetakePermission(examId,studentId){
-  if(DB.retakeRequests) DB.retakeRequests=DB.retakeRequests.filter(r=>!(r.examId===examId&&r.studentId===studentId));
+  // ── نحتفظ بالسجل ونعلّمه "مرفوض" بدل حذفه — الامتحان له طلب إعادة واحد فقط ──
+  if(DB.retakeRequests) DB.retakeRequests.forEach(r=>{ if(r.examId===examId&&r.studentId===studentId&&r.status==='pending') r.status='denied'; });
   save(); updateRetakeBadge(); toast('تم رفض الطلب','e'); selExam(examId);
 }
 
