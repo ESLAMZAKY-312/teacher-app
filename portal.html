@@ -704,10 +704,29 @@ function renderPays(s){
   document.getElementById('pays-grand-total').textContent = (totalPays+totalStore).toLocaleString()+' ج';
 }
 
+// ── نفس قوائم السلوكيات الإيجابية/السلبية المستخدمة في التطبيق الرئيسي (للتصنيف بنفس المنطق تمامًا) ──
+const BEH_POS=[
+  '✅ مشاركة فعالة','⭐ انضباط ممتاز','📚 حل الواجب بدقة','💡 سرعة بديهة',
+  '📈 تحسن ملحوظ','🤝 تعاون مع الزملاء','🎯 دقة في الإجابة','🏆 تفوق في الامتحان',
+  '👏 سلوك مثالي','😊 اتزان انفعالي','🔇 التزام بالصمت','📝 ملاحظات منظمة',
+  '🙋 مبادرة وإبداع','💬 تعبير واضح','🧹 نظافة ومظهر لائق'
+];
+const BEH_NEG=[
+  '🗣 كثير الكلام','📱 استخدام الهاتف','⏰ تأخير','📘 عدم حل الواجب',
+  '😴 قلة التركيز','😤 مشاغب','✏️ نقص أدوات','💤 نوم في الحصة',
+  '🍔 أكل في الحصة','🚪 خروج دون إذن','📋 الغش','❌ عدم دقة الواجب',
+  '🤷 مهمل','🤬 سوء الأدب','🤫 سخرية من الزملاء','😠 عدم احترام المعلم'
+];
+function behBadgeCls(bh){
+  if(BEH_POS.some(p=>p.includes(bh)||bh.includes(p.replace(/^.\s/,'')))) return 'badge-green';
+  if(BEH_NEG.some(n=>n.includes(bh)||bh.includes(n.replace(/^.\s/,'')))) return 'badge-red';
+  return 'badge-blue'; // سلوك غير مصنَّف ضمن القائمتين (نادر) — يبقى محايداً
+}
+
 function renderBeh(s){
   const behs = (schoolData?.behaviors||[]).filter(b=>b.studentId===s.id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   document.getElementById('beh-list').innerHTML = behs.length
-    ? behs.map(b=>`<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;margin-bottom:10px;"><div style="font-size:11px;color:var(--text2);margin-bottom:6px;">📅 ${b.date||'—'}</div><div style="display:flex;flex-wrap:wrap;gap:5px;">${(b.behaviors||[]).map(bh=>`<span class="badge badge-blue">${bh}</span>`).join('')}</div>${b.note?`<div style="font-size:12px;color:var(--text2);margin-top:6px;">📝 ${b.note}</div>`:''}</div>`).join('')
+    ? behs.map(b=>`<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;margin-bottom:10px;"><div style="font-size:11px;color:var(--text2);margin-bottom:6px;">📅 ${b.date||'—'}</div><div style="display:flex;flex-wrap:wrap;gap:5px;">${(b.behaviors||[]).map(bh=>`<span class="badge ${behBadgeCls(bh)}">${bh}</span>`).join('')}</div>${b.note?`<div style="font-size:12px;color:var(--text2);margin-top:6px;">📝 ${b.note}</div>`:''}</div>`).join('')
     : '<div class="empty"><div class="empty-ic">🌟</div><div>لا توجد تقييمات</div></div>';
 }
 
