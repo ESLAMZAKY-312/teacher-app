@@ -273,6 +273,7 @@ tr:hover td{background:rgba(255,255,255,.018);}
 
 <!-- ══ Firebase SDK ══ -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" onerror="console.warn('Firebase SDK فشل في التحميل')"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js" onerror="console.warn('Firebase Auth SDK فشل في التحميل')"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js" onerror="console.warn('Firebase DB SDK فشل في التحميل')"></script>
 <script>
 // ══ إعداد Firebase مع حماية كاملة ══
@@ -297,6 +298,24 @@ try {
   }
 } catch(e){
   console.warn('Firebase خطأ:', e.message, '— البرنامج يعمل محلياً');
+}
+
+// ── تسجيل دخول مجهول (Anonymous Auth) ──
+// الهدف الوحيد منه: يخلي قواعد أمان RTDB تقدر تشترط "auth != null"
+// فتمنع أي حد بره التطبيق (بوتات فحص الإنترنت اللي بتدور على قواعد
+// Firebase مفتوحة) من قراءة/كتابة البيانات، مع إن التطبيق نفسه
+// شغّال بالظبط زي ما هو من غير أي تغيير في تجربة الاستخدام (مفيش
+// شاشة تسجيل دخول جديدة — ده كله شغال في الخلفية تلقائياً).
+let _fbAuthReady = null;
+if(_fbAvailable && typeof firebase.auth === 'function'){
+  _fbAuthReady = new Promise(resolve=>{
+    firebase.auth().signInAnonymously().catch(e=>{
+      console.warn('Firebase Anonymous Auth فشل:', e.message, '— هيشتغل التطبيق بدون auth (لو القواعد بتطلبه هيفشل الاتصال)');
+    });
+    firebase.auth().onAuthStateChanged(user=>{ if(user) resolve(user); });
+    // لو الـ Auth SDK اتحمّل بس معطّل من إعدادات المشروع، منستناش أبداً
+    setTimeout(()=>resolve(null), 5000);
+  });
 }
 
 // ═══════════════════════════════════════════════════
@@ -395,7 +414,7 @@ function _startFirebaseListener(){
   _fbDB.ref('schoolData').on('value', snap => {
     // تجاهل لو نحن من أرسلنا التغيير
     if(_isSyncing) return;
-    const data = snap.val();
+    const data = _dewireDB(snap.val());
     if(!data || !data.students) return;
     // تجاهل لو البيانات الواردة أقدم من المحلية
     if(data.__syncedAt && DB.__syncedAt && data.__syncedAt <= DB.__syncedAt) return;
@@ -434,7 +453,7 @@ function _startFirebaseListener(){
 async function _loadFromFirebase(){
   try{
     const snap = await _fbDB.ref('schoolData').once('value');
-    const data = snap.val();
+    const data = _dewireDB(snap.val());
     if(data && data.students) return data;
   } catch(e){
     console.warn('Firebase load failed:', e.message);
@@ -2873,7 +2892,7 @@ async function _loadDB(){
         new Promise((_,rej)=>setTimeout(()=>rej(new Error('Firebase timeout')), 6000))
       ]);
       const data = snap.val();
-      if(data && (data.students || data.settings)) fbDB = data;
+      if(data && (data.students || data.settings)) fbDB = _dewireDB(data);
     }catch(e){ console.warn('Firebase load failed:', e.message); }
   } else {
     console.warn('Firebase غير متاح');
@@ -2894,6 +2913,47 @@ async function _loadDB(){
 // ════════════════════════════════════════════════════════
 //  حفظ البيانات — Firebase فقط
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+//  تحويل شكل التخزين على Firebase (Wire Format)
+//  ────────────────────────────────────────────────────────
+//  الهدف: بدل ما تتخزن كل المدفوعات في مصفوفة واحدة مسطحة على
+//  مستوى القاعدة كلها (وفيها studentId مكرر في كل عنصر)، بنجمّعها
+//  جوه كل طالب في LB.students[i].payments قبل الإرسال لـ Firebase.
+//  ده بيقلل حجم البيانات المرسلة (مفيش تكرار studentId) وبيجهّز
+//  الشكل لقراءة/تحديث مدفوعات طالب واحد بمفرده مستقبلاً بدل تنزيل
+//  الشجرة كاملة. الشكل الداخلي في الذاكرة (DB.payments كمصفوفة
+//  مسطحة منفصلة) فاضل زي ما هو تماماً — كل الكود الحالي (الشاشات،
+//  الفلاتر، التقارير...) مش محتاج يتغيّر خالص.
+// ════════════════════════════════════════════════════════
+/** يحوّل الشكل الداخلي المعتاد (DB) إلى نسخة إرسال مضغوطة لـ Firebase */
+function _wireDB(db){
+  const wire = JSON.parse(JSON.stringify(db));
+  const byStudent = {};
+  const studentIds = new Set((wire.students||[]).map(s=>s.id));
+  const orphans = [];
+  (wire.payments||[]).forEach(p=>{
+    if(studentIds.has(p.studentId)) (byStudent[p.studentId] ||= []).push(p);
+    else orphans.push(p); // دفعة لطالب محذوف — تُحفظ لوحدها عشان ما تضيعش
+  });
+  wire.students = (wire.students||[]).map(s=>({...s, payments: byStudent[s.id]||[]}));
+  delete wire.payments;
+  if(orphans.length) wire.__orphanPayments = orphans;
+  else delete wire.__orphanPayments;
+  return wire;
+}
+/** يعيد تفكيك نسخة الإرسال (القادمة من Firebase) لشكلها الداخلي المعتاد
+ *  (DB.payments كمصفوفة مسطحة منفصلة، بدون تغيير أي كود تاني في التطبيق) */
+function _dewireDB(wire){
+  if(!wire || !Array.isArray(wire.students)) return wire;
+  const payments = [];
+  wire.students.forEach(s=>{
+    if(Array.isArray(s.payments)){ payments.push(...s.payments); delete s.payments; }
+  });
+  if(Array.isArray(wire.__orphanPayments)){ payments.push(...wire.__orphanPayments); delete wire.__orphanPayments; }
+  wire.payments = payments;
+  return wire;
+}
+
 async function _saveFlush(){
   // ══ الإرسال الفعلي لـ Firebase ══
   if(!_fbDB){ _showSyncIndicator('error'); return; }
@@ -2910,7 +2970,7 @@ async function _saveFlush(){
     DB.__lastSave     = Date.now();
     DB.__syncedAt     = new Date().toISOString();
     _isSyncing = true;
-    await _fbDB.ref('schoolData').set(JSON.parse(JSON.stringify(DB)));
+    await _fbDB.ref('schoolData').set(_wireDB(DB));
     _isSyncing = false;
     DB.settings.logo = logo;
     if(DB.certTemplates){
@@ -2929,7 +2989,7 @@ function _saveFlushSync(){
   // ══ إرسال اضطراري عند إغلاق الصفحة ══
   if(!_fbDB || !_saveDirty) return;
   try{
-    const payload = JSON.parse(JSON.stringify(DB));
+    const payload = _wireDB(DB);
     payload.settings.logo = null;
     if(payload.certTemplates){
       ['male','female'].forEach(g=>{ if(payload.certTemplates[g]) payload.certTemplates[g].bg=null; });
@@ -13520,6 +13580,7 @@ loadSubjectsList();
 // ════════════════════════════════════════════════════════
 (async function _boot(){
   try{
+    if(_fbAuthReady) await _fbAuthReady; // استنى تسجيل الدخول المجهول يخلص الأول (لو القواعد بتطلبه)
     // تحميل من Firebase مباشرة (المصدر الوحيد)
     _showSyncIndicator('loading');
     DB = await _loadDB();
