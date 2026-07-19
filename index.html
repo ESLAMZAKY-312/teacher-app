@@ -649,6 +649,7 @@ async function _loadFromFirebase(){
     <button class="btn btn-secondary btn-sm" onclick="printAllCardsPVC()" style="gap:5px;">📄 تصدير الكروت PDF</button>
     <button class="btn btn-secondary btn-sm" onclick="openExportModal('pdf')" style="gap:5px;">تصدير الطلاب PDF</button>
     <button class="btn btn-success btn-sm" onclick="openExportModal('excel')" style="gap:5px;">تصدير Excel</button>
+    <button class="btn btn-wa btn-sm" onclick="sendSelectedStudentsCredentials()" style="gap:5px;">📤 إرسال بيانات الطالب</button>
   </div>
   <div class="tc">
     <table>
@@ -13144,6 +13145,24 @@ function sendDetailedReportWA(sid){
   const portalBase='https://eslamzaky-312.github.io/teacher-app/portal.html';
   const directLink=portalBase+'#auto:'+encodeURIComponent(bc)+':'+encodeURIComponent(pin);
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(directLink)}`,'_blank');
+}
+
+// ── إرسال بيانات الدخول (الاسم + الباركود + كلمة السر فقط) لكل طالب من الطلاب الظاهرين حالياً حسب الفلاتر والمحددين بعلامة ✓ في صفحة الطلاب ──
+function sendSelectedStudentsCredentials(){
+  const checked=[...document.querySelectorAll('.stu-check:checked')].map(cb=>cb.value);
+  if(!checked.length){ toast('حدد طالباً واحداً على الأقل من القائمة أولاً','e'); return; }
+  let missingPhone=0;
+  const list=checked.map(sid=>{
+    const s=stu(sid); if(!s) return null;
+    const ph=fmtPhone(s.parentPhone||s.phone||'');
+    if(!ph){ missingPhone++; return null; }
+    const bc=s.barcode||s.id;
+    const pin=s.pin||'—';
+    const msg=`اسم الطالب: ${s.fname} ${s.lname}\nكود الطالب: ${bc}\nكلمة السر: ${pin}`;
+    return {name:s.fname+' '+s.lname, ph, msg, color:s.color?s.color+'20':undefined};
+  }).filter(Boolean);
+  if(missingPhone>0) toast(`⚠️ تم تجاهل ${missingPhone} طالب بدون رقم هاتف`,'e');
+  showWAList(list);
 }
 
 // ================================================================
