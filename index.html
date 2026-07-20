@@ -1446,7 +1446,16 @@ async function _loadFromFirebase(){
             <input type="file" id="logo-upload" accept="image/*" style="display:none" onchange="uploadLogo(event)">
           </div>
           <div style="flex:1;">
-            <div class="fr"><div class="fg"><label class="fl">اسم المدرس / المركز</label><input class="fi" id="set-name"></div><div class="fg"><label class="fl">المادة الدراسية</label><input class="fi" id="set-subject" placeholder="رياضيات / علوم / لغة عربية ..."></div></div>
+            <div class="fr"><div class="fg"><label class="fl">اسم المدرس / المركز</label><input class="fi" id="set-name"></div><div class="fg"><label class="fl">المادة الدراسية (افتراضي عام)</label><input class="fi" id="set-subject" placeholder="رياضيات / علوم / لغة عربية ..."></div></div>
+            <div style="background:rgba(79,124,255,.06);border:1px solid rgba(79,124,255,.18);border-radius:var(--rs);padding:.7rem .85rem;margin-bottom:.6rem;">
+              <div style="font-size:11.5px;font-weight:800;color:var(--accent);margin-bottom:.5rem;">🧬 اسم المادة حسب الصف الدراسي (يحل محل {اسم_المادة} تلقائياً حسب صف كل طالب)</div>
+              <div class="fr">
+                <div class="fg"><label class="fl" style="font-size:10.5px;">الصف الأول الثانوي</label><input class="fi" id="set-subject-sec1" placeholder="العلوم المتكاملة"></div>
+                <div class="fg"><label class="fl" style="font-size:10.5px;">الصف الثاني والثالث الثانوي</label><input class="fi" id="set-subject-sec23" placeholder="الأحياء والجيولوجيا"></div>
+                <div class="fg"><label class="fl" style="font-size:10.5px;">المرحلة الإعدادية (كاملة)</label><input class="fi" id="set-subject-prep" placeholder="العلوم"></div>
+              </div>
+              <div style="font-size:10px;color:var(--text2);margin-top:2px;">لو صف الطالب مش ثانوي ولا إعدادي (زي الابتدائي)، أو الحقول دي فاضية، هيُستخدم "المادة الدراسية" العامة بالأعلى بدلاً منها.</div>
+            </div>
             <div class="fr"><div class="fg"><label class="fl">هاتف الواتساب</label><input class="fi" id="set-phone" placeholder="201xxxxxxxxx"></div><div class="fg"><label class="fl">💬 واتساب للتواصل</label><input class="fi" id="set-whatsapp" placeholder="201xxxxxxxxx"></div></div>
             <div class="fr">
               <div class="fg">
@@ -1764,6 +1773,10 @@ async function _loadFromFirebase(){
         <button type="button" onclick="insertMsgVar('{تاريخ_الالتحاق}')" class="wa-var-btn wa-var-blue">{تاريخ_الالتحاق}</button>
         <button type="button" onclick="insertMsgVar('{ملاحظات_الطالب}')" class="wa-var-btn wa-var-blue">{ملاحظات_الطالب}</button>
         <button type="button" onclick="insertMsgVar('{رابط_تقرير_الطالب}')" class="wa-var-btn wa-var-orange">{رابط_تقرير_الطالب}</button>
+        <button type="button" onclick="insertMsgVar('{الطالب}')" class="wa-var-btn wa-var-blue" title="طالب/طالبة حسب الجنس">{الطالب}</button>
+        <button type="button" onclick="insertMsgVar('{للطالب}')" class="wa-var-btn wa-var-blue" title="للطالب/للطالبة حسب الجنس">{للطالب}</button>
+        <button type="button" onclick="insertMsgVar('{فعل_الغياب}')" class="wa-var-btn wa-var-blue" title="تغيّب/تغيّبت حسب الجنس">{فعل_الغياب}</button>
+        <button type="button" onclick="insertMsgVar('{فعل_التأخر}')" class="wa-var-btn wa-var-blue" title="تأخّر/تأخّرت حسب الجنس">{فعل_التأخر}</button>
       </div>
 
       <!-- ولي الأمر -->
@@ -1864,6 +1877,10 @@ async function _loadFromFirebase(){
         <button type="button" onclick="insertMsgVar('{تاريخ_الالتحاق}','tg-pinned-msg-content')" class="wa-var-btn wa-var-blue">{تاريخ_الالتحاق}</button>
         <button type="button" onclick="insertMsgVar('{ملاحظات_الطالب}','tg-pinned-msg-content')" class="wa-var-btn wa-var-blue">{ملاحظات_الطالب}</button>
         <button type="button" onclick="insertMsgVar('{رابط_تقرير_الطالب}','tg-pinned-msg-content')" class="wa-var-btn wa-var-orange">{رابط_تقرير_الطالب}</button>
+        <button type="button" onclick="insertMsgVar('{الطالب}','tg-pinned-msg-content')" class="wa-var-btn wa-var-blue" title="طالب/طالبة حسب الجنس">{الطالب}</button>
+        <button type="button" onclick="insertMsgVar('{للطالب}','tg-pinned-msg-content')" class="wa-var-btn wa-var-blue" title="للطالب/للطالبة حسب الجنس">{للطالب}</button>
+        <button type="button" onclick="insertMsgVar('{فعل_الغياب}','tg-pinned-msg-content')" class="wa-var-btn wa-var-blue" title="تغيّب/تغيّبت حسب الجنس">{فعل_الغياب}</button>
+        <button type="button" onclick="insertMsgVar('{فعل_التأخر}','tg-pinned-msg-content')" class="wa-var-btn wa-var-blue" title="تأخّر/تأخّرت حسب الجنس">{فعل_التأخر}</button>
       </div>
 
       <!-- ولي الأمر -->
@@ -2882,15 +2899,15 @@ function localMonth(){
 
 function _defaultDB(){
   return {
-    settings:{name:'الأستاذ',subject:'الرياضيات',fee:500,phone:'201000000000',adminPass:'1234',supervisorPass:'0000'},
+    settings:{name:'الأستاذ',subject:'الرياضيات',subjectSec1:'العلوم المتكاملة',subjectSec23:'الأحياء والجيولوجيا',subjectPrep:'العلوم',fee:500,phone:'201000000000',adminPass:'1234',supervisorPass:'0000'},
     waTmpl:{
       grade:   'مرحباً {اسم_ولي_الأمر}،\nإشعار درجات من {اسم_المعلم} 📚\n\n{اسم_الطالب} — {الصف_الدراسي} · {المجموعة}\nالامتحان: {اسم_الامتحان}\nالدرجة: {آخر_درجة}\nمتوسط الدرجات: {متوسط_الدرجات}\n\n📱 {رقم_المعلم}',
       absent:  'مرحباً {اسم_ولي_الأمر}،\nنود إعلامكم بغياب {اسم_الطالب} عن حصة {المجموعة} بتاريخ {اليوم}.\nنسبة الحضور: {نسبة_الحضور}\n\n📚 {اسم_المعلم} — {رقم_المعلم}',
-      pay:     'مرحباً {اسم_ولي_الأمر}،\nنذكّركم بسداد رسوم شهر {الشهر} للطالب {اسم_الطالب}.\nقيمة الاشتراك: {قيمة_الاشتراك}\nالمبلغ المستحق: {المبلغ_المستحق}\nحالة الدفع: {حالة_الدفع}\n\n📱 {رقم_المعلم}',
-      paid:    'مرحباً {اسم_ولي_الأمر}،\nنشكركم على سداد رسوم شهر {الشهر} للطالب {اسم_الطالب}. ✅\nالمبلغ المسدد: {المبلغ_المسدد}\n\n📚 {اسم_المعلم}',
-      beh:     'مرحباً {اسم_ولي_الأمر}،\nبخصوص الطالب {اسم_الطالب} — {المجموعة}:\n{السلوك}\n\nبتاريخ: {اليوم}\n📚 {اسم_المعلم}',
+      pay:     'مرحباً {اسم_ولي_الأمر}،\nنذكّركم بسداد رسوم شهر {الشهر} {للطالب} {اسم_الطالب}.\nقيمة الاشتراك: {قيمة_الاشتراك}\nالمبلغ المستحق: {المبلغ_المستحق}\nحالة الدفع: {حالة_الدفع}\n\n📱 {رقم_المعلم}',
+      paid:    'مرحباً {اسم_ولي_الأمر}،\nنشكركم على سداد رسوم شهر {الشهر} {للطالب} {اسم_الطالب}. ✅\nالمبلغ المسدد: {المبلغ_المسدد}\n\n📚 {اسم_المعلم}',
+      beh:     'مرحباً {اسم_ولي_الأمر}،\nبخصوص {الطالب} {اسم_الطالب} — {المجموعة}:\n{السلوك}\n\nبتاريخ: {اليوم}\n📚 {اسم_المعلم}',
       late:    'مرحباً {اسم_ولي_الأمر}،\nnود إعلامكم بتأخر {اسم_الطالب} عن حصة {المجموعة} بتاريخ {اليوم}.\n\n📚 {اسم_المعلم} — {رقم_المعلم}',
-      repAbsent:'مرحباً {اسم_ولي_الأمر}،\nnود إعلامكم بأن {اسم_الطالب} تغيّب عن {مرات_الغياب_المتتالي} حصص متتالية في {المجموعة}.\nنسبة الحضور: {نسبة_الحضور}\nنرجو التواصل معنا.\n\n📱 {رقم_المعلم}',
+      repAbsent:'مرحباً {اسم_ولي_الأمر}،\nnود إعلامكم بأن {اسم_الطالب} {فعل_الغياب} عن {مرات_الغياب_المتتالي} حصص متتالية في {المجموعة}.\nنسبة الحضور: {نسبة_الحضور}\nنرجو التواصل معنا.\n\n📱 {رقم_المعلم}',
       comp:    ''
     },
     subjects:[],
@@ -3484,6 +3501,8 @@ function renderDashboard(){
   _dedupeRetakeRequests();
   const pendingRetakes=(DB.retakeRequests||[]).filter(r=>r.status==='pending');
   if(pendingRetakes.length) alerts.push(`<div style="padding:7px 11px;background:rgba(79,124,255,.08);border:1px solid rgba(79,124,255,.25);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;cursor:pointer;" onclick="gp('exams')">📩 <b>${pendingRetakes.length} طلب</b> إعادة امتحان بانتظار الموافقة</div>`);
+  const noGenderCount=DB.students.filter(s=>s.gender!=='male'&&s.gender!=='female').length;
+  if(noGenderCount) alerts.push(`<div style="padding:7px 11px;background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;cursor:pointer;" onclick="gp('students')" title="غالباً طلاب مستوردين من ملف Excel قديم — عدّل بياناتهم وحدد الجنس يدوياً">⚧ <b>${noGenderCount} طالب</b> بدون جنس محدد — تُعامَل رسائلهم كمذكّر افتراضياً</div>`);
   document.getElementById('dash-alerts').innerHTML=alerts.join('')||'<div style="padding:1rem;color:var(--text3);font-size:12.5px;text-align:center;">✅ لا توجد تنبيهات</div>';
 
   updateRetakeBadge();
@@ -4592,8 +4611,10 @@ function confirmImportGroup(){
     const parts=fullname.split(' ');
     const fn=parts[0], ln=parts.slice(1).join(' ')||'.';
     const id='STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*999);
+    const genderRaw=String(row['الجنس']||row['النوع']||row['gender']||'').trim().toLowerCase();
+    const gender=['أنثى','انثى','بنت','طالبة','f','female'].includes(genderRaw)?'female':'male';
     DB.students.push({
-      id,fname:fn,lname:ln,
+      id,fname:fn,lname:ln,gender,
       phone:String(row['الهاتف']||row['phone']||''),
       parentPhone:String(row['هاتف_ولي_الأمر']||''),
       classId:g.classId||'',groupId:gid,
@@ -6398,7 +6419,12 @@ function _grpDayNums(grpId){
   return (_cache[key] = nums.size ? nums : null);
 }
 function _filterDaysByGrp(days, grpId, sid){
-  // sid اختياري: لو مُمرَّر، تُضاف أيام الحضور الاستثنائي (exceptional) للطالب حتى لو خارج أيام المجموعة
+  // sid اختياري: لو مُمرَّر، تُضاف أي أيام له فيها سجل حضور فعلي (حاضر/غائب/
+  // متأخر/استثنائي) حتى لو خارج الجدول الأسبوعي الرسمي للمجموعة — قبل كده كان
+  // بيتحسب بس لو الحالة "exceptional" بالظبط، فكان أي يوم اتسجل فيه حضور فعلي
+  // (بحالة "حاضر" عادية مثلاً) خارج أيام المجموعة الرسمية بيختفي تماماً من كل
+  // التقارير والكشوفات، مع إنه ظاهر وصحيح في بوابة الطالب (اللي بتعرض السجل
+  // الخام من غير أي فلترة على الإطلاق) — وده كان سبب عدم التطابق بينهم.
   const allowed = _grpDayNums(grpId);
   if(!allowed && !sid) return days;
   return days.filter(d => {
@@ -6411,8 +6437,8 @@ function _filterDaysByGrp(days, grpId, sid){
       // المجموعة بدون أيام محددة → كل الأيام مسموحة أصلاً
       return true;
     }
-    // 2) هل حضر الطالب استثنائياً في هذا اليوم؟
-    if(sid && DB.attendance[d]?.[sid] === 'exceptional') return true;
+    // 2) هل يوجد سجل حضور فعلي (أي حالة) لهذا الطالب في هذا اليوم؟
+    if(sid && DB.attendance[d]?.[sid]) return true;
     return false;
   });
 }
@@ -10861,7 +10887,10 @@ function importJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new Fil
 function importExcel(e){
   const f=e.target.files[0]; if(!f)return;
   const r=new FileReader(); r.onload=ev=>{ try{ const wb=XLSX.read(ev.target.result,{type:'binary'}); const ws=wb.Sheets[wb.SheetNames[0]]; const data=XLSX.utils.sheet_to_json(ws); let added=0;
-    data.forEach(row=>{ const fullname=(row['الاسم']||row['name']||'').trim(); if(!fullname)return; const parts=fullname.split(' '); const fn=parts[0], ln=parts.slice(1).join(' ')||'.'; const id='STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*99); DB.students.push({id,fname:fn,lname:ln,phone:row['الهاتف']||row['phone']||'',parentPhone:row['هاتف_ولي_الأمر']||'',classId:DB.classes[0]?.id||'',groupId:DB.groups[0]?.id||'',date:localDate(),fee:DB.settings.fee,notes:'',barcode:id,color:COLORS[DB.students.length%COLORS.length]}); added++; });
+    data.forEach(row=>{ const fullname=(row['الاسم']||row['name']||'').trim(); if(!fullname)return; const parts=fullname.split(' '); const fn=parts[0], ln=parts.slice(1).join(' ')||'.'; const id='STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*99);
+      const genderRaw=String(row['الجنس']||row['النوع']||row['gender']||'').trim().toLowerCase();
+      const gender=['أنثى','انثى','بنت','طالبة','f','female'].includes(genderRaw)?'female':'male';
+      DB.students.push({id,fname:fn,lname:ln,gender,phone:row['الهاتف']||row['phone']||'',parentPhone:row['هاتف_ولي_الأمر']||'',classId:DB.classes[0]?.id||'',groupId:DB.groups[0]?.id||'',date:localDate(),fee:DB.settings.fee,notes:'',barcode:id,color:COLORS[DB.students.length%COLORS.length]}); added++; });
     save(); toast('✅ تم استيراد '+added+' طالب'); }catch(err){toast('خطأ في الملف','e');} }; r.readAsBinaryString(f);
 }
 function renderTrash(){ document.getElementById('trash-body').innerHTML=DB.trash.length?DB.trash.map((t,i)=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();renderTrash()">حذف نهائي</button></div>`).join(''):'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>'; }
@@ -11073,6 +11102,28 @@ function editSubject(id){
   document.getElementById('subject-modal-title').innerHTML='تعديل المادة <button class="mc-btn" onclick="closeModal(\'add-subject-modal\')">✕</button>';
   openModal('add-subject-modal');
 }
+// ── تحديد اسم المادة حسب المرحلة/الصف الدراسي لكل طالب ──
+// الأول الثانوي → العلوم المتكاملة | الثاني والثالث الثانوي → الأحياء والجيولوجيا | كل الإعدادية → العلوم
+function _subjectForClassName(className){
+  if(!className) return null;
+  const isSecondary = /ثانوي/.test(className);
+  const isPrep      = /إعدادي|اعدادي/.test(className);
+  if(isSecondary){
+    const mentionsFirst  = /(الأول|أول|الأولى|أولى)/.test(className);
+    const mentionsOther  = /(الثاني|ثاني|تاني|الثالث|ثالث|تالت)/.test(className);
+    if(mentionsFirst && !mentionsOther) return DB.settings.subjectSec1  || 'العلوم المتكاملة';
+    if(mentionsOther)                   return DB.settings.subjectSec23|| 'الأحياء والجيولوجيا';
+    return DB.settings.subjectSec1 || 'العلوم المتكاملة'; // ثانوي بدون تحديد سنة — نفترض الأول احتياطياً
+  }
+  if(isPrep) return DB.settings.subjectPrep || 'العلوم';
+  return null; // مرحلة أخرى (زي الابتدائي) — استخدم اسم المادة العام
+}
+function getSubjectForStudent(s){
+  if(!s) return DB.settings.subject||'';
+  const cls = DB.classes.find(c=>c.id===s.classId);
+  return (cls && _subjectForClassName(cls.name)) || DB.settings.subject || '';
+}
+
 // ══ applyWAVars — يستبدل كل متغيرات الرسائل ══════════════════════
 function applyWAVars(tmpl, s, extra){
   if(!tmpl) return '';
@@ -11113,6 +11164,12 @@ function applyWAVars(tmpl, s, extra){
   const dayNames   = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
   const weekDay    = dayNames[now.getDay()];
   const timeStr    = now.toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});
+  // ── صيغ لغوية حسب جنس الطالب (تُستخدم مع {اسم_الطالب} في كل الرسائل) ──
+  const isFemale     = s && s.gender==='female';
+  const studentNoun  = isFemale ? 'الطالبة' : 'الطالب';
+  const studentNounFor = isFemale ? 'للطالبة' : 'للطالب';
+  const absentVerb   = isFemale ? 'تغيّبت' : 'تغيّب';
+  const lateVerb     = isFemale ? 'تأخّرت' : 'تأخّر';
 
   return tmpl
     // ── الطالب ──
@@ -11125,6 +11182,10 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{ملاحظات_الطالب\}/g,     stuNotes)
     .replace(/\{تاريخ_الالتحاق\}/g,     joinDate)
     .replace(/\{رابط_تقرير_الطالب\}/g,  `${location.href.split('#')[0]}#portal/${stuCode}`)
+    .replace(/\{الطالب\}/g,              studentNoun)
+    .replace(/\{للطالب\}/g,              studentNounFor)
+    .replace(/\{فعل_الغياب\}/g,          absentVerb)
+    .replace(/\{فعل_التأخر\}/g,          lateVerb)
     // ── ولي الأمر ──
     .replace(/\{اسم_ولي_الأمر\}/g,      parentName)
     .replace(/\{اسم_ولي_الأمر_2\}/g,    parentName)
@@ -11142,8 +11203,8 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{teacher\}/g,             DB.settings.name||'المدرس')
     .replace(/\{رقم_المعلم\}/g,         DB.settings.phone||'')
     .replace(/\{phone\}/g,               DB.settings.phone||'')
-    .replace(/\{اسم_المادة\}/g,         DB.settings.subject||'')
-    .replace(/\{subject\}/g,             DB.settings.subject||'')
+    .replace(/\{اسم_المادة\}/g,         getSubjectForStudent(s))
+    .replace(/\{subject\}/g,             getSubjectForStudent(s))
     // ── المالية ──
     .replace(/\{قيمة_الاشتراك\}/g,      fmtM(stuFee))
     .replace(/\{amount\}/g,              extra?.amount!==undefined?fmtM(extra.amount):fmtM(stuFee))
@@ -11206,6 +11267,9 @@ function applyWAVars(tmpl, s, extra){
 function loadSettings(){
   document.getElementById('set-name').value=DB.settings.name||'';
   document.getElementById('set-subject').value=DB.settings.subject||'';
+  const s1El=document.getElementById('set-subject-sec1');   if(s1El)   s1El.value=DB.settings.subjectSec1||'';
+  const s23El=document.getElementById('set-subject-sec23'); if(s23El)  s23El.value=DB.settings.subjectSec23||'';
+  const spEl=document.getElementById('set-subject-prep');   if(spEl)   spEl.value=DB.settings.subjectPrep||'';
   document.getElementById('set-phone').value=DB.settings.phone||'';
   document.getElementById('set-facebook').value=DB.settings.facebook||'';
   document.getElementById('set-instagram').value=DB.settings.instagram||'';
@@ -11223,7 +11287,7 @@ function loadSettings(){
   document.getElementById('wa-tmpl-paid').value   = DB.waTmpl.paid||'مرحباً {name}، نشكركم على سداد رسوم {month} بمبلغ {amount} جنيه. ✅';
   document.getElementById('wa-tmpl-beh').value    = DB.waTmpl.beh;
   const lateEl=document.getElementById('wa-tmpl-late');   if(lateEl) lateEl.value=DB.waTmpl.late||'مرحباً، نود إعلامكم بتأخر {name} عن حصة {date} — {group}. 📚';
-  const raEl=document.getElementById('wa-tmpl-repabs');   if(raEl)   raEl.value=DB.waTmpl.repAbsent||'مرحباً، نود إعلامكم بأن {name} تغيّب عن {count} حصص متتالية في {group}. نرجو التواصل.';
+  const raEl=document.getElementById('wa-tmpl-repabs');   if(raEl)   raEl.value=DB.waTmpl.repAbsent||'مرحباً، نود إعلامكم بأن {name} {فعل_الغياب} عن {count} حصص متتالية في {group}. نرجو التواصل.';
   const compEl=document.getElementById('wa-tmpl-comp');   if(compEl) compEl.value=DB.waTmpl.comp||'';
   loadSubjectsList();
   updateLogoDisplay();
@@ -11233,6 +11297,9 @@ function loadSettings(){
 function saveSettings(){
   DB.settings.name=document.getElementById('set-name').value;
   DB.settings.subject=document.getElementById('set-subject').value;
+  const s1El=document.getElementById('set-subject-sec1');   if(s1El)  DB.settings.subjectSec1=s1El.value.trim();
+  const s23El=document.getElementById('set-subject-sec23'); if(s23El) DB.settings.subjectSec23=s23El.value.trim();
+  const spEl=document.getElementById('set-subject-prep');   if(spEl)  DB.settings.subjectPrep=spEl.value.trim();
   DB.settings.phone=document.getElementById('set-phone').value;
   DB.settings.facebook=document.getElementById('set-facebook').value;
   DB.settings.instagram=document.getElementById('set-instagram').value;
@@ -11944,7 +12011,7 @@ function spLogin(){
   const logoHeader=document.getElementById('sp-teacher-logo-header');
   if(logoHeader){ logoHeader.innerHTML = DB.settings.logo ? `<img src="${DB.settings.logo}" style="width:100%;height:100%;object-fit:contain;">` : '🎓'; }
   const nameHeader=document.getElementById('sp-teacher-name-header'); if(nameHeader) nameHeader.textContent=DB.settings.name||'';
-  const subjHeader=document.getElementById('sp-teacher-subj-header'); if(subjHeader) subjHeader.textContent=DB.settings.subject||'';
+  const subjHeader=document.getElementById('sp-teacher-subj-header'); if(subjHeader) subjHeader.textContent=getSubjectForStudent(s)||'';
   spNav('info',document.getElementById('spbtn-info'));
   spRenderNotifBadge();
 }
