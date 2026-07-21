@@ -14,9 +14,12 @@
 html,body{background:var(--bg);font-family:Cairo,sans-serif;color:var(--text);min-height:100vh;}
 #login-screen{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;}
 .login-card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:32px 24px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
-.login-logo{width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,var(--accent),#7c5cff);display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 16px;}
+.login-logo{width:110px;height:110px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
+.login-logo img{width:100%;height:100%;object-fit:contain;}
 .login-title{font-size:20px;font-weight:900;text-align:center;margin-bottom:4px;}
-.login-sub{font-size:12px;color:var(--text2);text-align:center;margin-bottom:28px;}
+.login-sub{font-size:12px;color:var(--text2);text-align:center;margin-bottom:12px;}
+.login-phones{margin:6px 0 8px;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:center;gap:14px;}
+.login-stars{text-align:center;font-size:16px;letter-spacing:2px;color:var(--amber);margin-bottom:24px;}
 .field{margin-bottom:14px;}
 .field label{display:block;font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px;}
 .field input{width:100%;padding:12px 14px;background:#ffffff08;border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:Cairo,sans-serif;font-size:14px;outline:none;transition:border-color .15s;}
@@ -95,6 +98,8 @@ tbody tr:last-child td{border-bottom:none;}
     <div class="login-logo" id="school-logo">🎓</div>
     <div class="login-title" id="school-name">بوابة ولي الأمر</div>
     <div class="login-sub" id="school-sub">أدخل بيانات الطالب للدخول</div>
+    <div class="login-phones" id="login-phones"></div>
+    <div class="login-stars" id="login-stars">★★★★★</div>
     <div class="field"><label>رقم الطالب</label><input type="text" id="inp-barcode" placeholder="أدخل رقم الطالب..." autocomplete="off"></div>
     <div class="field"><label>كلمة السر</label><input type="password" id="inp-pass" placeholder="أدخل كلمة السر..." onkeydown="if(event.key==='Enter')doLogin()"></div>
     <button class="btn-login" onclick="doLogin()">🚪 دخول</button>
@@ -789,6 +794,11 @@ db.ref('schoolData').on('value', snap => {
   if(data.settings){
     document.getElementById('school-name').textContent = data.settings.name || 'بوابة ولي الأمر';
     document.getElementById('school-sub').textContent = (data.settings.subject||'') + ' — أدخل بيانات الطالب للدخول';
+    document.getElementById('school-logo').innerHTML = `<img src="${TEACHER_LOGO_B64}" alt="شعار">`;
+    // أرقام تليفونات المعلم على شاشة الدخول (نفس منطق بطاقة المعلم بعد الدخول)
+    const loginPhonesBox = document.getElementById('login-phones');
+    const loginPhoneNums = [...new Set([data.settings.phone, data.settings.whatsapp].filter(Boolean))];
+    loginPhonesBox.innerHTML = loginPhoneNums.map(p=>`<a class="teacher-phone-item" href="tel:${p}">📞 ${p}</a>`).join('');
   }
   if(data.__syncedAt){
     const d = new Date(data.__syncedAt);
