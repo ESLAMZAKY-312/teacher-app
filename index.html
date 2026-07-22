@@ -2998,7 +2998,7 @@ function _dewireDB(wire){
 
 async function _saveFlush(){
   // ══ الإرسال الفعلي لـ Firebase ══
-  if(!_fbDB){ _showSyncIndicator('error'); return; }
+  if(!_fbDB){ _showSyncIndicator('error'); return false; }
   try{
     _showSyncIndicator('saving');
     const logo    = DB.settings.logo;
@@ -3020,11 +3020,21 @@ async function _saveFlush(){
     }
     _saveDirty = false;
     _showSyncIndicator('saved');
+    return true;
   }catch(e){
     _isSyncing = false;
     _showSyncIndicator('error');
     console.warn('Firebase save error:', e.message);
+    return false;
   }
+}
+
+// ── مزامنة فورية (تتخطى انتظار الـ 10 دقائق) — تُستخدم بعد الإجراءات المهمة
+// اللي لازم توصل للطلاب فوراً (زي إضافة/تعديل امتحان) ──
+async function _syncNow(){
+  if(_fbSyncPending){ clearTimeout(_fbSyncPending); _fbSyncPending=null; _fbSyncStartTime=null; }
+  if(_countdownTimer){ clearInterval(_countdownTimer); _countdownTimer=null; }
+  return await _saveFlush();
 }
 
 function _saveFlushSync(){
@@ -5892,13 +5902,13 @@ function handleQImagePaste(e, zoneEl){
       reader.onload=ev=>{
         const img=new Image();
         img.onload=()=>{
-          const maxW=900;
+          const maxW=700;
           let w=img.width, h=img.height;
           if(w>maxW){ h=Math.round(h*maxW/w); w=maxW; }
           const canvas=document.createElement('canvas');
           canvas.width=w; canvas.height=h;
           canvas.getContext('2d').drawImage(img,0,0,w,h);
-          const dataUrl=canvas.toDataURL('image/jpeg',0.82);
+          const dataUrl=canvas.toDataURL('image/jpeg',0.72);
           const wrap=zoneEl.closest('.qimg-wrap');
           const size=wrap.dataset.imgsize||'60';
           wrap.dataset.img=dataUrl;
@@ -5981,6 +5991,10 @@ function saveExam(){
   document.getElementById('create-exam-title').innerHTML='إنشاء امتحان <button class="mc-btn" onclick="closeModal(\'create-exam-modal\')">✕</button>';
   document.getElementById('exam-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('create-exam-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveExam()">✅ حفظ الامتحان</button>`;
   renderExams();
+  // ── مزامنة فورية مع Firebase — عشان الامتحان يوصل لبوابة الطلاب فوراً بدل انتظار 10 دقائق ──
+  _syncNow().then(ok=>{
+    if(!ok) toast('⚠️ تم الحفظ محلياً، لكن فشلت المزامنة مع السحابة — الطلاب لن يروا الامتحان حتى تتم المزامنة. تأكد من اتصالك بالإنترنت.','e');
+  });
 }
 
 function startExam(id){ curExam=DB.exams.find(e=>e.id===id); if(!curExam)return; curQ=0; exAns={}; exTimeLeft=curExam.duration*60; document.getElementById('take-ex-tt').textContent=curExam.title+' '; document.getElementById('take-ex-tt').innerHTML+=`<button class="mc-btn" onclick="if(confirm('إنهاء الامتحان؟'))endExam()">✕</button>`; renderExQ(); openModal('take-exam-modal'); startExTimer(); }
