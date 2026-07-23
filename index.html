@@ -2284,6 +2284,7 @@ async function _loadFromFirebase(){
     <div class="fr"><div class="fg"><label class="fl">العنوان</label><input class="fi" id="ex-title" placeholder="امتحان الفصل الأول"></div><div class="fg"><label class="fl">الصف الدراسي</label><select class="fs" id="ex-cls" onchange="filterExamGroups()"><option value="">الكل</option></select></div></div>
     <div class="fg"><label class="fl">المجموعة</label><select class="fs" id="ex-grp"><option value="الكل">الكل</option></select></div>
     <div class="fg"><label class="fl">التاريخ</label><input type="date" class="fi" id="ex-date"></div>
+    <div class="fg"><label class="fl">🕒 يظهر للطالب اعتباراً من (اختياري)</label><input type="datetime-local" class="fi" id="ex-visible-from"><div style="font-size:10px;color:var(--text2);margin-top:3px;">اتركه فارغاً ليظهر الامتحان للطالب فوراً بعد الحفظ — أو حدد تاريخ ووقت لاحقين لجدولة ظهوره</div></div>
     <div class="fg" id="ex-paper-score-row"><label class="fl">الدرجة الكاملة</label><input type="number" class="fi" id="ex-out-of" value="100" min="1" placeholder="مثال: 100"></div>
     <!-- يظهر فقط في الامتحان الإلكتروني -->
     <div id="ex-electronic-only" style="display:none;">
@@ -3414,6 +3415,7 @@ function popModal(id){
     if(editingId && grpSelect) grpSelect.value = prevGrpVal; // حافظ على اختيار المجموعة عند التعديل
     if(!editingId){
       document.getElementById('ex-date').value=localDate();
+      const vfEl=document.getElementById('ex-visible-from'); if(vfEl) vfEl.value='';
       document.getElementById('q-build').innerHTML=''; qCount=0; addQ();
       document.getElementById('ex-edit-id').value='';
       document.getElementById('create-exam-title').innerHTML='إنشاء امتحان <button class="mc-btn" onclick="closeModal(\'create-exam-modal\')">✕</button>';
@@ -5801,11 +5803,13 @@ function renderExams(){
   document.getElementById('exams-list').innerHTML=DB.exams.map(e=>{
     const qs = e.questions||[];
     const typeLbl = e.type==='electronic' ? '<span class="badge bg-b" style="font-size:9px;margin-right:4px;">💻 إلكتروني</span>' : '<span class="badge bg-a" style="font-size:9px;margin-right:4px;">📄 ورقي</span>';
+    const isScheduled = e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now();
+    const scheduleLbl = isScheduled ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(245,166,35,.15);color:var(--amber);">🕒 مجدول — يظهر ${new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}</span>` : '';
     return `
     <div style="padding:9px 11px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:7px;transition:all .14s;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
         <div style="flex:1;cursor:pointer;" onclick="selExam('${e.id}')">
-          <div style="font-weight:700;font-size:13px;">${e.title}${typeLbl}${e.terminated?'<span class="badge bg-r" style="margin-right:6px;font-size:9px;">⛔ منتهي</span>':''}</div>
+          <div style="font-weight:700;font-size:13px;">${e.title}${typeLbl}${scheduleLbl}${e.terminated?'<span class="badge bg-r" style="margin-right:6px;font-size:9px;">⛔ منتهي</span>':''}</div>
           <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${qs.length} أسئلة</div>
           <div style="font-size:10.5px;color:var(--teal);margin-top:2px;">${(DB.examSessions||[]).filter(s=>s.examId===e.id).length} جلسة مكتملة</div>
         </div>
@@ -5823,6 +5827,7 @@ function editExam(id){
   document.getElementById('ex-grp').value=exam.group||'الكل';
   document.getElementById('ex-dur').value=exam.duration;
   document.getElementById('ex-date').value=exam.date;
+  const vfEl=document.getElementById('ex-visible-from'); if(vfEl) vfEl.value=exam.visibleFrom||'';
   document.getElementById('ex-show-result').value=exam.showResult||'yes';
   // restore exam type badge
   const exType = exam.type || 'paper';
@@ -5967,7 +5972,7 @@ function saveExam(){
   if(examType==='electronic' && !qs.length && !editId){toast('أضف سؤالاً على الأقل','e');return;}
   const showResult = document.getElementById('ex-show-result')?.value || 'yes';
   const outOf = +document.getElementById('ex-out-of')?.value || 100;
-  const baseData={title,classId:document.getElementById('ex-cls').value,group:document.getElementById('ex-grp').value,duration:+document.getElementById('ex-dur').value||30,date:document.getElementById('ex-date').value,showResult,type:examType,outOf};
+  const baseData={title,classId:document.getElementById('ex-cls').value,group:document.getElementById('ex-grp').value,duration:+document.getElementById('ex-dur').value||30,date:document.getElementById('ex-date').value,showResult,type:examType,outOf,visibleFrom:document.getElementById('ex-visible-from')?.value||''};
   if(editId){
     const ex=DB.exams.find(e=>e.id===editId);
     if(ex){
@@ -12360,6 +12365,7 @@ function spRenderMCQ(){
   // Show exams available for student's class/group
   const availExams=DB.exams.filter(e=>{
     if(e.terminated)return false;
+    if(e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now()) return false; // امتحان مجدول لظهور لاحق
     if(!e.classId||e.classId===s.classId||e.classId==='')return true;
     if(e.classId===s.classId) return true;
     return false;
