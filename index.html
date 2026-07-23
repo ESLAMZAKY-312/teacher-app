@@ -5992,8 +5992,25 @@ function saveExam(){
   document.getElementById('exam-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('create-exam-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveExam()">✅ حفظ الامتحان</button>`;
   renderExams();
   // ── مزامنة فورية مع Firebase — عشان الامتحان يوصل لبوابة الطلاب فوراً بدل انتظار 10 دقائق ──
-  _syncNow().then(ok=>{
-    if(!ok) toast('⚠️ تم الحفظ محلياً، لكن فشلت المزامنة مع السحابة — الطلاب لن يروا الامتحان حتى تتم المزامنة. تأكد من اتصالك بالإنترنت.','e');
+  _syncNow().then(async ok=>{
+    if(!ok){
+      toast(`⚠️ تم الحفظ محلياً، لكن فشلت المزامنة مع السحابة: ${_lastSyncError||'خطأ غير معروف'}`,'e');
+      return;
+    }
+    // ── تحقق فوري: نقرأ من Firebase مباشرة (قراءة مستقلة، مش من الذاكرة المحلية) للتأكد إن الامتحان فعلاً وصل هناك ──
+    try{
+      const snap = await _fbDB.ref('schoolData/exams').once('value');
+      const cloudExamsRaw = snap.val();
+      const cloudExams = Array.isArray(cloudExamsRaw) ? cloudExamsRaw : (cloudExamsRaw ? Object.values(cloudExamsRaw) : []);
+      const found = cloudExams.find(e=>e && e.title===title);
+      if(found){
+        toast(`✅ تم التأكد: الامتحان "${title}" وصل فعلاً لقاعدة بيانات Firebase (إجمالي ${cloudExams.length} امتحان محفوظ سحابياً)`);
+      } else {
+        toast(`❌ تحذير هام: الامتحان اتحفظ عندك محلياً، لكن لم أجده في قاعدة Firebase بعد المزامنة! (يوجد ${cloudExams.length} امتحان آخر هناك بدون هذا الامتحان) — أبلغني بهذه الرسالة بالتحديد`,'e');
+      }
+    }catch(e){
+      toast('⚠️ تعذر التحقق من وصول البيانات لـ Firebase: '+(e?.message||e),'e');
+    }
   });
 }
 
