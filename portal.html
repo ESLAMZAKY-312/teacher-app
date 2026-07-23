@@ -326,7 +326,14 @@ function renderPortal(s){
   document.getElementById('portal-name').textContent = (s.fname||'')+' '+(s.lname||'');
   document.getElementById('portal-code').textContent = s.barcode || s.id || '—';
 
-  renderInfo(s); renderAtt(s); renderGrades(s); renderPays(s); renderBeh(s); renderFiles(s); renderMcq(s);
+  // كل قسم بيترسم لوحده — لو قسم حصل فيه خطأ (زي بيانات دفعة تالفة مثلاً)،
+  // الأقسام التانية (وأهمها الامتحانات) لازم تفضل تترسم عادي ومتتأثرش
+  [
+    ['renderInfo',renderInfo],['renderAtt',renderAtt],['renderGrades',renderGrades],
+    ['renderPays',renderPays],['renderBeh',renderBeh],['renderFiles',renderFiles],['renderMcq',renderMcq]
+  ].forEach(([name,fn])=>{
+    try{ fn(s); }catch(err){ console.error(name+' error:', err); }
+  });
 }
 
 // ── تبويب: بيانات الطالب ──
@@ -437,11 +444,16 @@ function renderFiles(s){
 let _mcqExam=null, _mcqAnswers=[], _mcqIdx=0, _mcqTimer=null, _mcqSecs=0;
 
 function renderMcq(s){
-  // فلتر امتحانات النوع إلكتروني أو غير محدد وتخص مجموعته أو الكل
+  try{
+  // فلتر امتحانات النوع إلكتروني أو غير محدد وتخص صفه/مجموعته أو الكل
+  // (نفس شرط الصف المستخدم في تطبيق الإدارة — كان ناقص هنا وممكن يسبب
+  // عدم تطابق فيمن يظهر له الامتحان)
   const allExams = (schoolData?.exams||[]).filter(e=>{
+    if(!e || typeof e!=='object') return false; // حماية من أي عنصر تالف/فاضي في المصفوفة
     const typeOk = !e.type || e.type==='electronic';
+    const clsOk  = !e.classId || e.classId===s.classId;
     const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
-    return typeOk && grpOk && (e.questions||[]).length>0;
+    return typeOk && clsOk && grpOk && (e.questions||[]).length>0;
   });
   const grades  = schoolData?.grades || [];
 
@@ -484,6 +496,13 @@ function renderMcq(s){
     }).join('');
   } else {
     doneSection.style.display='none';
+  }
+  }catch(err){
+    // ── لو حصل أي خطأ غير متوقع (مثلاً بيانات امتحان تالفة)، ما نخليش الصفحة كلها تفشل بصمت —
+    // نوريّ رسالة واضحة بدل ما الطالب يفتكر إن الامتحانات مش موجودة ══
+    console.error('renderMcq error:', err);
+    const pendingEl = document.getElementById('mcq-pending');
+    if(pendingEl) pendingEl.innerHTML = '<div class="empty" style="padding:20px 0;"><div class="empty-ic">⚠️</div><div>حدث خطأ أثناء تحميل الامتحانات — حاول تحديث الصفحة</div></div>';
   }
 }
 
