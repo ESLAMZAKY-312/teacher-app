@@ -454,7 +454,8 @@ function renderMcq(s){
     const typeOk = !e.type || e.type==='electronic';
     const clsOk  = !e.classId || e.classId===s.classId;
     const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
-    return typeOk && clsOk && grpOk && (e.questions||[]).length>0;
+    const timeOk = !e.visibleFrom || new Date(e.visibleFrom).getTime()<=Date.now();
+    return typeOk && clsOk && grpOk && timeOk && (e.questions||[]).length>0;
   });
   // ── تشخيص: لو فيه امتحانات في القاعدة بس محدش منها ظاهر لهذا الطالب، وضّح السبب بالظبط ──
   let debugHTML = '';
@@ -463,12 +464,14 @@ function renderMcq(s){
       const typeOk = !e.type || e.type==='electronic';
       const clsOk  = !e.classId || e.classId===s.classId;
       const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
+      const timeOk = !e.visibleFrom || new Date(e.visibleFrom).getTime()<=Date.now();
       const hasQ   = (e.questions||[]).length>0;
-      if(typeOk&&clsOk&&grpOk&&hasQ) return null;
+      if(typeOk&&clsOk&&grpOk&&timeOk&&hasQ) return null;
       const why=[];
       if(!typeOk) why.push('امتحان ورقي (مش إلكتروني)');
       if(!clsOk)  why.push('صف مختلف عن صفك');
       if(!grpOk)  why.push('مجموعة مختلفة عن مجموعتك');
+      if(!timeOk) why.push('مجدول للظهور في '+new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}));
       if(!hasQ)   why.push('بدون أسئلة');
       return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: ${why.join('، ')}</div>`;
     }).filter(Boolean);
