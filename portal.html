@@ -448,13 +448,34 @@ function renderMcq(s){
   // فلتر امتحانات النوع إلكتروني أو غير محدد وتخص صفه/مجموعته أو الكل
   // (نفس شرط الصف المستخدم في تطبيق الإدارة — كان ناقص هنا وممكن يسبب
   // عدم تطابق فيمن يظهر له الامتحان)
-  const allExams = (schoolData?.exams||[]).filter(e=>{
+  const rawExams = schoolData?.exams||[];
+  const allExams = rawExams.filter(e=>{
     if(!e || typeof e!=='object') return false; // حماية من أي عنصر تالف/فاضي في المصفوفة
     const typeOk = !e.type || e.type==='electronic';
     const clsOk  = !e.classId || e.classId===s.classId;
     const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
     return typeOk && clsOk && grpOk && (e.questions||[]).length>0;
   });
+  // ── تشخيص: لو فيه امتحانات في القاعدة بس محدش منها ظاهر لهذا الطالب، وضّح السبب بالظبط ──
+  let debugHTML = '';
+  if(rawExams.length && !allExams.length){
+    const reasons = rawExams.filter(e=>e&&typeof e==='object').map(e=>{
+      const typeOk = !e.type || e.type==='electronic';
+      const clsOk  = !e.classId || e.classId===s.classId;
+      const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
+      const hasQ   = (e.questions||[]).length>0;
+      if(typeOk&&clsOk&&grpOk&&hasQ) return null;
+      const why=[];
+      if(!typeOk) why.push('امتحان ورقي (مش إلكتروني)');
+      if(!clsOk)  why.push('صف مختلف عن صفك');
+      if(!grpOk)  why.push('مجموعة مختلفة عن مجموعتك');
+      if(!hasQ)   why.push('بدون أسئلة');
+      return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: ${why.join('، ')}</div>`;
+    }).filter(Boolean);
+    if(reasons.length){
+      debugHTML = `<div style="margin-bottom:10px;"><div style="font-size:10.5px;color:var(--text3);margin-bottom:5px;">🔍 معلومة تشخيصية (فيه امتحانات محفوظة بس مش ظاهرة لك):</div>${reasons.join('')}</div>`;
+    }
+  }
   const grades  = schoolData?.grades || [];
 
   const pending = allExams.filter(e=>!grades.find(g=>g.studentId===s.id && g.examId===e.id));
@@ -462,7 +483,7 @@ function renderMcq(s){
 
   // ── امتحانات متاحة ──
   const pendingEl = document.getElementById('mcq-pending');
-  pendingEl.innerHTML = pending.length
+  pendingEl.innerHTML = (debugHTML) + (pending.length
     ? pending.map(e=>'<div class="mcq-card">'
         +'<div>'
         +'<div style="font-weight:800;font-size:13.5px;margin-bottom:3px;">'+e.title+'</div>'
@@ -470,7 +491,7 @@ function renderMcq(s){
         +'</div>'
         +'<button onclick="startMcqExam(\''+e.id+'\')" style="padding:9px 18px;border-radius:20px;border:none;background:linear-gradient(135deg,var(--amber),#d97706);color:#fff;font-family:Cairo,sans-serif;font-size:12.5px;font-weight:800;cursor:pointer;">ابدأ الاختبار ←</button>'
         +'</div>').join('')
-    : '<div class="empty" style="padding:20px 0;"><div class="empty-ic">🎉</div><div>لا توجد امتحانات معلقة</div></div>';
+    : '<div class="empty" style="padding:20px 0;"><div class="empty-ic">🎉</div><div>لا توجد امتحانات معلقة</div></div>');
 
   // ── نتائج المؤداة ──
   const doneEl = document.getElementById('mcq-done');
