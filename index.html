@@ -3998,16 +3998,7 @@ function showIDCard(id){
   const s=stu(id); if(!s)return;
   document.getElementById('id-card-body').innerHTML=buildCard(s,true);
   openModal('id-card-modal');
-  // نحاول نرسم الباركود، ولو مكتبة JsBarcode لسه بتتحمّل من الإنترنت
-  // (نادر لكن ممكن يحصل في أول فتح للصفحة)، نعيد المحاولة كذا مرة
-  // بدل اعتماد وقت انتظار ثابت واحد ممكن ما يكفيش
-  let tries=0;
-  const tryRender=()=>{
-    tries++;
-    renderBCofEl('card-bc-'+id,s.barcode||s.id);
-    if(typeof JsBarcode==='undefined' && tries<10) setTimeout(tryRender,150);
-  };
-  setTimeout(tryRender,80);
+  setTimeout(()=>_renderBarcodesRetry([{elId:'card-bc-'+id,val:s.barcode||s.id}]),80);
 }
 
 function buildCard(s,modal=false){
@@ -4058,8 +4049,8 @@ function buildCard(s,modal=false){
 
       <!-- ── باركود ── -->
       <div style="margin-top:auto;">
-        <div style="background:rgba(255,255,255,.97);border-radius:5px;padding:3px 5px;">
-          <svg id="card-bc-${s.id}" style="width:100%;display:block;height:26px;"></svg>
+        <div style="background:rgba(255,255,255,.97);border-radius:5px;padding:3px 5px;display:flex;align-items:center;justify-content:center;">
+          <svg id="card-bc-${s.id}" style="max-width:90%;display:block;height:26px;"></svg>
         </div>
         <div style="font-size:7.5px;color:rgba(255,255,255,.35);text-align:center;margin-top:2px;font-family:monospace;letter-spacing:.15em;">${bc}</div>
       </div>
@@ -4076,6 +4067,16 @@ function buildCard(s,modal=false){
   </div>`;
 }
 
+/** يرسم الباركود لعدد من العناصر دفعة واحدة، ويعيد المحاولة تلقائيًا لو مكتبة
+ *  JsBarcode لسه بتتحمّل من الإنترنت (بدل الاعتماد على مهلة زمنية ثابتة واحدة
+ *  ممكن ما تكفيش، خصوصاً في أول فتح للصفحة أو مع إنترنت بطيء) */
+function _renderBarcodesRetry(items, tries){
+  tries = tries||0;
+  items.forEach(({elId,val})=>renderBCofEl(elId,val));
+  if(typeof JsBarcode==='undefined' && tries<15){
+    setTimeout(()=>_renderBarcodesRetry(items,tries+1),150);
+  }
+}
 function renderBCofEl(elId,val){
   const el=document.getElementById(elId); if(!el||!val)return;
   // ── نحاول الأول نرسم باركود حقيقي قابل للمسح فعليًا بمكتبة JsBarcode ──
@@ -10520,8 +10521,8 @@ function buildCardByTemplate(s,tpl){
       </div>
       <!-- الباركود -->
       <div>
-        <div style="background:rgba(255,255,255,.96);border-radius:6px;padding:4px 6px;">
-          <svg id="chosen-bc-${s.id}" style="width:100%;display:block;height:26px;"></svg>
+        <div style="background:rgba(255,255,255,.96);border-radius:6px;padding:4px 6px;display:flex;align-items:center;justify-content:center;">
+          <svg id="chosen-bc-${s.id}" style="max-width:90%;display:block;height:26px;"></svg>
         </div>
         <div style="font-size:7.5px;color:rgba(255,255,255,.3);text-align:center;margin-top:3px;font-family:monospace;letter-spacing:.1em;">${s.barcode||s.id}</div>
       </div>
@@ -10643,9 +10644,7 @@ function renderChosenCards(){
   const gsel=document.getElementById('choose-grp'); if(gsel){ const v=gsel.value; gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cf||g.classId===cf).map(g=>`<option value="${g.id}">${g.name}</option>`).join(''); gsel.value=v; }
   const list=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
   document.getElementById('chosen-cards-grid').innerHTML=list.map(s=>buildCardByTemplate(s,_chosenTemplate)).join('');
-  setTimeout(()=>list.forEach(s=>{
-    try{renderBCofEl('chosen-bc-'+s.id,s.barcode||s.id);}catch(e){}
-  }),220);
+  setTimeout(()=>_renderBarcodesRetry(list.map(s=>({elId:'chosen-bc-'+s.id,val:s.barcode||s.id}))),220);
 }
 function onCardsFilterChange(){
   const csel=document.getElementById('karneh-cls');
@@ -10718,9 +10717,7 @@ function renderCards(){
 
   // Render barcodes and QR codes after DOM update
   setTimeout(()=>{
-    list.forEach(s=>{
-      renderBCofEl('card-bc-'+s.id, s.barcode||s.id);
-    });
+    _renderBarcodesRetry(list.map(s=>({elId:'card-bc-'+s.id,val:s.barcode||s.id})));
   },200);
 }
 function renderBarcodes(){
@@ -10771,7 +10768,7 @@ function renderBarcodes(){
       </div>
     </div>`).join('');
 
-  setTimeout(()=>list.forEach(s=>{ try{renderBCofEl('bcgrid-'+s.id,s.barcode||s.id);}catch(e){} }),220);
+  setTimeout(()=>_renderBarcodesRetry(list.map(s=>({elId:'bcgrid-'+s.id,val:s.barcode||s.id}))),220);
 }
 
 function _printBarcodeStickers(){
