@@ -4056,12 +4056,6 @@ function buildCard(s,modal=false){
       </div>
 
     </div>
-
-    ${!modal?`<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:flex;z-index:3;">
-      <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:#f5a623;font-size:10px;padding:5px;" onclick="printOneCert('${s.id}')">🏅 شهادة</button>
-      <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:#25d366;font-size:10px;padding:5px;" onclick="sendStuWA('${s.id}')">📱 WA</button>
-      <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:#a855f7;font-size:10px;padding:5px;" onclick="openStudentPortal('${s.barcode||s.id}')">🚪 بوابتي</button>
-    </div>`:''}
   </div>`;
 }
 
@@ -10554,7 +10548,7 @@ function buildCardByTemplate(s,tpl){
     <!-- شريط سفلي -->
     <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);padding:4px 12px;display:flex;align-items:center;justify-content:space-between;z-index:3;">
       <span style="font-size:8px;color:rgba(255,255,255,.45);font-family:monospace;">${s.barcode||s.id}</span>
-      <button class="btn btn-xs" style="border-radius:6px;border:none;background:rgba(255,255,255,.12);color:rgba(255,255,255,.7);font-size:9.5px;padding:2px 8px;" onclick="sendStuWA('${s.id}')">📱 WA</button><button class="btn btn-xs" style="border-radius:6px;border:none;background:rgba(0,136,204,.2);color:#6bc8f5;font-size:9.5px;padding:2px 8px;" onclick="sendStuTG('${s.id}')">✈️ TG</button>
+      <button class="btn btn-xs" style="border-radius:6px;border:none;background:rgba(255,255,255,.12);color:rgba(255,255,255,.7);font-size:9.5px;padding:2px 8px;" onclick="sendCardImage('${s.id}','wa')">📱 WA</button><button class="btn btn-xs" style="border-radius:6px;border:none;background:rgba(0,136,204,.2);color:#6bc8f5;font-size:9.5px;padding:2px 8px;" onclick="sendCardImage('${s.id}','tg')">✈️ TG</button>
     </div>
   </div>`;
 }
@@ -11532,6 +11526,126 @@ async function tgBotSend(chatId, text){
     return {ok:false, error:'تعذّر الاتصال بخادم تيليجرام — تحقق من الإنترنت'};
   }
 }
+
+/** يرسل صورة فعليًا عبر بوت تيليجرام لـ chatId محدد (يستخدم sendPhoto API) */
+async function tgBotSendPhoto(chatId, blob, caption){
+  const token=DB.settings.tgBotToken;
+  if(!token) return {ok:false, error:'no-token'};
+  if(!chatId) return {ok:false, error:'no-chatid'};
+  try{
+    const form=new FormData();
+    form.append('chat_id', chatId);
+    if(caption) form.append('caption', caption);
+    form.append('photo', blob, 'card.png');
+    const res=await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {method:'POST', body:form});
+    const data=await res.json();
+    if(!data.ok) return {ok:false, error:data.description||'فشل إرسال الصورة'};
+    return {ok:true};
+  }catch(e){
+    return {ok:false, error:'تعذّر الاتصال بخادم تيليجرام — تحقق من الإنترنت'};
+  }
+}
+
+/** يحوّل بطاقة الطالب (بنفس تصميم "عرض" تمامًا) إلى صورة PNG حقيقية جاهزة
+ *  للمشاركة/الإرسال — بيرسم الباركود الحقيقي جوه نسخة مؤقتة مخفية من
+ *  الكارت، يحوّل الـ SVG لصورة، وبعدين يصوّر الكارت كامل عبر canvas. */
+async function _cardToPNGBlob(sid){
+  const s=stu(sid); if(!s) return null;
+  const wrapper=document.createElement('div');
+  wrapper.style.cssText='position:fixed;left:-9999px;top:0;';
+  wrapper.innerHTML=buildCard(s,true);
+  document.body.appendChild(wrapper);
+  const cardEl=wrapper.firstElementChild;
+  try{
+    const bcSvg=cardEl.querySelector('svg[id^="card-bc-"]');
+    if(bcSvg) renderBCofEl(bcSvg.id, s.barcode||s.id);
+    await new Promise(r=>setTimeout(r,150));
+
+    // حوّل أي SVG (الباركود) لصورة عشان يترسم صح جوه foreignObject
+    cardEl.querySelectorAll('svg').forEach(svg=>{
+      try{
+        const ser=new XMLSerializer().serializeToString(svg);
+        const enc='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(ser)));
+        const img=document.createElement('img');
+        img.src=enc;
+        img.style.cssText=svg.getAttribute('style')||'';
+        svg.parentNode.replaceChild(img,svg);
+      }catch(e){}
+    });
+
+    const imgs=[...cardEl.querySelectorAll('img')];
+    await Promise.all(imgs.map(im=>im.complete?Promise.resolve():new Promise(res=>{im.onload=res;im.onerror=res;})));
+
+    const w=cardEl.offsetWidth||320, h=cardEl.offsetHeight||200;
+    const outerHTML=cardEl.outerHTML;
+    const svgWrap=`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;">${outerHTML}</div></foreignObject></svg>`;
+    const svgBlob=new Blob([svgWrap],{type:'image/svg+xml;charset=utf-8'});
+    const url=URL.createObjectURL(svgBlob);
+
+    return await new Promise(resolve=>{
+      const img=new Image();
+      img.onload=()=>{
+        const scale=3;
+        const canvas=document.createElement('canvas');
+        canvas.width=w*scale; canvas.height=h*scale;
+        const ctx=canvas.getContext('2d');
+        ctx.scale(scale,scale);
+        ctx.fillStyle='#0a0e27'; ctx.fillRect(0,0,w,h);
+        try{ ctx.drawImage(img,0,0,w,h); }catch(e){ resolve(null); return; }
+        URL.revokeObjectURL(url);
+        canvas.toBlob(blob=>resolve(blob),'image/png');
+      };
+      img.onerror=()=>{ URL.revokeObjectURL(url); resolve(null); };
+      img.src=url;
+    });
+  } finally {
+    wrapper.remove();
+  }
+}
+
+/** يجهّز صورة بطاقة الطالب ويرسلها/يشاركها:
+ *  - تيليجرام مع بوت مفعّل: إرسال تلقائي فعلي بالصورة (sendPhoto)
+ *  - غير كده: مشاركة عبر واجهة النظام (بتسمح باختيار واتساب/تيليجرام
+ *    مع إرفاق الصورة تلقائيًا على الموبايل)، أو تحميل الصورة وفتح
+ *    المحادثة يدويًا كحل أخير (واتساب وتيليجرام مايسمحوش بإرفاق ملف
+ *    عبر رابط ويب مباشر — قيد من المنصتين نفسهم مش من التطبيق) */
+async function sendCardImage(sid, platform){
+  const s=stu(sid); if(!s)return;
+  toast('⏳ جارِ تجهيز صورة البطاقة...','i');
+  const blob=await _cardToPNGBlob(sid);
+  if(!blob){ toast('⚠️ تعذّر إنشاء صورة البطاقة','e'); return; }
+  const fileName=`بطاقة-${s.fname}-${s.lname}.png`.replace(/\s+/g,'-');
+
+  if(platform==='tg' && s.tgChatId && DB.settings.tgBotToken){
+    const r=await tgBotSendPhoto(s.tgChatId, blob, `🪪 بطاقة ${s.fname} ${s.lname}`);
+    if(r.ok) toast(`✅ تم إرسال صورة البطاقة إلى ${s.fname} عبر البوت`);
+    else toast(`⚠️ فشل إرسال الصورة: ${r.error}`,'e');
+    return;
+  }
+
+  const file=new File([blob], fileName, {type:'image/png'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({files:[file], title:'بطاقة الطالب', text:`بطاقة ${s.fname} ${s.lname}`});
+      return;
+    }catch(e){ if(e.name==='AbortError') return; }
+  }
+
+  // تحميل تلقائي + فتح المحادثة يدويًا كحل أخير
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=fileName; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+  if(platform==='wa'){
+    const ph=fmtPhone(s.parentPhone||s.phone||DB.settings.phone);
+    toast('📥 اتحمّلت صورة البطاقة — أرفقها يدويًا في واتساب اللي هيفتح دلوقتي','i');
+    if(ph) setTimeout(()=>window.open(`https://wa.me/${ph}`,'_blank'), 700);
+  } else {
+    toast('📥 اتحمّلت صورة البطاقة — أرفقها يدويًا في تيليجرام','i');
+    if(s.tgUsername) setTimeout(()=>window.open(`https://t.me/${s.tgUsername.replace(/^@/,'')}`,'_blank'), 700);
+  }
+}
+
 async function checkTGBotStatus(){
   const token=document.getElementById('set-tg-bot-token')?.value.trim();
   const statusEl=document.getElementById('tg-bot-status');
