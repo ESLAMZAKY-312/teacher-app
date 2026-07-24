@@ -4004,8 +4004,8 @@ function showIDCard(id){
 function buildCard(s,modal=false){
   const accent=s.color||'#4f7cff';
   const logoSrc=DB.settings.logo
-    ?`<img src="${DB.settings.logo}" style="width:32px;height:32px;object-fit:contain;border-radius:6px;">`
-    :`<img src="${ESLAM_RECTOR_LOGO}" style="width:32px;height:32px;object-fit:contain;">`;
+    ?`<img src="${DB.settings.logo}" style="width:44px;height:44px;object-fit:contain;border-radius:6px;">`
+    :`<img src="${ESLAM_RECTOR_LOGO}" style="width:44px;height:44px;object-fit:contain;">`;
   const bc=s.barcode||s.id||'';
   return `<div class="id-card-pro" id="card-${s.id}"
     style="width:320px;height:200px;background:#0a0e27;border-radius:14px;overflow:hidden;position:relative;box-shadow:0 8px 32px rgba(0,0,0,.5);">
@@ -4058,8 +4058,6 @@ function buildCard(s,modal=false){
     </div>
 
     ${!modal?`<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:flex;z-index:3;">
-      <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:rgba(255,255,255,.7);font-size:10px;padding:5px;" onclick="showIDCard('${s.id}')">🖨️ عرض</button>
-      <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:rgba(255,255,255,.7);font-size:10px;padding:5px;" onclick="exportSingleCardPDF('${s.id}')">📄 PDF</button>
       <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:#f5a623;font-size:10px;padding:5px;" onclick="printOneCert('${s.id}')">🏅 شهادة</button>
       <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:#25d366;font-size:10px;padding:5px;" onclick="sendStuWA('${s.id}')">📱 WA</button>
       <button class="btn btn-xs" style="flex:1;border-radius:0;border:none;background:transparent;color:#a855f7;font-size:10px;padding:5px;" onclick="openStudentPortal('${s.barcode||s.id}')">🚪 بوابتي</button>
@@ -4140,18 +4138,24 @@ function printIDCard(){
   const c=cloned.innerHTML;
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>كارنيه</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>*{margin:0;padding:0;box-sizing:border-box;}
-  body{background:#e8e8e8;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:Cairo,sans-serif;}
-  :root{--accent:#4f7cff;--accent2:#7c5cff;}
-  .id-card-pro{background:linear-gradient(135deg,#0d1030,#1a1f45)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;
-    width:8.4cm!important;height:5.3cm!important;border-radius:10px!important;padding:.55rem!important;overflow:hidden!important;}
-  .id-card-pro .av64{width:40px!important;height:40px!important;font-size:14px!important;}
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>*{margin:0;padding:0;box-sizing:border-box;font-family:'Cairo',sans-serif;}
+  body{background:#e8e8e8;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+  /* لا تُلغِ عرض/ارتفاع/حشو الكارت — التصميم الأصلي (320×200px) يطابق فعلياً 8.4×5.3سم عند 96dpi،
+     وأي إعادة تحديد لهذه القيم هنا كانت بتكسر نفس التوزيع المضبوط في المعاينة */
+  .id-card-pro{background:linear-gradient(135deg,#0d1030,#1a1f45)!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   img{max-width:100%;height:auto;}
   @media print{body{background:#fff;padding:0;margin:0;}@page{size:8.4cm 5.3cm;margin:0;}}</style></head>
   <body>${c}</body></html>`);
   w.document.close();
-  setTimeout(()=>w.print(),700);
+  // انتظر تحميل الخط الفعلي قبل الطباعة بدل مهلة ثابتة تخمينية (كانت السبب في اختلاف التنسيق أحياناً)
+  const doPrint=()=>w.print();
+  if(w.document.fonts && w.document.fonts.ready){
+    w.document.fonts.ready.then(doPrint).catch(doPrint);
+    setTimeout(doPrint, 1500); // خط أمان لو "ready" لم تتحقق لأي سبب
+  } else {
+    setTimeout(doPrint, 700);
+  }
 }
 
 function exportSingleCardPDF(sid){
@@ -4179,14 +4183,24 @@ function exportSingleCardPDF(sid){
 
 function printAllCardsPVC(){
   const cf=document.getElementById('karneh-cls')?.value||'', gf=document.getElementById('karneh-grp')?.value||'';
-  const list=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
-  if(!list.length){toast('لا يوجد طلاب','e');return;}
+  const qf=(document.getElementById('karneh-stu-search')?.value||'').trim().toLowerCase();
+  const list=DB.students.filter(s=>{
+    if(cf && s.classId!==cf) return false;
+    if(gf && s.groupId!==gf) return false;
+    if(qf){
+      const fullName=(s.fname+' '+s.lname).toLowerCase();
+      const bc=(s.barcode||s.id||'').toLowerCase();
+      if(!fullName.includes(qf)&&!bc.includes(qf)) return false;
+    }
+    return true;
+  });
+  if(!list.length){toast('لا يوجد طلاب في هذا الاختيار — نفس الفلترة الظاهرة على الشاشة','e');return;}
 
   const tName=DB.settings.name||'الأستاذ';
   const tSubj=(DB.settings.subject||'EDUTRACK').toUpperCase();
   const logoHtml=DB.settings.logo
-    ?`<img src="${DB.settings.logo}" style="width:28px;height:28px;object-fit:contain;border-radius:6px;-webkit-print-color-adjust:exact;">`
-    :`<img src="${ESLAM_RECTOR_LOGO}" style="width:28px;height:28px;object-fit:contain;-webkit-print-color-adjust:exact;">`;
+    ?`<img src="${DB.settings.logo}" style="width:38px;height:38px;object-fit:contain;border-radius:6px;-webkit-print-color-adjust:exact;">`
+    :`<img src="${ESLAM_RECTOR_LOGO}" style="width:38px;height:38px;object-fit:contain;-webkit-print-color-adjust:exact;">`;
 
   const stuData=list.map(s=>({
     id:s.id,
@@ -4197,7 +4211,7 @@ function printAllCardsPVC(){
     av:(s.fname?.[0]||'?')+(s.lname?.[0]||'')
   }));
 
-  const cards=stuData.map(s=>{
+  const cardsArr=stuData.map(s=>{
     const logo=logoHtml.replace('ACCENT',s.color);
     return `
     <div style="width:8.56cm;height:5.4cm;background:#0a0e27;border-radius:10px;overflow:hidden;position:relative;break-inside:avoid;page-break-inside:avoid;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
@@ -4234,14 +4248,22 @@ function printAllCardsPVC(){
         </div>
         <!-- باركود -->
         <div style="margin-top:auto;">
-          <div style="background:rgba(255,255,255,.97);border-radius:4px;padding:2px 4px;-webkit-print-color-adjust:exact;">
-            <svg id="pbc-${s.id}" style="width:100%;display:block;height:20px;"></svg>
+          <div style="background:rgba(255,255,255,.97);border-radius:4px;padding:2px 4px;-webkit-print-color-adjust:exact;display:flex;align-items:center;justify-content:center;">
+            <svg id="pbc-${s.id}" style="max-width:92%;display:block;height:20px;"></svg>
           </div>
           <div style="font-size:5.5px;color:rgba(255,255,255,.35);text-align:center;margin-top:1.5px;font-family:monospace;letter-spacing:.15em;">${s.bc}</div>
         </div>
       </div>
     </div>`;
-  }).join('');
+  });
+
+  // ── تقسيم البطاقات إلى صفحات: 9 بطاقات في كل صفحة (3×3) مع فاصل صفحة إجباري بين كل صفحة والتالية ──
+  const PER_PAGE = 9;
+  let pagesHTML = '';
+  for(let i=0;i<cardsArr.length;i+=PER_PAGE){
+    const chunk = cardsArr.slice(i, i+PER_PAGE);
+    pagesHTML += `<div class="page"><div class="grid">${chunk.join('')}</div></div>`;
+  }
 
   const w=window.open('','_blank');
   w.document.write(`<!DOCTYPE html><html dir="rtl"><head>
@@ -4252,11 +4274,13 @@ function printAllCardsPVC(){
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
     body{font-family:Cairo,sans-serif;background:#dde1ea;padding:6mm;}
+    .page{page-break-after:always;break-after:page;}
+    .page:last-child{page-break-after:auto;break-after:auto;}
     .grid{display:flex;flex-wrap:wrap;gap:3mm;}
     @media print{body{background:#fff;padding:3mm;}@page{size:A4;margin:5mm;}}
   </style>
   </head><body>
-  <div class="grid">${cards}</div>
+  ${pagesHTML}
   <script>
   (function(){
     var data=${JSON.stringify(stuData)};
@@ -10614,8 +10638,8 @@ function printChosenCards(){
       .stu-name{font-size:8.5px;font-weight:900;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       .stu-sub{font-size:6px;color:rgba(255,255,255,.5);margin-top:1px;}
       .stu-fee{font-size:5.5px;color:rgba(255,255,255,.35);margin-top:1px;}
-      .bc-wrap{background:rgba(255,255,255,.95);border-radius:4px;padding:2px 4px;}
-      .bc-svg{width:100%;height:16px;display:block;}
+      .bc-wrap{background:rgba(255,255,255,.95);border-radius:4px;padding:2px 4px;display:flex;align-items:center;justify-content:center;}
+      .bc-svg{max-width:92%;height:16px;display:block;}
       .bc-code{font-size:5.5px;font-family:monospace;color:rgba(255,255,255,.3);text-align:center;margin-top:2px;letter-spacing:.1em;}
       @media print{
         body{background:#fff;padding:5mm;}
