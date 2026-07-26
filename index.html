@@ -573,6 +573,7 @@ async function _loadFromFirebase(){
     <div class="ni" onclick="gp('grades')"><span class="ni-ic">📝</span><span class="sb-txt">الدرجات</span></div>
     <div class="ni" onclick="gp('exams')"><span class="ni-ic">📋</span><span class="sb-txt">الامتحانات</span><span class="ni-badge" id="retake-req-badge">0</span></div>
     <div class="ni" onclick="gp('assignments')"><span class="ni-ic">📎</span><span class="sb-txt">الواجبات والملفات</span></div>
+    <div class="ni" onclick="gp('qbank')"><span class="ni-ic">🗂️</span><span class="sb-txt">بنك الأسئلة</span></div>
     <div class="nav-sec">المالية</div>
     <div class="ni" onclick="gp('payments')"><span class="ni-ic">💰</span><span class="sb-txt">المدفوعات</span><span class="ni-badge" id="pay-badge">0</span></div>
     <div class="ni" onclick="gp('revenue')"><span class="ni-ic">📈</span><span class="sb-txt">الإيرادات</span></div>
@@ -919,6 +920,46 @@ async function _loadFromFirebase(){
       </div>
     </div>
     <div class="tc"><div class="th"><div class="tt">الواجبات المرفوعة</div></div><div id="asgn-list" style="padding:.7rem;max-height:560px;overflow-y:auto;"></div></div>
+  </div>
+</div>
+
+<!-- ======= بنك الأسئلة ======= -->
+<div id="page-qbank" class="page">
+  <div class="g2">
+    <div class="tc">
+      <div class="th"><div class="tt">🗂️ إضافة سؤال للبنك</div></div>
+      <div style="padding:1rem;">
+        <input type="hidden" id="qbank-edit-id" value="">
+        <div class="fr">
+          <div class="fg"><label class="fl">الصف</label><select class="fs" id="qbank-cls" onchange="_refreshQBankFormDatalists()"><option value="">كل الصفوف</option></select></div>
+          <div class="fg"><label class="fl">التصنيف / الوحدة</label><input class="fi" id="qbank-tag" list="qbank-tag-datalist" placeholder="اختر وحدة موجودة أو اكتب وحدة جديدة..." onchange="_refreshQBankFormDatalists()"><datalist id="qbank-tag-datalist"></datalist></div>
+        </div>
+        <div class="fg"><label class="fl">اسم الدرس</label><input class="fi" id="qbank-lesson" list="qbank-lesson-datalist" placeholder="اختر درس موجود أو اكتب درس جديد..."><datalist id="qbank-lesson-datalist"></datalist></div>
+        <div class="fg"><label class="fl">نص السؤال</label><input class="fi" id="qbank-text" placeholder="نص السؤال..."></div>
+        <div id="qbank-img-zone"></div>
+        <div class="fg"><label class="fl">الاختيارات (حدّد الإجابة الصحيحة)</label>
+          <div id="qbank-opts"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="saveQBankQuestion()">💾 حفظ السؤال</button>
+          <button class="btn btn-secondary" id="qbank-cancel-btn" style="display:none;" onclick="resetQBankForm()">إلغاء التعديل</button>
+        </div>
+      </div>
+    </div>
+    <div class="tc">
+      <div class="th">
+        <div class="tt">أسئلة البنك</div>
+        <div class="filt" style="flex-wrap:wrap;gap:6px;">
+          <input class="fi" id="qbank-search" placeholder="🔍 بحث في نص السؤال..." style="width:170px;" oninput="renderQBank()">
+          <select class="fs" style="width:130px" id="qbank-cls-f" onchange="renderQBank()"><option value="">كل الصفوف</option></select>
+          <select class="fs" style="width:150px" id="qbank-tag-f" onchange="renderQBank()"><option value="">كل التصنيفات</option></select>
+          <select class="fs" style="width:150px" id="qbank-lesson-f" onchange="renderQBank()"><option value="">كل الدروس</option></select>
+          <button class="btn btn-success btn-sm" onclick="exportQBankExcel()">📤 تصدير إلى إكسل</button>
+          <label class="btn btn-secondary btn-sm" style="margin-bottom:0;cursor:pointer;">📥 استيراد من إكسل<input type="file" accept=".xlsx,.xls" style="display:none;" onchange="importQBankExcel(event)"></label>
+        </div>
+      </div>
+      <div id="qbank-list" style="padding:.7rem;max-height:560px;overflow-y:auto;"></div>
+    </div>
   </div>
 </div>
 
@@ -2282,18 +2323,56 @@ async function _loadFromFirebase(){
     <input type="hidden" id="ex-type" value="paper">
     <!-- شارة نوع الامتحان -->
     <div id="ex-type-badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:700;margin-bottom:.75rem;background:rgba(79,124,255,.13);color:var(--accent);">📄 ورقي</div>
-    <div class="fr"><div class="fg"><label class="fl">العنوان</label><input class="fi" id="ex-title" placeholder="امتحان الفصل الأول"></div><div class="fg"><label class="fl">الصف الدراسي</label><select class="fs" id="ex-cls" onchange="filterExamGroups()"><option value="">الكل</option></select></div></div>
-    <div class="fg"><label class="fl">المجموعة</label><select class="fs" id="ex-grp"><option value="الكل">الكل</option></select></div>
-    <div class="fg"><label class="fl">التاريخ</label><input type="date" class="fi" id="ex-date"></div>
-    <div class="fg"><label class="fl">🕒 يظهر للطالب اعتباراً من (اختياري)</label><input type="datetime-local" class="fi" id="ex-visible-from"><div style="font-size:10px;color:var(--text2);margin-top:3px;">اتركه فارغاً ليظهر الامتحان للطالب فوراً بعد الحفظ — أو حدد تاريخ ووقت لاحقين لجدولة ظهوره</div></div>
+    <div class="fg"><label class="fl">العنوان</label><input class="fi" id="ex-title" autocomplete="off" placeholder="امتحان الفصل الأول"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">التاريخ</label><input type="date" class="fi" id="ex-date"></div>
+      <div class="fg"><label class="fl">الصف الدراسي</label><select class="fs" id="ex-cls" onchange="filterExamGroups()"><option value="">الكل</option></select></div>
+    </div>
+    <!-- المجموعة — خانة بسيطة تظهر فقط في الامتحان الورقي (الإلكتروني له اختيار مجموعات متعدد داخل قسم معايير الظهور) -->
+    <div class="fg" id="ex-paper-grp-row"><label class="fl">المجموعة</label><select class="fs" id="ex-grp-paper"><option value="">كل مجموعات الصف</option></select></div>
+
+    <!-- ══ معايير الظهور للطلاب (إلكتروني فقط) ══ -->
+    <div id="ex-visibility-section" style="border:1px solid var(--border);border-radius:var(--rs);padding:.9rem;margin:.8rem 0;background:var(--glass2);">
+      <div style="font-size:13px;font-weight:800;margin-bottom:.7rem;color:var(--accent);">📋 معايير الظهور للطلاب</div>
+      <div class="fg">
+        <label class="fl">المجموعات (يمكن اختيار أكثر من مجموعة)</label>
+        <div id="ex-grp-checks" style="display:flex;flex-wrap:wrap;gap:7px;padding:.6rem;background:var(--glass);border-radius:8px;border:1px solid var(--border);min-height:38px;"></div>
+        <div style="font-size:10px;color:var(--text2);margin-top:3px;">اترك الكل بدون تحديد ليظهر الامتحان لكل مجموعات الصف</div>
+      </div>
+      <div class="fr">
+        <div class="fg"><label class="fl">🕒 من (بداية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-from"></div>
+        <div class="fg"><label class="fl">🕒 إلى (نهاية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-until"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text2);margin-top:3px;">اترك الحقلين فارغين ليظهر الامتحان فوراً ويستمر بلا نهاية — أو حدد فترة زمنية محددة لجدولة ظهوره واختفائه تلقائياً</div>
+    </div>
+
     <div class="fg" id="ex-paper-score-row"><label class="fl">الدرجة الكاملة</label><input type="number" class="fi" id="ex-out-of" value="100" min="1" placeholder="مثال: 100"></div>
     <!-- يظهر فقط في الامتحان الإلكتروني -->
     <div id="ex-electronic-only" style="display:none;">
       <div class="fg"><label class="fl">المدة (دقيقة)</label><input type="number" class="fi" id="ex-dur" value="30"></div>
       <div class="fg"><label class="fl">عرض النتيجة للطالب</label><select class="fs" id="ex-show-result"><option value="yes">نعم — يظهر للطالب النتيجة</option><option value="no">لا — تظهر فقط للمسؤول</option></select></div>
-      <div style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:.4rem;"><div style="font-size:13px;font-weight:700;margin-bottom:.65rem;">الأسئلة</div><div id="q-build"></div><button class="btn btn-secondary" style="width:100%;margin-top:7px;" onclick="addQ()">+ سؤال جديد</button></div>
+      <div class="fg"><label class="fl">عدد الأسئلة (اختياري)</label><input type="number" class="fi" id="ex-question-count" min="1" placeholder="اتركه فارغاً لعرض كل الأسئلة"><div style="font-size:10px;color:var(--text2);margin-top:3px;">لو حددت رقم أقل من إجمالي الأسئلة المضافة، هيتم اختيار هذا العدد عشوائيًا لكل طالب من إجمالي الأسئلة</div></div>
+      <div class="fg" style="display:flex;gap:20px;flex-wrap:wrap;padding:.6rem .1rem;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="ex-randomize-q" style="width:16px;height:16px;"> 🔀 ترتيب عشوائي للأسئلة</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="ex-randomize-opts" style="width:16px;height:16px;"> 🔀 ترتيب عشوائي للإجابات</label>
+      </div>
+      <div style="font-size:10px;color:var(--text2);margin-top:-6px;margin-bottom:.5rem;">تقلّل من فرص الغش — كل طالب يشوف الأسئلة و/أو الإجابات بترتيب مختلف عن زميله</div>
+      <div style="border-top:1px solid var(--border);padding-top:.9rem;margin-top:.4rem;"><div style="font-size:13px;font-weight:700;margin-bottom:.65rem;">الأسئلة</div><div id="q-build"></div><div style="display:flex;gap:7px;margin-top:7px;"><button class="btn btn-secondary" style="flex:1;" onclick="addQ()">+ سؤال جديد</button><button class="btn btn-secondary" style="flex:1;" onclick="openQBankPicker()">🗂️ استيراد من البنك</button></div></div>
     </div>
     <div class="fa" id="exam-modal-actions"><button class="btn btn-secondary" onclick="closeModal('create-exam-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveExam()">✅ حفظ الامتحان</button></div>
+  </div>
+</div>
+
+<!-- Question Bank Picker (يستخدم داخل مودال إنشاء/تعديل الامتحان) -->
+<div class="modal-ov" id="qbank-picker-modal" style="z-index:1200;">
+  <div class="modal modal-lg">
+    <div class="mtt">استيراد أسئلة من البنك <button class="mc-btn" onclick="closeModal('qbank-picker-modal')">✕</button></div>
+    <div class="filt" style="flex-wrap:wrap;gap:6px;margin-bottom:.7rem;">
+      <select class="fs" style="width:150px" id="qbp-cls-f" onchange="renderQBankPicker()"><option value="">كل الصفوف</option></select>
+      <select class="fs" style="width:150px" id="qbp-tag-f" onchange="renderQBankPicker()"><option value="">كل التصنيفات</option></select>
+    </div>
+    <div id="qbp-list" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:.9rem;" onclick="importSelectedQBank()">➕ إضافة الأسئلة المحددة للامتحان</button>
   </div>
 </div>
 
@@ -2920,7 +2999,7 @@ function _defaultDB(){
     points:[],rewards:[],rewardGiven:[],supervisors:[],trash:[],
     retakeRequests:[],retakePermissions:[],
     specialPays:[],pinnedMessages:[],tgPinnedMessages:[],
-    notifications:[]
+    notifications:[],questionBank:[]
   };
 }
 
@@ -3410,15 +3489,27 @@ function popModal(id){
     // في هذه الحالة يجب عدم إعادة تصفير الأسئلة/العنوان/التاريخ التي جهّزها editExam() للتو
     const editingId = document.getElementById('ex-edit-id').value;
     const clsSelect=document.getElementById('ex-cls');
-    const grpSelect=document.getElementById('ex-grp');
-    const prevClsVal = clsSelect.value, prevGrpVal = grpSelect ? grpSelect.value : '';
+    const prevClsVal = clsSelect.value;
+    const prevCheckedGroups = [...document.querySelectorAll('.ex-grp-check:checked')].map(c=>c.value);
+    const prevPaperGrpVal = document.getElementById('ex-grp-paper')?.value||'';
     clsSelect.innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
     if(editingId) clsSelect.value = prevClsVal; // حافظ على اختيار الصف عند التعديل
     filterExamGroups();
-    if(editingId && grpSelect) grpSelect.value = prevGrpVal; // حافظ على اختيار المجموعة عند التعديل
+    if(editingId && prevCheckedGroups.length){
+      // حافظ على المجموعات المحددة عند التعديل (نفس منطق حفظ اختيار الصف بالظبط)
+      prevCheckedGroups.forEach(v=>{ const cb=document.querySelector(`.ex-grp-check[value="${v}"]`); if(cb) cb.checked=true; });
+    }
+    if(editingId && prevPaperGrpVal){
+      const paperGrpSel=document.getElementById('ex-grp-paper');
+      if(paperGrpSel) paperGrpSel.value=prevPaperGrpVal;
+    }
     if(!editingId){
       document.getElementById('ex-date').value=localDate();
       const vfEl=document.getElementById('ex-visible-from'); if(vfEl) vfEl.value='';
+      const vuEl=document.getElementById('ex-visible-until'); if(vuEl) vuEl.value='';
+      if(document.getElementById('ex-randomize-q')) document.getElementById('ex-randomize-q').checked=false;
+      if(document.getElementById('ex-randomize-opts')) document.getElementById('ex-randomize-opts').checked=false;
+      if(document.getElementById('ex-question-count')) document.getElementById('ex-question-count').value='';
       document.getElementById('q-build').innerHTML=''; qCount=0; addQ();
       document.getElementById('ex-edit-id').value='';
       document.getElementById('create-exam-title').innerHTML='إنشاء امتحان <button class="mc-btn" onclick="closeModal(\'create-exam-modal\')">✕</button>';
@@ -3430,6 +3521,11 @@ function popModal(id){
       // خانة الدرجة — تظهر فقط في الورقي
       const paperScoreRow = document.getElementById('ex-paper-score-row');
       if(paperScoreRow){ paperScoreRow.style.display = exType === 'paper' ? 'block' : 'none'; }
+      // معايير الظهور للطلاب — تظهر فقط في الامتحان الإلكتروني
+      const visSection = document.getElementById('ex-visibility-section');
+      if(visSection) visSection.style.display = exType === 'electronic' ? 'block' : 'none';
+      const paperGrpRow = document.getElementById('ex-paper-grp-row');
+      if(paperGrpRow) paperGrpRow.style.display = exType === 'paper' ? 'block' : 'none';
       if(document.getElementById('ex-out-of')) document.getElementById('ex-out-of').value='100';
     }
   }
@@ -3448,8 +3544,8 @@ function filterGroupsByCls(csId,gsId){ const cid=document.getElementById(csId).v
 // ================================================================
 // NAVIGATION
 // ================================================================
-const PT={dashboard:'لوحة التحكم',students:'الطلاب',classes:'الصفوف والمجموعات',behavior:'سلوك الطلاب',honor:'لوحة الشرف',attendance:'الحضور والباركود',grades:'الدرجات',exams:'الامتحانات',assignments:'الواجبات والملفات',payments:'المدفوعات',revenue:'الإيرادات',store:'المتجر',reports:'التقارير','detailed-report':'تقرير مفصل','pinned-messages':'رسائل واتساب مثبتة',specialpays:'حالات دفع خاصة',cards:'البطاقات والطباعة',supervisors:'المشرفون',datacenter:'مركز البيانات',settings:'الإعدادات'};
-const PR={dashboard:renderDashboard,students:renderStudents,classes:renderClasses,behavior:renderBehPage,honor:renderHonor,attendance:renderAttPage,grades:renderGrades,exams:renderExams,assignments:renderAssignments,payments:renderPayments,revenue:renderRevenue,store:renderStore,reports:()=>switchRep('academic',document.querySelector('#rep-tabs .active')),'detailed-report':renderDetailedReport,'pinned-messages':renderPinnedMessages,cards:renderCards,certificates:renderCertPage,supervisors:renderSupervisors,settings:loadSettings};
+const PT={dashboard:'لوحة التحكم',students:'الطلاب',classes:'الصفوف والمجموعات',behavior:'سلوك الطلاب',honor:'لوحة الشرف',attendance:'الحضور والباركود',grades:'الدرجات',exams:'الامتحانات',assignments:'الواجبات والملفات',qbank:'بنك الأسئلة',payments:'المدفوعات',revenue:'الإيرادات',store:'المتجر',reports:'التقارير','detailed-report':'تقرير مفصل','pinned-messages':'رسائل واتساب مثبتة',specialpays:'حالات دفع خاصة',cards:'البطاقات والطباعة',supervisors:'المشرفون',datacenter:'مركز البيانات',settings:'الإعدادات'};
+const PR={dashboard:renderDashboard,students:renderStudents,classes:renderClasses,behavior:renderBehPage,honor:renderHonor,attendance:renderAttPage,grades:renderGrades,exams:renderExams,assignments:renderAssignments,qbank:renderQBank,payments:renderPayments,revenue:renderRevenue,store:renderStore,reports:()=>switchRep('academic',document.querySelector('#rep-tabs .active')),'detailed-report':renderDetailedReport,'pinned-messages':renderPinnedMessages,cards:renderCards,certificates:renderCertPage,supervisors:renderSupervisors,settings:loadSettings};
 
 function gp(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -5447,7 +5543,9 @@ function renderGrades(){
   // ── لو في امتحان محدد: فلتر الصفوف والمجموعات حسبه ──
   const exam = ef ? DB.exams.find(e=>e.id===ef) : null;
   const examCls = exam?.classId || '';
-  const examGrp = (exam?.group && exam.group !== 'الكل') ? exam.group : '';
+  // دعم توافقي: امتحانات قديمة فيها exam.group (نص) بدل exam.groups (مصفوفة)
+  const examGroupsArr = exam ? (Array.isArray(exam.groups) ? exam.groups : (exam.group && exam.group!=='الكل' ? [exam.group] : [])) : [];
+  const examGrp = examGroupsArr.length===1 ? examGroupsArr[0] : ''; // فلتر تلقائي بس لو مجموعة واحدة محددة
 
   const csel=document.getElementById('gr-cls-f');
   if(csel){
@@ -5466,7 +5564,7 @@ function renderGrades(){
   const gsel=document.getElementById('gr-grp-f');
   if(gsel){
     if(exam){
-      const grpOptions = DB.groups.filter(g=>(!examCls||g.classId===examCls)&&(!examGrp||g.id===examGrp));
+      const grpOptions = DB.groups.filter(g=>(!examCls||g.classId===examCls)&&(!examGroupsArr.length||examGroupsArr.includes(g.id)));
       gsel.innerHTML='<option value="">كل المجموعات</option>'+grpOptions.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
       if(examGrp) gsel.value=examGrp;
       else gsel.value=gf||'';
@@ -5773,7 +5871,8 @@ function onGradeExamChange(){
   if(!exam){ filterGradeModalStudents(); return; }
 
   const examCls = exam.classId || '';
-  const examGrp = (exam.group && exam.group !== 'الكل') ? exam.group : '';
+  const examGroupsArr = Array.isArray(exam.groups) ? exam.groups : (exam.group && exam.group!=='الكل' ? [exam.group] : []);
+  const examGrp = examGroupsArr.length===1 ? examGroupsArr[0] : '';
 
   // ── رسم الصفوف المرتبطة ──
   const matchingClasses = examCls ? DB.classes.filter(c => c.id === examCls) : DB.classes;
@@ -5783,7 +5882,7 @@ function onGradeExamChange(){
 
   // ── رسم المجموعات المرتبطة ──
   const matchingGroups = DB.groups.filter(g =>
-    (!examCls || g.classId === examCls) && (!examGrp || g.id === examGrp)
+    (!examCls || g.classId === examCls) && (!examGroupsArr.length || examGroupsArr.includes(g.id))
   );
   grpSel.innerHTML = '<option value="">كل المجموعات</option>' +
     matchingGroups.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
@@ -5836,18 +5935,37 @@ function sendGradesWA_unused_replaced(){}
 // EXAMS
 // ================================================================
 let qCount=0, curExam=null, exTimer=null, exTimeLeft=0, curQ=0, exAns={};
+// ── قاعدة ظهور الامتحان الإلكتروني للطالب: ──
+// - لو محدد بداية ونهاية → يظهر بس خلال الفترة دي
+// - لو محدد بداية بس (من غير نهاية) → يظهر من هذا التاريخ وباستمرار
+// - لو محدد نهاية بس (من غير بداية) → يظهر فوراً لحد هذا التاريخ
+// - لو مفيش بداية ولا نهاية خالص → الامتحان مخفي تماماً عن الطلاب لحد ما تُحدد فترة ظهور
+function _examVisibleNow(e){
+  if(e.type!=='electronic') return true; // القاعدة دي خاصة بالامتحان الإلكتروني فقط — الورقي دايماً ظاهر
+  const hasFrom=!!e.visibleFrom, hasUntil=!!e.visibleUntil;
+  if(!hasFrom && !hasUntil) return false; // مفيش جدولة خالص = مخفي دايماً
+  const now=Date.now();
+  if(hasFrom && now < new Date(e.visibleFrom).getTime()) return false;
+  if(hasUntil && now > new Date(e.visibleUntil).getTime()) return false;
+  return true;
+}
+
 function renderExams(){
   document.getElementById('exams-list').innerHTML=DB.exams.map(e=>{
     const qs = e.questions||[];
     const typeLbl = e.type==='electronic' ? '<span class="badge bg-b" style="font-size:9px;margin-right:4px;">💻 إلكتروني</span>' : '<span class="badge bg-a" style="font-size:9px;margin-right:4px;">📄 ورقي</span>';
     const isScheduled = e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now();
-    const scheduleLbl = isScheduled ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(245,166,35,.15);color:var(--amber);">🕒 مجدول — يظهر ${new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}</span>` : '';
+    const isEnded = e.visibleUntil && new Date(e.visibleUntil).getTime()<Date.now();
+    const isHiddenNoSchedule = e.type==='electronic' && !e.visibleFrom && !e.visibleUntil;
+    const scheduleLbl = isHiddenNoSchedule
+      ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(255,77,109,.15);color:var(--red);" title="حدد بداية ونهاية ظهور من زر التعديل عشان يظهر للطلاب">🚫 مخفي — لا توجد فترة ظهور محددة</span>`
+      : isScheduled ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(245,166,35,.15);color:var(--amber);">🕒 مجدول — يظهر ${new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}</span>` : (isEnded ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(255,77,109,.15);color:var(--red);">⏹️ انتهت فترة الظهور</span>` : '');
     return `
     <div style="padding:9px 11px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:7px;transition:all .14s;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
         <div style="flex:1;cursor:pointer;" onclick="selExam('${e.id}')">
           <div style="font-weight:700;font-size:13px;">${e.title}${typeLbl}${scheduleLbl}${e.terminated?'<span class="badge bg-r" style="margin-right:6px;font-size:9px;">⛔ منتهي</span>':''}</div>
-          <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${qs.length} أسئلة</div>
+          <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${e.questionCount && e.questionCount<qs.length ? `${e.questionCount} من ${qs.length} سؤال (عشوائي لكل طالب)` : `${qs.length} أسئلة`}</div>
           <div style="font-size:10.5px;color:var(--teal);margin-top:2px;">${(DB.examSessions||[]).filter(s=>s.examId===e.id).length} جلسة مكتملة</div>
         </div>
         <button class="btn btn-amber btn-xs" onclick="event.stopPropagation();editExam('${e.id}')" title="تعديل الامتحان">✏️ تعديل</button>
@@ -5861,11 +5979,18 @@ function editExam(id){
   document.getElementById('ex-title').value=exam.title;
   document.getElementById('ex-cls').value=exam.classId||'';
   filterExamGroups();
-  document.getElementById('ex-grp').value=exam.group||'الكل';
+  // دعم توافقي: الامتحانات القديمة فيها exam.group (نص واحد) بدل exam.groups (مصفوفة)
+  const examGroups = Array.isArray(exam.groups) ? exam.groups : (exam.group && exam.group!=='الكل' ? [exam.group] : []);
+  examGroups.forEach(gid=>{ const cb=document.querySelector(`.ex-grp-check[value="${gid}"]`); if(cb) cb.checked=true; });
+  const paperGrpSel=document.getElementById('ex-grp-paper'); if(paperGrpSel) paperGrpSel.value=examGroups[0]||'';
   document.getElementById('ex-dur').value=exam.duration;
   document.getElementById('ex-date').value=exam.date;
   const vfEl=document.getElementById('ex-visible-from'); if(vfEl) vfEl.value=exam.visibleFrom||'';
+  const vuEl=document.getElementById('ex-visible-until'); if(vuEl) vuEl.value=exam.visibleUntil||'';
   document.getElementById('ex-show-result').value=exam.showResult||'yes';
+  if(document.getElementById('ex-randomize-q')) document.getElementById('ex-randomize-q').checked = !!exam.randomizeQuestions;
+  if(document.getElementById('ex-randomize-opts')) document.getElementById('ex-randomize-opts').checked = !!exam.randomizeOptions;
+  if(document.getElementById('ex-question-count')) document.getElementById('ex-question-count').value = exam.questionCount||'';
   // restore exam type badge
   const exType = exam.type || 'paper';
   if(document.getElementById('ex-type')) document.getElementById('ex-type').value = exType;
@@ -5880,9 +6005,14 @@ function editExam(id){
   // خانة الدرجة — تظهر فقط في الورقي
   const paperScoreRow = document.getElementById('ex-paper-score-row');
   if(paperScoreRow) paperScoreRow.style.display = exType === 'paper' ? 'block' : 'none';
+  // معايير الظهور للطلاب — تظهر فقط في الامتحان الإلكتروني
+  const visSection = document.getElementById('ex-visibility-section');
+  if(visSection) visSection.style.display = exType === 'electronic' ? 'block' : 'none';
+  const paperGrpRow = document.getElementById('ex-paper-grp-row');
+  if(paperGrpRow) paperGrpRow.style.display = exType === 'paper' ? 'block' : 'none';
   if(document.getElementById('ex-out-of')) document.getElementById('ex-out-of').value = exam.outOf || 100;
   document.getElementById('q-build').innerHTML=''; qCount=0;
-  exam.questions.forEach((q,idx)=>{
+  (exam.questions||[]).filter(q=>q && !q._placeholder).forEach((q,idx)=>{
     qCount++;
     const d=document.createElement('div'); d.id='qb'+qCount;
     d.style.cssText='background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:.7rem;margin-bottom:7px;';
@@ -5994,8 +6124,22 @@ function addQ(){
 }
 function filterExamGroups(){
   const cid=document.getElementById('ex-cls')?.value||'';
-  const grpSel=document.getElementById('ex-grp'); if(!grpSel)return;
-  grpSel.innerHTML='<option value="الكل">الكل</option>'+DB.groups.filter(g=>!cid||g.classId===cid).map(g=>`<option value="${g.id}">${g.name} — ${clsN(g.classId)}</option>`).join('');
+  const groups=DB.groups.filter(g=>!cid||g.classId===cid);
+  // قائمة المجموعات (اختيار متعدد) — للامتحان الإلكتروني
+  const box=document.getElementById('ex-grp-checks');
+  if(box){
+    box.innerHTML = groups.length ? groups.map(g=>`
+      <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;cursor:pointer;background:var(--glass2);padding:4px 10px;border-radius:16px;border:1px solid var(--border);">
+        <input type="checkbox" class="ex-grp-check" value="${g.id}"> ${g.name}${cid?'':' — '+(clsN(g.classId)||'')}
+      </label>`).join('') : '<span style="font-size:11px;color:var(--text2);">لا توجد مجموعات لهذا الصف</span>';
+  }
+  // خانة المجموعة البسيطة (اختيار واحد) — للامتحان الورقي
+  const paperSel=document.getElementById('ex-grp-paper');
+  if(paperSel){
+    const prevVal=paperSel.value;
+    paperSel.innerHTML = '<option value="">كل مجموعات الصف</option>' + groups.map(g=>`<option value="${g.id}">${g.name}${cid?'':' — '+(clsN(g.classId)||'')}</option>`).join('');
+    if(groups.some(g=>g.id===prevVal)) paperSel.value=prevVal;
+  }
 }
 function saveExam(){
   const title=document.getElementById('ex-title').value.trim(); if(!title){toast('أدخل العنوان','e');return;}
@@ -6009,11 +6153,19 @@ function saveExam(){
   if(examType==='electronic' && !qs.length && !editId){toast('أضف سؤالاً على الأقل','e');return;}
   const showResult = document.getElementById('ex-show-result')?.value || 'yes';
   const outOf = +document.getElementById('ex-out-of')?.value || 100;
-  const baseData={title,classId:document.getElementById('ex-cls').value,group:document.getElementById('ex-grp').value,duration:+document.getElementById('ex-dur').value||30,date:document.getElementById('ex-date').value,showResult,type:examType,outOf,visibleFrom:document.getElementById('ex-visible-from')?.value||''};
+  const paperGrpVal = document.getElementById('ex-grp-paper')?.value || '';
+  const selectedGroups = examType==='electronic'
+    ? [...document.querySelectorAll('.ex-grp-check:checked')].map(c=>c.value)
+    : (paperGrpVal ? [paperGrpVal] : []);
+  const randomizeQuestions = document.getElementById('ex-randomize-q')?.checked || false;
+  const randomizeOptions = document.getElementById('ex-randomize-opts')?.checked || false;
+  const questionCount = +document.getElementById('ex-question-count')?.value || 0;
+  const baseData={title,classId:document.getElementById('ex-cls').value,groups:selectedGroups,duration:+document.getElementById('ex-dur').value||30,date:document.getElementById('ex-date').value,showResult,type:examType,outOf,visibleFrom:document.getElementById('ex-visible-from')?.value||'',visibleUntil:document.getElementById('ex-visible-until')?.value||'',randomizeQuestions,randomizeOptions,questionCount};
   if(editId){
     const ex=DB.exams.find(e=>e.id===editId);
     if(ex){
       Object.assign(ex,baseData);
+      delete ex.group; // تنظيف الحقل القديم (نص واحد) بعد الترقية للمصفوفة الجديدة
       if(qs.length) ex.questions=qs; // only replace questions if new ones were entered
       else if(examType==='paper') ex.questions=[{_placeholder:true}]; // prevent Firebase from dropping empty array
       ex.terminated=false;
@@ -6024,8 +6176,8 @@ function saveExam(){
     const finalQs = examType==='paper' && !qs.length ? [{_placeholder:true}] : qs;
     const newExam = {id:nid('EX'),...baseData,questions:finalQs};
     DB.exams.push(newExam);
-    // ── إشعار أولياء أمور كل طلاب الصف/المجموعة المستهدفة بامتحان جديد ──
-    const targetStudents = DB.students.filter(s => s.classId===newExam.classId && (!newExam.group || newExam.group==='الكل' || s.groupId===newExam.group));
+    // ── إشعار أولياء أمور كل طلاب الصف/المجموعات المستهدفة بامتحان جديد ──
+    const targetStudents = DB.students.filter(s => s.classId===newExam.classId && (!newExam.groups.length || newExam.groups.includes(s.groupId)));
     targetStudents.forEach(s => pushNotif(s.id,'exam','📋','امتحان جديد',`تم إضافة امتحان "${newExam.title}" (${examType==='electronic'?'إلكتروني':'ورقي'})`));
     toast('✅ تم حفظ الامتحان');
   }
@@ -6134,6 +6286,273 @@ function saveEditAssignment(){
   a.desc=document.getElementById('edit-asgn-desc').value;
   save(); closeModal('edit-assignment-modal'); renderAssignments(); toast('✅ تم تعديل الواجب');
 }
+
+// ════════════════════════════════════════════════════════
+// بنك الأسئلة — مستودع أسئلة قابلة لإعادة الاستخدام في الامتحانات
+// ════════════════════════════════════════════════════════
+// ── يملأ قوائم اقتراحات (datalist) الوحدة والدرس في فورم الإضافة، بشكل متسلسل حسب الصف/الوحدة المختارين في نفس الفورم ──
+function _refreshQBankFormDatalists(){
+  const clsVal=document.getElementById('qbank-cls')?.value||'';
+  const tagVal=document.getElementById('qbank-tag')?.value.trim()||'';
+  const tagDL=document.getElementById('qbank-tag-datalist');
+  if(tagDL){
+    const tags=[...new Set((DB.questionBank||[]).filter(q=>!clsVal||q.classId===clsVal).map(q=>q.tag).filter(Boolean))];
+    tagDL.innerHTML=tags.map(t=>`<option value="${t.replace(/"/g,'&quot;')}">`).join('');
+  }
+  const lessonDL=document.getElementById('qbank-lesson-datalist');
+  if(lessonDL){
+    const lessons=[...new Set((DB.questionBank||[]).filter(q=>(!clsVal||q.classId===clsVal)&&(!tagVal||q.tag===tagVal)).map(q=>q.lesson).filter(Boolean))];
+    lessonDL.innerHTML=lessons.map(l=>`<option value="${l.replace(/"/g,'&quot;')}">`).join('');
+  }
+}
+
+function renderQBank(){
+  _refreshQBankFormDatalists();
+  // خانات الصف (فورم الإضافة + فلتر القائمة)
+  const clsOpts='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const clsSel=document.getElementById('qbank-cls'); if(clsSel && !clsSel.dataset.filled){ clsSel.innerHTML=clsOpts; clsSel.dataset.filled='1'; }
+  const clsF=document.getElementById('qbank-cls-f'); if(clsF){ const v=clsF.value; clsF.innerHTML=clsOpts; clsF.value=v; }
+
+  // خانة التصنيفات (مبنية من التصنيفات المستخدمة فعلياً في البنك — مفلترة حسب الصف المختار في فلتر البحث)
+  const clsFVal=clsF?.value||'';
+  const tags=[...new Set((DB.questionBank||[]).filter(q=>!clsFVal||q.classId===clsFVal).map(q=>q.tag).filter(Boolean))];
+  const tagF=document.getElementById('qbank-tag-f');
+  if(tagF){ const v=tagF.value; tagF.innerHTML='<option value="">كل التصنيفات</option>'+tags.map(t=>`<option value="${t}">${t}</option>`).join(''); tagF.value=tags.includes(v)?v:''; }
+
+  // خانة الدروس (مبنية من الدروس المستخدمة فعلياً في البنك — مفلترة حسب الصف والتصنيف المختارين في فلتر البحث)
+  const tagFVal=tagF?.value||'';
+  const lessons=[...new Set((DB.questionBank||[]).filter(q=>(!clsFVal||q.classId===clsFVal)&&(!tagFVal||q.tag===tagFVal)).map(q=>q.lesson).filter(Boolean))];
+  const lessonF=document.getElementById('qbank-lesson-f');
+  if(lessonF){ const v=lessonF.value; lessonF.innerHTML='<option value="">كل الدروس</option>'+lessons.map(l=>`<option value="${l}">${l}</option>`).join(''); lessonF.value=lessons.includes(v)?v:''; }
+
+  // فورم الإضافة: لو مفيش اختيارات مرسومة لسه (أول فتح للصفحة)، ارسمها
+  if(!document.getElementById('qbank-img-zone').innerHTML){
+    document.getElementById('qbank-img-zone').innerHTML=_qImageZoneHTML('','60');
+  }
+  if(!document.getElementById('qbank-opts').innerHTML){
+    document.getElementById('qbank-opts').innerHTML=['أ','ب','ج','د'].map((l,i)=>`<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;"><input type="radio" name="qbank-correct" value="${i}" ${i===0?'checked':''}><span style="color:var(--accent);font-weight:700;font-size:11.5px;width:14px;">${l}</span><input class="fi" placeholder="${l}..." data-f="o${i}" style="flex:1;"></div>`).join('');
+  }
+
+  // الفلترة والعرض
+  const q=(document.getElementById('qbank-search')?.value||'').trim();
+  const cf=clsF?.value||'', tf=tagF?.value||'', lf=lessonF?.value||'';
+  const list=(DB.questionBank||[]).filter(qq=>{
+    if(cf && qq.classId!==cf) return false;
+    if(tf && qq.tag!==tf) return false;
+    if(lf && qq.lesson!==lf) return false;
+    if(q && !qq.text.includes(q)) return false;
+    return true;
+  }).slice().reverse();
+
+  document.getElementById('qbank-list').innerHTML=list.length ? list.map(qq=>`
+    <div style="background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);padding:.75rem;margin-bottom:7px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div style="flex:1;">
+          <div style="font-weight:700;font-size:12.5px;">${qq.text}</div>
+          <div style="display:flex;gap:6px;margin-top:5px;flex-wrap:wrap;">
+            ${qq.classId?`<span class="badge bg-b" style="font-size:9px;">🏫 ${clsN(qq.classId)||'—'}</span>`:''}
+            ${qq.tag?`<span class="badge bg-a" style="font-size:9px;">🏷️ ${qq.tag}</span>`:''}
+            ${qq.lesson?`<span class="badge" style="font-size:9px;background:rgba(124,92,255,.15);color:#a78bfa;">📖 ${qq.lesson}</span>`:''}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          <button class="btn btn-amber btn-xs" onclick="editQBankQuestion('${qq.id}')">✏️</button>
+          <button class="btn btn-danger btn-xs" onclick="deleteQBankQuestion('${qq.id}')">🗑</button>
+        </div>
+      </div>
+      ${qq.image?`<img src="${qq.image}" style="max-width:${qq.imageSize||60}%;border-radius:6px;margin-top:6px;">`:''}
+      <div style="display:flex;flex-direction:column;gap:3px;margin-top:7px;">
+        ${qq.options.map((o,i)=>`<div style="font-size:11px;padding:4px 8px;border-radius:6px;background:${i===qq.correct?'rgba(34,201,122,.12)':'var(--glass)'};color:${i===qq.correct?'var(--green)':'var(--text2)'};">${['أ','ب','ج','د'][i]}) ${o}${i===qq.correct?' ✓':''}</div>`).join('')}
+      </div>
+    </div>`).join('') : '<div class="empty"><div class="empty-ic">🗂️</div><div>لا توجد أسئلة في البنك بعد</div></div>';
+}
+
+function resetQBankForm(){
+  document.getElementById('qbank-edit-id').value='';
+  document.getElementById('qbank-text').value='';
+  document.getElementById('qbank-tag').value='';
+  const lessonEl=document.getElementById('qbank-lesson'); if(lessonEl) lessonEl.value='';
+  if(document.getElementById('qbank-cls')) document.getElementById('qbank-cls').value='';
+  document.getElementById('qbank-img-zone').innerHTML=_qImageZoneHTML('','60');
+  document.getElementById('qbank-opts').innerHTML=['أ','ب','ج','د'].map((l,i)=>`<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;"><input type="radio" name="qbank-correct" value="${i}" ${i===0?'checked':''}><span style="color:var(--accent);font-weight:700;font-size:11.5px;width:14px;">${l}</span><input class="fi" placeholder="${l}..." data-f="o${i}" style="flex:1;"></div>`).join('');
+  document.getElementById('qbank-cancel-btn').style.display='none';
+}
+
+// ── تصفير حقول السؤال فقط بعد الحفظ، مع الإبقاء على الصف/التصنيف/الدرس لتسريع إضافة أسئلة أخرى لنفس الدرس ──
+function _resetQBankQuestionFieldsOnly(){
+  document.getElementById('qbank-edit-id').value='';
+  document.getElementById('qbank-text').value='';
+  document.getElementById('qbank-img-zone').innerHTML=_qImageZoneHTML('','60');
+  document.getElementById('qbank-opts').innerHTML=['أ','ب','ج','د'].map((l,i)=>`<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;"><input type="radio" name="qbank-correct" value="${i}" ${i===0?'checked':''}><span style="color:var(--accent);font-weight:700;font-size:11.5px;width:14px;">${l}</span><input class="fi" placeholder="${l}..." data-f="o${i}" style="flex:1;"></div>`).join('');
+  document.getElementById('qbank-cancel-btn').style.display='none';
+  document.getElementById('qbank-text').focus();
+}
+
+function saveQBankQuestion(){
+  const text=document.getElementById('qbank-text').value.trim();
+  if(!text){toast('أدخل نص السؤال','e');return;}
+  const opts=['o0','o1','o2','o3'].map(f=>document.querySelector(`#qbank-opts [data-f="${f}"]`)?.value.trim()||'خيار');
+  const ce=document.querySelector('input[name="qbank-correct"]:checked');
+  const imgWrap=document.querySelector('#qbank-img-zone .qimg-wrap');
+  const image=imgWrap?.dataset.img||'';
+  const imageSize=+(imgWrap?.dataset.imgsize||60);
+  const classId=document.getElementById('qbank-cls').value;
+  const tag=document.getElementById('qbank-tag').value.trim();
+  const lesson=document.getElementById('qbank-lesson')?.value.trim()||'';
+  const editId=document.getElementById('qbank-edit-id').value;
+
+  if(editId){
+    const qq=DB.questionBank.find(x=>x.id===editId);
+    if(qq){ Object.assign(qq,{text,options:opts,correct:ce?+ce.value:0,image,imageSize,classId,tag,lesson}); }
+    toast('✅ تم تعديل السؤال');
+  } else {
+    DB.questionBank.push({id:nid('qb'),text,options:opts,correct:ce?+ce.value:0,image,imageSize,classId,tag,lesson,date:localDate()});
+    toast('✅ تم إضافة السؤال — الصف والوحدة والدرس باقيين لإضافة سؤال تاني بسرعة');
+  }
+  save();
+  _resetQBankQuestionFieldsOnly();
+  renderQBank();
+}
+
+function editQBankQuestion(id){
+  const qq=DB.questionBank.find(x=>x.id===id); if(!qq)return;
+  document.getElementById('qbank-edit-id').value=id;
+  document.getElementById('qbank-text').value=qq.text;
+  document.getElementById('qbank-tag').value=qq.tag||'';
+  const lessonEl=document.getElementById('qbank-lesson'); if(lessonEl) lessonEl.value=qq.lesson||'';
+  if(document.getElementById('qbank-cls')) document.getElementById('qbank-cls').value=qq.classId||'';
+  _refreshQBankFormDatalists();
+  document.getElementById('qbank-img-zone').innerHTML=_qImageZoneHTML(qq.image||'',qq.imageSize||60);
+  document.getElementById('qbank-opts').innerHTML=['أ','ب','ج','د'].map((l,i)=>`<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;"><input type="radio" name="qbank-correct" value="${i}" ${i===qq.correct?'checked':''}><span style="color:var(--accent);font-weight:700;font-size:11.5px;width:14px;">${l}</span><input class="fi" placeholder="${l}..." data-f="o${i}" value="${(qq.options[i]||'').replace(/"/g,'&quot;')}" style="flex:1;"></div>`).join('');
+  document.getElementById('qbank-cancel-btn').style.display='';
+  document.getElementById('page-qbank').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function deleteQBankQuestion(id){
+  if(!confirm('⚠️ هل أنت متأكد من حذف هذا السؤال من البنك نهائياً؟'))return;
+  DB.questionBank=DB.questionBank.filter(x=>x.id!==id);
+  save(); renderQBank(); toast('تم حذف السؤال','e');
+}
+
+// ── تصدير بنك الأسئلة (النتائج المفلترة الظاهرة حالياً) إلى ملف إكسل ──
+function exportQBankExcel(){
+  const q=(document.getElementById('qbank-search')?.value||'').trim();
+  const cf=document.getElementById('qbank-cls-f')?.value||'', tf=document.getElementById('qbank-tag-f')?.value||'', lf=document.getElementById('qbank-lesson-f')?.value||'';
+  const list=(DB.questionBank||[]).filter(qq=>{
+    if(cf && qq.classId!==cf) return false;
+    if(tf && qq.tag!==tf) return false;
+    if(lf && qq.lesson!==lf) return false;
+    if(q && !qq.text.includes(q)) return false;
+    return true;
+  });
+  if(!list.length){ toast('لا توجد أسئلة لتصديرها بنفس الفلترة الحالية','e'); return; }
+  const rows=list.map(qq=>({
+    'الصف': qq.classId?(clsN(qq.classId)||''):'',
+    'التصنيف / الوحدة': qq.tag||'',
+    'اسم الدرس': qq.lesson||'',
+    'نص السؤال': qq.text,
+    'الاختيار أ': qq.options[0]||'',
+    'الاختيار ب': qq.options[1]||'',
+    'الاختيار ج': qq.options[2]||'',
+    'الاختيار د': qq.options[3]||'',
+    'الإجابة الصحيحة': ['أ','ب','ج','د'][qq.correct]||'أ'
+  }));
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=[{wch:16},{wch:18},{wch:20},{wch:40},{wch:20},{wch:20},{wch:20},{wch:20},{wch:14}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'بنك الأسئلة');
+  XLSX.writeFile(wb,`بنك_الأسئلة_${localDate()}.xlsx`);
+  toast(`✅ تم تصدير ${rows.length} سؤال إلى إكسل`);
+}
+
+// ── استيراد أسئلة من ملف إكسل بنفس تنسيق التصدير (يقبل أعمدة أقل أيضاً) ──
+function importQBankExcel(e){
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const data=XLSX.utils.sheet_to_json(ws);
+      let added=0, skipped=0;
+      const letterToIdx={'أ':0,'ب':1,'ج':2,'د':3,'a':0,'b':1,'c':2,'d':3};
+      data.forEach(row=>{
+        const text=(row['نص السؤال']||row['السؤال']||row['text']||'').toString().trim();
+        if(!text){ skipped++; return; }
+        const clsName=(row['الصف']||'').toString().trim();
+        const cls=clsName?DB.classes.find(c=>c.name===clsName):null;
+        const opts=[
+          (row['الاختيار أ']||row['أ']||'').toString().trim()||'خيار',
+          (row['الاختيار ب']||row['ب']||'').toString().trim()||'خيار',
+          (row['الاختيار ج']||row['ج']||'').toString().trim()||'خيار',
+          (row['الاختيار د']||row['د']||'').toString().trim()||'خيار'
+        ];
+        const correctRaw=(row['الإجابة الصحيحة']||row['الإجابة']||'أ').toString().trim();
+        const correct = letterToIdx[correctRaw] ?? (isNaN(+correctRaw)?0:Math.max(0,Math.min(3,+correctRaw)));
+        DB.questionBank.push({
+          id:nid('qb'), text, options:opts, correct,
+          image:'', imageSize:60,
+          classId:cls?cls.id:'',
+          tag:(row['التصنيف / الوحدة']||row['التصنيف']||'').toString().trim(),
+          lesson:(row['اسم الدرس']||row['الدرس']||'').toString().trim(),
+          date:localDate()
+        });
+        added++;
+      });
+      save(); renderQBank();
+      toast(`✅ تم استيراد ${added} سؤال${skipped?` (تم تجاهل ${skipped} صف بدون نص سؤال)`:''}`);
+    }catch(err){ toast('❌ خطأ في قراءة الملف — تأكد من التنسيق','e'); }
+    e.target.value='';
+  };
+  r.readAsBinaryString(f);
+}
+
+/** يفتح نافذة اختيار أسئلة من البنك لاستيرادها داخل الامتحان الجاري إنشاؤه/تعديله */
+function openQBankPicker(){
+  if(!DB.questionBank || !DB.questionBank.length){ toast('بنك الأسئلة فاضي — أضف أسئلة الأول من تبويب بنك الأسئلة','e'); return; }
+  const clsF=document.getElementById('qbp-cls-f');
+  const curExCls=document.getElementById('ex-cls')?.value||'';
+  clsF.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  clsF.value=curExCls; // نفس صف الامتحان الحالي كبداية افتراضية لو محدد
+  const tags=[...new Set(DB.questionBank.map(q=>q.tag).filter(Boolean))];
+  document.getElementById('qbp-tag-f').innerHTML='<option value="">كل التصنيفات</option>'+tags.map(t=>`<option value="${t}">${t}</option>`).join('');
+  renderQBankPicker();
+  openModal('qbank-picker-modal');
+}
+
+function renderQBankPicker(){
+  const cf=document.getElementById('qbp-cls-f')?.value||'', tf=document.getElementById('qbp-tag-f')?.value||'';
+  const list=DB.questionBank.filter(q=>(!cf||q.classId===cf)&&(!tf||q.tag===tf));
+  document.getElementById('qbp-list').innerHTML=list.length ? list.map(q=>`
+    <label style="display:flex;align-items:flex-start;gap:8px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);padding:.6rem;cursor:pointer;">
+      <input type="checkbox" class="qbp-check" value="${q.id}" style="margin-top:3px;">
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:12px;">${q.text}</div>
+        <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
+          ${q.classId?`<span class="badge bg-b" style="font-size:9px;">🏫 ${clsN(q.classId)||'—'}</span>`:''}
+          ${q.tag?`<span class="badge bg-a" style="font-size:9px;">🏷️ ${q.tag}</span>`:''}
+        </div>
+      </div>
+    </label>`).join('') : '<div class="empty"><div class="empty-ic">🗂️</div><div>لا توجد أسئلة مطابقة</div></div>';
+}
+
+/** يضيف الأسئلة المحددة من البنك مباشرة في منطقة بناء أسئلة الامتحان (q-build)
+ *  بنفس الطريقة اللي بتضاف بيها الأسئلة يدويًا عبر addQ() تمامًا */
+function importSelectedQBank(){
+  const checkedBoxes=[...document.querySelectorAll('.qbp-check:checked')];
+  if(!checkedBoxes.length){ toast('حدّد سؤالاً واحداً على الأقل','e'); return; }
+  checkedBoxes.forEach(cb=>{
+    const q=DB.questionBank.find(x=>x.id===cb.value); if(!q)return;
+    qCount++;
+    const d=document.createElement('div'); d.id='qb'+qCount;
+    d.style.cssText='background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:.7rem;margin-bottom:7px;';
+    d.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="font-size:10.5px;color:var(--accent);font-weight:700;">سؤال ${qCount} <span style="color:var(--text2);font-weight:400;">(من البنك)</span></span><button class="btn btn-danger btn-xs" onclick="this.closest('[id]').remove()">✕</button></div><input class="fi" placeholder="نص السؤال..." data-f="t" value="${q.text.replace(/"/g,'&quot;')}" style="margin-bottom:7px;">${_qImageZoneHTML(q.image||'',q.imageSize||60)}${['أ','ب','ج','د'].map((l,i)=>`<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;"><input type="radio" name="cq${qCount}" value="${i}" ${i===q.correct?'checked':''}><span style="color:var(--accent);font-weight:700;font-size:11.5px;width:14px;">${l}</span><input class="fi" placeholder="${l}..." data-f="o${i}" value="${(q.options[i]||'').replace(/"/g,'&quot;')}" style="flex:1;"></div>`).join('')}`;
+    document.getElementById('q-build').appendChild(d);
+    cb.checked=false; // نفضّي التحديد فقط بدل غلق الشاشة، عشان يقدر يختار أسئلة تانية من وحدة مختلفة
+  });
+  toast(`✅ تم استيراد ${checkedBoxes.length} سؤال من البنك — تقدر تغيّر الفلتر وتستورد أسئلة تانية، والغلق يدوي من زر ✕`);
+}
+
 function sendAssignmentWA(aid){
   const a=DB.assignments.find(x=>x.id===aid); if(!a)return;
   let targetStudents=[];
@@ -12514,10 +12933,12 @@ function spRenderMCQ(){
   // Show exams available for student's class/group
   const availExams=DB.exams.filter(e=>{
     if(e.terminated)return false;
-    if(e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now()) return false; // امتحان مجدول لظهور لاحق
-    if(!e.classId||e.classId===s.classId||e.classId==='')return true;
-    if(e.classId===s.classId) return true;
-    return false;
+    if(!_examVisibleNow(e)) return false; // قاعدة الظهور الموحّدة (خاصة بالإلكتروني)
+    if(e.classId && e.classId!==s.classId) return false;
+    // دعم توافقي: امتحانات قديمة فيها e.group (نص) بدل e.groups (مصفوفة)
+    const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
+    if(eGroups.length && !eGroups.includes(s.groupId)) return false;
+    return true;
   });
   document.getElementById('sp-mcq-body').innerHTML=`
     <div style="display:flex;flex-direction:column;gap:.75rem;">
@@ -12578,6 +12999,47 @@ function spRequestRetake(examId){
 
 // Student takes exam from portal
 let spExamState={exam:null,q:0,ans:{},timer:null,timeLeft:0};
+
+/** ترتيب عشوائي (Fisher-Yates) — بيرجع مصفوفة جديدة من غير ما يغيّر الأصلية */
+function shuffleArray(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+
+/** يبني نسخة خاصة بجلسة الطالب من أسئلة الامتحان — لو مفعّل "ترتيب عشوائي
+ *  للأسئلة" بيغيّر ترتيب الأسئلة نفسها، ولو مفعّل "ترتيب عشوائي للإجابات"
+ *  بيغيّر ترتيب اختيارات كل سؤال (مع تحديث فهرس الإجابة الصحيحة ليتطابق مع
+ *  الترتيب الجديد). النسخة الأصلية exam.questions ما بتتغيرش خالص، وكل طالب
+ *  بياخد ترتيب مختلف عشوائيًا لتقليل فرص الغش. */
+function _buildStudentExamQuestions(exam){
+  let qs = exam.questions.map(q=>({...q, options:q.options.slice()}));
+  // ── اختيار عدد محدد من الأسئلة عشوائيًا (لو محدد وأقل من إجمالي الأسئلة المضافة) ──
+  const count = +exam.questionCount || 0;
+  if(count>0 && count<qs.length){
+    qs = shuffleArray(qs).slice(0,count);
+    if(!exam.randomizeQuestions){
+      // رجّع الأسئلة المختارة لترتيبها الأصلي في البنك (بدل ترتيب عشوائي) لو ميحصلش تفعيل "ترتيب عشوائي للأسئلة"
+      const origOrder = exam.questions.map(q=>q.id);
+      qs.sort((a,b)=>origOrder.indexOf(a.id)-origOrder.indexOf(b.id));
+    }
+  } else if(exam.randomizeQuestions){
+    qs = shuffleArray(qs);
+  }
+  if(exam.randomizeOptions){
+    qs = qs.map(q=>{
+      const order = shuffleArray(q.options.map((_,i)=>i)); // ترتيب جديد لفهارس الاختيارات
+      const newOptions = order.map(i=>q.options[i]);
+      const newCorrect = order.indexOf(q.correct);
+      return {...q, options:newOptions, correct:newCorrect};
+    });
+  }
+  return qs;
+}
+
 function spStartExam(examId){
   if(!spCurrentStu)return;
   const exam=DB.exams.find(e=>e.id===examId); if(!exam)return;
@@ -12586,7 +13048,7 @@ function spStartExam(examId){
     const p=DB.retakePermissions.find(p=>p.examId===examId&&p.studentId===spCurrentStu.id&&!p.used);
     if(p){p.used=true;save();}
   }
-  spExamState={exam,q:0,ans:{},timer:null,timeLeft:exam.duration*60};
+  spExamState={exam,questions:_buildStudentExamQuestions(exam),q:0,ans:{},timer:null,timeLeft:exam.duration*60};
   document.getElementById('sp-exam-overlay').style.display='block';
   spRenderExamQ();
   spStartExamTimer();
@@ -12607,9 +13069,9 @@ function spStartExamTimer(){
 }
 
 function spRenderExamQ(){
-  const {exam,q,ans,timeLeft}=spExamState;
-  const question=exam.questions[q];
-  const total=exam.questions.length;
+  const {exam,questions,q,ans,timeLeft}=spExamState;
+  const question=questions[q];
+  const total=questions.length;
   const m=Math.floor(timeLeft/60),s=timeLeft%60;
   document.getElementById('sp-exam-content').innerHTML=`
     <div style="max-width:520px;margin:0 auto;">
@@ -12642,27 +13104,27 @@ function spRenderExamQ(){
           :`<button onclick="spNextQ()" style="padding:9px 18px;border-radius:10px;background:#4f7cff;border:none;color:#fff;font-family:Cairo,sans-serif;font-size:13px;cursor:pointer;">التالي ←</button>`}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;">
-        ${exam.questions.map((_,i)=>`<button onclick="spGoQ(${i})" style="width:28px;height:28px;border-radius:6px;border:1px solid ${ans[i]!==undefined?'#4f7cff':'rgba(255,255,255,.15)'};background:${i===q?'#4f7cff':ans[i]!==undefined?'rgba(79,124,255,.12)':'rgba(255,255,255,.04)'};color:${i===q?'#fff':ans[i]!==undefined?'#4f7cff':'rgba(255,255,255,.4)'};cursor:pointer;font-size:11px;font-weight:700;font-family:Cairo,sans-serif;">${i+1}</button>`).join('')}
+        ${questions.map((_,i)=>`<button onclick="spGoQ(${i})" style="width:28px;height:28px;border-radius:6px;border:1px solid ${ans[i]!==undefined?'#4f7cff':'rgba(255,255,255,.15)'};background:${i===q?'#4f7cff':ans[i]!==undefined?'rgba(79,124,255,.12)':'rgba(255,255,255,.04)'};color:${i===q?'#fff':ans[i]!==undefined?'#4f7cff':'rgba(255,255,255,.4)'};cursor:pointer;font-size:11px;font-weight:700;font-family:Cairo,sans-serif;">${i+1}</button>`).join('')}
       </div>
     </div>`;
 }
 
 function spSelAns(i){ spExamState.ans[spExamState.q]=i; spRenderExamQ(); }
-function spNextQ(){ if(spExamState.q<spExamState.exam.questions.length-1){spExamState.q++;spRenderExamQ();} }
+function spNextQ(){ if(spExamState.q<spExamState.questions.length-1){spExamState.q++;spRenderExamQ();} }
 function spPrevQ(){ if(spExamState.q>0){spExamState.q--;spRenderExamQ();} }
 function spGoQ(i){ spExamState.q=i; spRenderExamQ(); }
 
 function spEndExam(){
   if(spExamState.timer)clearInterval(spExamState.timer);
-  const {exam,ans}=spExamState;
+  const {exam,questions,ans}=spExamState;
   if(!exam)return;
-  const total=exam.questions.length;
+  const total=questions.length;
   const unanswered=[];
   for(let i=0;i<total;i++) if(ans[i]===undefined) unanswered.push(i+1);
   if(unanswered.length>0&&spExamState.timeLeft>0){
     if(!confirm(`⚠️ هناك ${unanswered.length} سؤال لم تُجب عليه. هل تريد إنهاء الامتحان؟`))return;
   }
-  let score=0; exam.questions.forEach((q,i)=>{ if(ans[i]===q.correct)score++; });
+  let score=0; questions.forEach((q,i)=>{ if(ans[i]===q.correct)score++; });
   const pct=Math.round(score/total*100);
   const sid=spCurrentStu.id;
   // Save session
@@ -14683,6 +15145,11 @@ function openExamByType(type){
   // خانة الدرجة — تظهر فقط في الورقي
   const paperScoreRow = document.getElementById('ex-paper-score-row');
   if(paperScoreRow) paperScoreRow.style.display = type === 'paper' ? 'block' : 'none';
+  // معايير الظهور للطلاب — تظهر فقط في الامتحان الإلكتروني
+  const visSection = document.getElementById('ex-visibility-section');
+  if(visSection) visSection.style.display = type === 'electronic' ? 'block' : 'none';
+  const paperGrpRow = document.getElementById('ex-paper-grp-row');
+  if(paperGrpRow) paperGrpRow.style.display = type === 'paper' ? 'block' : 'none';
   // فتح المودال في وضع الإنشاء
   openModal('create-exam-modal');
 }
