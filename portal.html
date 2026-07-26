@@ -451,27 +451,32 @@ function renderMcq(s){
   const rawExams = schoolData?.exams||[];
   const allExams = rawExams.filter(e=>{
     if(!e || typeof e!=='object') return false; // حماية من أي عنصر تالف/فاضي في المصفوفة
+    if(e.terminated) return false;
     const typeOk = !e.type || e.type==='electronic';
     const clsOk  = !e.classId || e.classId===s.classId;
-    const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
-    const timeOk = !e.visibleFrom || new Date(e.visibleFrom).getTime()<=Date.now();
+    // دعم توافقي: امتحانات قديمة فيها e.group (نص) بدل e.groups (مصفوفة)
+    const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
+    const grpOk  = !eGroups.length || eGroups.includes(s.groupId);
+    const timeOk = _examVisibleNow(e);
     return typeOk && clsOk && grpOk && timeOk && (e.questions||[]).length>0;
   });
   // ── تشخيص: لو فيه امتحانات في القاعدة بس محدش منها ظاهر لهذا الطالب، وضّح السبب بالظبط ──
   let debugHTML = '';
   if(rawExams.length && !allExams.length){
     const reasons = rawExams.filter(e=>e&&typeof e==='object').map(e=>{
+      if(e.terminated) return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: تم إنهاؤه</div>`;
       const typeOk = !e.type || e.type==='electronic';
       const clsOk  = !e.classId || e.classId===s.classId;
-      const grpOk  = !e.group || e.group==='الكل' || e.group===s.groupId;
-      const timeOk = !e.visibleFrom || new Date(e.visibleFrom).getTime()<=Date.now();
+      const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
+      const grpOk  = !eGroups.length || eGroups.includes(s.groupId);
+      const timeOk = _examVisibleNow(e);
       const hasQ   = (e.questions||[]).length>0;
       if(typeOk&&clsOk&&grpOk&&timeOk&&hasQ) return null;
       const why=[];
       if(!typeOk) why.push('امتحان ورقي (مش إلكتروني)');
       if(!clsOk)  why.push('صف مختلف عن صفك');
       if(!grpOk)  why.push('مجموعة مختلفة عن مجموعتك');
-      if(!timeOk) why.push('مجدول للظهور في '+new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}));
+      if(!timeOk) why.push(!e.visibleFrom && !e.visibleUntil ? 'لم يُحدَّد موعد ظهور بعد' : 'خارج نطاق موعد الظهور المحدد');
       if(!hasQ)   why.push('بدون أسئلة');
       return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: ${why.join('، ')}</div>`;
     }).filter(Boolean);
