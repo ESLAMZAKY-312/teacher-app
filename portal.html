@@ -441,7 +441,55 @@ function renderFiles(s){
 }
 
 // ══ MCQ ══
-let _mcqExam=null, _mcqAnswers=[], _mcqIdx=0, _mcqTimer=null, _mcqSecs=0;
+let _mcqExam=null, _mcqAnswers=[], _mcqIdx=0, _mcqTimer=null, _mcqSecs=0, _mcqQuestions=[];
+
+// ── نفس منطق اختيار/خلط الأسئلة المستخدم في برنامج الإدارة، عشان تجربة الطالب تكون متطابقة ──
+function _shuffleArr(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function _buildStudentExamQuestions(exam){
+  let qs=(exam.questions||[]).filter(q=>q&&!q._placeholder).map(q=>({...q, options:(q.options||[]).slice()}));
+  const count=+exam.questionCount||0;
+  if(count>0 && count<qs.length){
+    qs=_shuffleArr(qs).slice(0,count);
+    if(!exam.randomizeQuestions){
+      const origOrder=exam.questions.map(q=>q.id);
+      qs.sort((a,b)=>origOrder.indexOf(a.id)-origOrder.indexOf(b.id));
+    }
+  } else if(exam.randomizeQuestions){
+    qs=_shuffleArr(qs);
+  }
+  if(exam.randomizeOptions){
+    qs=qs.map(q=>{
+      const order=_shuffleArr(q.options.map((_,i)=>i));
+      const newOptions=order.map(i=>q.options[i]);
+      const newCorrect=order.indexOf(q.correct);
+      return {...q, options:newOptions, correct:newCorrect};
+    });
+  }
+  return qs;
+}
+
+// ── هل مجموعة الطالب ضمن مجموعات الامتحان؟ (يدعم exam.groups الجديدة المصفوفة + exam.group القديمة النصية) ──
+function _examGroupMatches(e, studentGroupId){
+  const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
+  return !eGroups.length || eGroups.includes(studentGroupId);
+}
+// ── قاعدة ظهور الامتحان الإلكتروني: بدون بداية ونهاية = مخفي دائماً؛ خلاف ذلك يظهر خلال الفترة المحددة ──
+function _examVisibleNow(e){
+  if(e.type && e.type!=='electronic') return true; // القاعدة خاصة بالإلكتروني فقط
+  const hasFrom=!!e.visibleFrom, hasUntil=!!e.visibleUntil;
+  if(!hasFrom && !hasUntil) return false;
+  const now=Date.now();
+  if(hasFrom && now < new Date(e.visibleFrom).getTime()) return false;
+  if(hasUntil && now > new Date(e.visibleUntil).getTime()) return false;
+  return true;
+}
 
 function renderMcq(s){
   try{
@@ -451,32 +499,31 @@ function renderMcq(s){
   const rawExams = schoolData?.exams||[];
   const allExams = rawExams.filter(e=>{
     if(!e || typeof e!=='object') return false; // حماية من أي عنصر تالف/فاضي في المصفوفة
-    if(e.terminated) return false;
     const typeOk = !e.type || e.type==='electronic';
     const clsOk  = !e.classId || e.classId===s.classId;
-    // دعم توافقي: امتحانات قديمة فيها e.group (نص) بدل e.groups (مصفوفة)
-    const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
-    const grpOk  = !eGroups.length || eGroups.includes(s.groupId);
+    const grpOk  = _examGroupMatches(e, s.groupId);
     const timeOk = _examVisibleNow(e);
-    return typeOk && clsOk && grpOk && timeOk && (e.questions||[]).length>0;
+    return typeOk && clsOk && grpOk && timeOk && (e.questions||[]).filter(q=>q&&!q._placeholder).length>0;
   });
   // ── تشخيص: لو فيه امتحانات في القاعدة بس محدش منها ظاهر لهذا الطالب، وضّح السبب بالظبط ──
   let debugHTML = '';
   if(rawExams.length && !allExams.length){
     const reasons = rawExams.filter(e=>e&&typeof e==='object').map(e=>{
-      if(e.terminated) return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: تم إنهاؤه</div>`;
       const typeOk = !e.type || e.type==='electronic';
       const clsOk  = !e.classId || e.classId===s.classId;
-      const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
-      const grpOk  = !eGroups.length || eGroups.includes(s.groupId);
+      const grpOk  = _examGroupMatches(e, s.groupId);
       const timeOk = _examVisibleNow(e);
-      const hasQ   = (e.questions||[]).length>0;
+      const hasQ   = (e.questions||[]).filter(q=>q&&!q._placeholder).length>0;
       if(typeOk&&clsOk&&grpOk&&timeOk&&hasQ) return null;
       const why=[];
       if(!typeOk) why.push('امتحان ورقي (مش إلكتروني)');
       if(!clsOk)  why.push('صف مختلف عن صفك');
       if(!grpOk)  why.push('مجموعة مختلفة عن مجموعتك');
-      if(!timeOk) why.push(!e.visibleFrom && !e.visibleUntil ? 'لم يُحدَّد موعد ظهور بعد' : 'خارج نطاق موعد الظهور المحدد');
+      if(!timeOk){
+        if(!e.visibleFrom && !e.visibleUntil) why.push('لم يتم تحديد فترة ظهور له بعد');
+        else if(e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now()) why.push('مجدول للظهور في '+new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}));
+        else if(e.visibleUntil && new Date(e.visibleUntil).getTime()<Date.now()) why.push('انتهت فترة ظهوره في '+new Date(e.visibleUntil).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}));
+      }
       if(!hasQ)   why.push('بدون أسئلة');
       return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: ${why.join('، ')}</div>`;
     }).filter(Boolean);
@@ -492,13 +539,18 @@ function renderMcq(s){
   // ── امتحانات متاحة ──
   const pendingEl = document.getElementById('mcq-pending');
   pendingEl.innerHTML = (debugHTML) + (pending.length
-    ? pending.map(e=>'<div class="mcq-card">'
+    ? pending.map(e=>{
+        const realQCount=(e.questions||[]).filter(q=>q&&!q._placeholder).length;
+        const qCountLabel = (e.questionCount && e.questionCount<realQCount)
+          ? `${e.questionCount} من ${realQCount} سؤال (عشوائي)` : `${realQCount} سؤال`;
+        return '<div class="mcq-card">'
         +'<div>'
         +'<div style="font-weight:800;font-size:13.5px;margin-bottom:3px;">'+e.title+'</div>'
-        +'<div style="font-size:11px;color:var(--text2);">⏱ '+(e.duration||30)+' دقيقة &nbsp;·&nbsp; '+(e.questions||[]).length+' سؤال</div>'
+        +'<div style="font-size:11px;color:var(--text2);">⏱ '+(e.duration||30)+' دقيقة &nbsp;·&nbsp; '+qCountLabel+'</div>'
         +'</div>'
         +'<button onclick="startMcqExam(\''+e.id+'\')" style="padding:9px 18px;border-radius:20px;border:none;background:linear-gradient(135deg,var(--amber),#d97706);color:#fff;font-family:Cairo,sans-serif;font-size:12.5px;font-weight:800;cursor:pointer;">ابدأ الاختبار ←</button>'
-        +'</div>').join('')
+        +'</div>';
+      }).join('')
     : '<div class="empty" style="padding:20px 0;"><div class="empty-ic">🎉</div><div>لا توجد امتحانات معلقة</div></div>');
 
   // ── نتائج المؤداة ──
@@ -537,17 +589,18 @@ function renderMcq(s){
 
 function startMcqExam(examId){
   const e = (schoolData?.exams||[]).find(x=>x.id===examId);
-  if(!e||!e.questions?.length) return;
-  _mcqExam    = e;
-  _mcqAnswers = new Array(e.questions.length).fill(null);
-  _mcqIdx     = 0;
-  _mcqSecs    = (e.duration||30)*60;
+  if(!e||!(e.questions||[]).filter(q=>q&&!q._placeholder).length) return;
+  _mcqExam      = e;
+  _mcqQuestions = _buildStudentExamQuestions(e);
+  _mcqAnswers   = new Array(_mcqQuestions.length).fill(null);
+  _mcqIdx       = 0;
+  _mcqSecs      = (e.duration||30)*60;
 
   document.getElementById('mcq-pending').style.display      = 'none';
   document.getElementById('mcq-done-section').style.display = 'none';
   document.getElementById('mcq-exam-wrap').style.display    = 'block';
   document.getElementById('mcq-exam-title').textContent     = e.title;
-  document.getElementById('mcq-q-total').textContent        = e.questions.length;
+  document.getElementById('mcq-q-total').textContent        = _mcqQuestions.length;
 
   clearInterval(_mcqTimer);
   _mcqTimer = setInterval(()=>{
@@ -563,8 +616,8 @@ function startMcqExam(examId){
 
 function renderMcqQuestion(){
   if(!_mcqExam) return;
-  const q    = _mcqExam.questions[_mcqIdx];
-  const total= _mcqExam.questions.length;
+  const q    = _mcqQuestions[_mcqIdx];
+  const total= _mcqQuestions.length;
   document.getElementById('mcq-q-num').textContent = _mcqIdx+1;
 
   const optLetters = ['أ','ب','ج','د','هـ','و'];
@@ -594,7 +647,7 @@ function selectMcqOpt(i){
 }
 
 function mcqNav(dir){
-  const total = _mcqExam?.questions?.length||0;
+  const total = _mcqQuestions?.length||0;
   _mcqIdx = Math.max(0, Math.min(total-1, _mcqIdx+dir));
   renderMcqQuestion();
 }
@@ -607,7 +660,7 @@ function closeMcqExam(){
 function submitMcq(){
   if(!_mcqExam) return;
   clearInterval(_mcqTimer);
-  const qs      = _mcqExam.questions;
+  const qs      = _mcqQuestions;
   let score     = 0;
   const outOf   = qs.length;
   qs.forEach((q,i)=>{ if(_mcqAnswers[i]===q.correct) score++; });
@@ -626,15 +679,18 @@ function submitMcq(){
   document.getElementById('mcq-prev-btn').style.display   = 'none';
   document.getElementById('mcq-submit-btn').style.display = 'none';
 
-  // حفظ في Firebase
+  // حفظ في Firebase — بنفس تنسيق برنامج الإدارة (الدرجة كنسبة مئوية من 100، ومقفلة تماماً حتى لا يمكن تعديلها يدوياً)
   const gradeRecord = {
     id:        'mcq_'+Date.now(),
     studentId: currentStu.id,
     examId:    _mcqExam.id,
     examTitle: _mcqExam.title,
-    score, outOf,
+    score:     pct,
+    outOf:     100,
     date:      new Date().toISOString().split('T')[0],
-    type:      'mcq'
+    note:      'امتحان أونلاين',
+    locked:    true,
+    source:    'online_exam'
   };
   try{
     const ref = firebase.database().ref('schoolData/grades');
@@ -652,6 +708,7 @@ function submitMcq(){
 function _endMcqExam(){
   clearInterval(_mcqTimer);
   _mcqExam = null;
+  _mcqQuestions = [];
   document.getElementById('mcq-exam-wrap').style.display    = 'none';
   document.getElementById('mcq-pending').style.display      = '';
   document.getElementById('mcq-done-section').style.display = '';
