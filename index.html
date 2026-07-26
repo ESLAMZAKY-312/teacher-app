@@ -2337,6 +2337,7 @@ async function _loadFromFirebase(){
       <div class="fg">
         <label class="fl">المجموعات (يمكن اختيار أكثر من مجموعة)</label>
         <div id="ex-grp-checks" style="display:flex;flex-wrap:wrap;gap:7px;padding:.6rem;background:var(--glass);border-radius:8px;border:1px solid var(--border);min-height:38px;"></div>
+        <div id="ex-grp-summary"></div>
         <div style="font-size:10px;color:var(--text2);margin-top:3px;">اترك الكل بدون تحديد ليظهر الامتحان لكل مجموعات الصف</div>
       </div>
       <div class="fr">
@@ -3411,6 +3412,10 @@ function pushNotif(studentId, type, icon, title, body){
 function openModal(id){ document.getElementById(id).classList.add('open'); popModal(id); }
 function closeModal(id){
   document.getElementById(id).classList.remove('open');
+  if(id==='create-exam-modal'){
+    const editId=document.getElementById('ex-edit-id'); if(editId) editId.value='';
+    _examSelectedGroups.clear();
+  }
   if(id==='add-product-modal'){
     const editId=document.getElementById('pr-edit-id'); if(editId) editId.value='';
   }
@@ -3490,20 +3495,16 @@ function popModal(id){
     const editingId = document.getElementById('ex-edit-id').value;
     const clsSelect=document.getElementById('ex-cls');
     const prevClsVal = clsSelect.value;
-    const prevCheckedGroups = [...document.querySelectorAll('.ex-grp-check:checked')].map(c=>c.value);
     const prevPaperGrpVal = document.getElementById('ex-grp-paper')?.value||'';
     clsSelect.innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
     if(editingId) clsSelect.value = prevClsVal; // حافظ على اختيار الصف عند التعديل
-    filterExamGroups();
-    if(editingId && prevCheckedGroups.length){
-      // حافظ على المجموعات المحددة عند التعديل (نفس منطق حفظ اختيار الصف بالظبط)
-      prevCheckedGroups.forEach(v=>{ const cb=document.querySelector(`.ex-grp-check[value="${v}"]`); if(cb) cb.checked=true; });
-    }
+    filterExamGroups(); // بيحافظ تلقائيًا على المجموعات المختارة من كل الصفوف (_examSelectedGroups)
     if(editingId && prevPaperGrpVal){
       const paperGrpSel=document.getElementById('ex-grp-paper');
       if(paperGrpSel) paperGrpSel.value=prevPaperGrpVal;
     }
     if(!editingId){
+      _examSelectedGroups.clear(); // امتحان جديد تمامًا — نبدأ باختيارات فاضية
       document.getElementById('ex-date').value=localDate();
       const vfEl=document.getElementById('ex-visible-from'); if(vfEl) vfEl.value='';
       const vuEl=document.getElementById('ex-visible-until'); if(vuEl) vuEl.value='';
@@ -5935,6 +5936,10 @@ function sendGradesWA_unused_replaced(){}
 // EXAMS
 // ================================================================
 let qCount=0, curExam=null, exTimer=null, exTimeLeft=0, curQ=0, exAns={};
+/** مجموعات مختارة عبر أكتر من صف دراسي في مودال إنشاء/تعديل الامتحان —
+ *  بتفضل محفوظة حتى لو المستخدم غيّر خانة "الصف الدراسي" أكتر من مرة،
+ *  ومابتتصفرش إلا عند فتح مودال امتحان جديد أو حفظ/إلغاء العملية */
+let _examSelectedGroups = new Set();
 // ── قاعدة ظهور الامتحان الإلكتروني للطالب: ──
 // - لو محدد بداية ونهاية → يظهر بس خلال الفترة دي
 // - لو محدد بداية بس (من غير نهاية) → يظهر من هذا التاريخ وباستمرار
@@ -5978,10 +5983,10 @@ function editExam(id){
   document.getElementById('ex-edit-id').value=id;
   document.getElementById('ex-title').value=exam.title;
   document.getElementById('ex-cls').value=exam.classId||'';
-  filterExamGroups();
   // دعم توافقي: الامتحانات القديمة فيها exam.group (نص واحد) بدل exam.groups (مصفوفة)
   const examGroups = Array.isArray(exam.groups) ? exam.groups : (exam.group && exam.group!=='الكل' ? [exam.group] : []);
-  examGroups.forEach(gid=>{ const cb=document.querySelector(`.ex-grp-check[value="${gid}"]`); if(cb) cb.checked=true; });
+  _examSelectedGroups = new Set(examGroups); // ممكن تشمل مجموعات من أكتر من صف
+  filterExamGroups(); // هيحدد تلقائيًا صناديق الصف الحالي المطابقة لـ _examSelectedGroups
   const paperGrpSel=document.getElementById('ex-grp-paper'); if(paperGrpSel) paperGrpSel.value=examGroups[0]||'';
   document.getElementById('ex-dur').value=exam.duration;
   document.getElementById('ex-date').value=exam.date;
@@ -6124,15 +6129,19 @@ function addQ(){
 }
 function filterExamGroups(){
   const cid=document.getElementById('ex-cls')?.value||'';
+  // قبل إعادة بناء صناديق الاختيار، نحفظ أي تحديد ظاهر حالياً على الشاشة
+  // (حماية إضافية، رغم إن onchange على كل صندوق بيحدّث المجموعة فورًا أصلاً)
+  document.querySelectorAll('.ex-grp-check:checked').forEach(cb=>_examSelectedGroups.add(cb.value));
   const groups=DB.groups.filter(g=>!cid||g.classId===cid);
-  // قائمة المجموعات (اختيار متعدد) — للامتحان الإلكتروني
+  // قائمة المجموعات (اختيار متعدد، يحافظ على الاختيارات من صفوف تانية) — للامتحان الإلكتروني
   const box=document.getElementById('ex-grp-checks');
   if(box){
     box.innerHTML = groups.length ? groups.map(g=>`
       <label style="display:flex;align-items:center;gap:5px;font-size:11.5px;cursor:pointer;background:var(--glass2);padding:4px 10px;border-radius:16px;border:1px solid var(--border);">
-        <input type="checkbox" class="ex-grp-check" value="${g.id}"> ${g.name}${cid?'':' — '+(clsN(g.classId)||'')}
+        <input type="checkbox" class="ex-grp-check" value="${g.id}" onchange="_toggleExamGroupSel(this)" ${_examSelectedGroups.has(g.id)?'checked':''}> ${g.name}${cid?'':' — '+(clsN(g.classId)||'')}
       </label>`).join('') : '<span style="font-size:11px;color:var(--text2);">لا توجد مجموعات لهذا الصف</span>';
   }
+  _renderExamGroupsSummary();
   // خانة المجموعة البسيطة (اختيار واحد) — للامتحان الورقي
   const paperSel=document.getElementById('ex-grp-paper');
   if(paperSel){
@@ -6140,6 +6149,26 @@ function filterExamGroups(){
     paperSel.innerHTML = '<option value="">كل مجموعات الصف</option>' + groups.map(g=>`<option value="${g.id}">${g.name}${cid?'':' — '+(clsN(g.classId)||'')}</option>`).join('');
     if(groups.some(g=>g.id===prevVal)) paperSel.value=prevVal;
   }
+}
+/** يحدّث مجموعة الاختيارات الدائمة فورًا لما المستخدم يحدد/يلغي صندوق ✓ */
+function _toggleExamGroupSel(cb){
+  if(cb.checked) _examSelectedGroups.add(cb.value);
+  else _examSelectedGroups.delete(cb.value);
+  _renderExamGroupsSummary();
+}
+/** يمسح كل المجموعات المختارة من كل الصفوف دفعة واحدة */
+function _clearExamSelectedGroups(){
+  _examSelectedGroups.clear();
+  document.querySelectorAll('.ex-grp-check').forEach(cb=>cb.checked=false);
+  _renderExamGroupsSummary();
+}
+/** يعرض ملخص بكل المجموعات المختارة من كل الصفوف (مش بس الصف الظاهر حاليًا) */
+function _renderExamGroupsSummary(){
+  const el=document.getElementById('ex-grp-summary'); if(!el)return;
+  const n=_examSelectedGroups.size;
+  if(!n){ el.innerHTML=''; return; }
+  const names=[..._examSelectedGroups].map(id=>{ const g=DB.groups.find(x=>x.id===id); return g?`${g.name} (${clsN(g.classId)||'—'})`:null; }).filter(Boolean);
+  el.innerHTML = `<div style="font-size:10.5px;color:var(--accent);margin-top:7px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;"><span>✅ إجمالي المجموعات المختارة من كل الصفوف (${n}): ${names.join('، ')}</span><button type="button" onclick="_clearExamSelectedGroups()" style="background:none;border:none;color:var(--red);font-size:10px;cursor:pointer;text-decoration:underline;padding:0;">مسح الكل</button></div>`;
 }
 function saveExam(){
   const title=document.getElementById('ex-title').value.trim(); if(!title){toast('أدخل العنوان','e');return;}
@@ -6154,8 +6183,10 @@ function saveExam(){
   const showResult = document.getElementById('ex-show-result')?.value || 'yes';
   const outOf = +document.getElementById('ex-out-of')?.value || 100;
   const paperGrpVal = document.getElementById('ex-grp-paper')?.value || '';
+  // نضم أي تحديد ظاهر حالياً على الشاشة لسه ما اتسجّلش (حماية إضافية) قبل القراءة النهائية
+  document.querySelectorAll('.ex-grp-check:checked').forEach(cb=>_examSelectedGroups.add(cb.value));
   const selectedGroups = examType==='electronic'
-    ? [...document.querySelectorAll('.ex-grp-check:checked')].map(c=>c.value)
+    ? [..._examSelectedGroups]
     : (paperGrpVal ? [paperGrpVal] : []);
   const randomizeQuestions = document.getElementById('ex-randomize-q')?.checked || false;
   const randomizeOptions = document.getElementById('ex-randomize-opts')?.checked || false;
@@ -6177,7 +6208,7 @@ function saveExam(){
     const newExam = {id:nid('EX'),...baseData,questions:finalQs};
     DB.exams.push(newExam);
     // ── إشعار أولياء أمور كل طلاب الصف/المجموعات المستهدفة بامتحان جديد ──
-    const targetStudents = DB.students.filter(s => s.classId===newExam.classId && (!newExam.groups.length || newExam.groups.includes(s.groupId)));
+    const targetStudents = DB.students.filter(s => newExam.groups.length ? newExam.groups.includes(s.groupId) : s.classId===newExam.classId);
     targetStudents.forEach(s => pushNotif(s.id,'exam','📋','امتحان جديد',`تم إضافة امتحان "${newExam.title}" (${examType==='electronic'?'إلكتروني':'ورقي'})`));
     toast('✅ تم حفظ الامتحان');
   }
@@ -12933,11 +12964,18 @@ function spRenderMCQ(){
   // Show exams available for student's class/group
   const availExams=DB.exams.filter(e=>{
     if(e.terminated)return false;
-    if(!_examVisibleNow(e)) return false; // قاعدة الظهور الموحّدة (خاصة بالإلكتروني)
-    if(e.classId && e.classId!==s.classId) return false;
     // دعم توافقي: امتحانات قديمة فيها e.group (نص) بدل e.groups (مصفوفة)
     const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
-    if(eGroups.length && !eGroups.includes(s.groupId)) return false;
+    if(eGroups.length){
+      // فيه مجموعات محددة (ممكن تشمل صفوف متعددة) — العبرة بالمجموعة مش بالصف المختار في الواجهة
+      if(!eGroups.includes(s.groupId)) return false;
+    } else if(e.classId && e.classId!==s.classId){
+      return false; // مفيش مجموعات محددة — الامتحان يخص الصف بالكامل
+    }
+    // ── فترة الظهور تتطبق فقط على الامتحانات اللي الطالب لسه ما اختبرش فيها.
+    //    لو عنده جلسة/نتيجة مسجّلة بالفعل، تفضل ظاهرة له حتى لو انتهت فترة الظهور ──
+    const hasSession = DB.examSessions.some(ses=>ses.examId===e.id&&ses.studentId===s.id);
+    if(!hasSession && !_examVisibleNow(e)) return false;
     return true;
   });
   document.getElementById('sp-mcq-body').innerHTML=`
