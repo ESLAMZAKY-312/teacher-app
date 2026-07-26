@@ -512,37 +512,9 @@ function renderMcq(s){
   const pending = allExamsBase.filter(e=>_examVisibleNow(e) && !grades.find(g=>g.studentId===s.id && g.examId===e.id));
   const done    = allExamsBase.filter(e=> grades.find(g=>g.studentId===s.id && g.examId===e.id)); // بدون شرط فترة الظهور إطلاقًا
 
-  // ── تشخيص: امتحانات محفوظة بس مش ظاهرة لا في المعلّقة ولا في المؤداة، وضّح السبب بالظبط ──
-  let debugHTML = '';
-  if(rawExams.length){
-    const visibleIds = new Set([...pending,...done].map(e=>e.id));
-    const reasons = rawExams.filter(e=>e&&typeof e==='object'&&!visibleIds.has(e.id)).map(e=>{
-      const typeOk = !e.type || e.type==='electronic';
-      const clsOk  = !e.classId || e.classId===s.classId;
-      const grpOk  = _examGroupMatches(e, s.groupId);
-      const timeOk = _examVisibleNow(e);
-      const hasQ   = (e.questions||[]).filter(q=>q&&!q._placeholder).length>0;
-      const why=[];
-      if(!typeOk) why.push('امتحان ورقي (مش إلكتروني)');
-      if(!clsOk)  why.push('صف مختلف عن صفك');
-      if(!grpOk)  why.push('مجموعة مختلفة عن مجموعتك');
-      if(!timeOk){
-        if(!e.visibleFrom && !e.visibleUntil) why.push('لم يتم تحديد فترة ظهور له بعد');
-        else if(e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now()) why.push('مجدول للظهور في '+new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}));
-        else if(e.visibleUntil && new Date(e.visibleUntil).getTime()<Date.now()) why.push('انتهت فترة ظهوره في '+new Date(e.visibleUntil).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'}));
-      }
-      if(!hasQ)   why.push('بدون أسئلة');
-      if(!why.length) return null;
-      return `<div style="padding:6px 10px;background:rgba(255,166,35,.08);border-radius:6px;margin-bottom:5px;font-size:11px;color:var(--text2);">📋 <b>${e.title||'بدون عنوان'}</b> — غير ظاهر: ${why.join('، ')}</div>`;
-    }).filter(Boolean);
-    if(reasons.length){
-      debugHTML = `<div style="margin-bottom:10px;"><div style="font-size:10.5px;color:var(--text3);margin-bottom:5px;">🔍 معلومة تشخيصية (فيه امتحانات محفوظة بس مش ظاهرة لك):</div>${reasons.join('')}</div>`;
-    }
-  }
-
   // ── امتحانات متاحة ──
   const pendingEl = document.getElementById('mcq-pending');
-  pendingEl.innerHTML = (debugHTML) + (pending.length
+  pendingEl.innerHTML = (pending.length
     ? pending.map(e=>{
         const realQCount=(e.questions||[]).filter(q=>q&&!q._placeholder).length;
         const qCountLabel = (e.questionCount && e.questionCount<realQCount)
