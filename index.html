@@ -800,6 +800,7 @@ async function _loadFromFirebase(){
               <button onclick="setScanMode('ext')" class="btn btn-sm" style="font-size:11.5px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);color:var(--red);">⏹ إيقاف الكاميرا</button>
             </div>
             <input class="fi" id="manual-id-cam" placeholder="أو اكتب الكود يدوياً..." style="width:100%;font-size:13px;" autocomplete="off" onkeydown="if(event.key==='Enter'){manualCI();}">
+            <div style="font-size:10.5px;color:var(--text2);margin-top:5px;">💡 قرّب الباركود من الكاميرا لحد ما يملأ الإطار المضيء، وثبّت الجهاز شوية لحظة القراءة — ده بيسرّع القراءة كتير على كاميرا الموبايل</div>
           </div>
           <div style="margin-top:12px;background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:10px;">
             <div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:8px;">📋 تسجيل يدوي — اختر الصف والمجموعة والطالب</div>
@@ -5201,8 +5202,9 @@ async function startCamera(){
   // (facingMode كنص مباشر) وتحتاج صيغة "ideal"، وبعض الأجهزة (خصوصاً بكاميرا واحدة) ترفض القيد
   // تماماً فنرجع لطلب أي كاميرا متاحة كحل أخير بدل الفشل الكامل
   const attempts=[
-    { video:{ facingMode:{ideal:_camFacing}, width:{ideal:1280}, height:{ideal:720} } },
-    { video:{ facingMode:_camFacing } },
+    { video:{ facingMode:{ideal:_camFacing}, width:{ideal:1920}, height:{ideal:1080} } },
+    { video:{ facingMode:_camFacing, width:{ideal:1280}, height:{ideal:720} } },
+    { video:{ width:{ideal:1280}, height:{ideal:720} } },
     { video:true }
   ];
   let lastErr=null;
@@ -5255,7 +5257,21 @@ function _startZxing(video, statusEl){
 
 function _initZxingReader(video, statusEl){
   try {
-    _zxingReader=new ZXing.BrowserMultiFormatReader();
+    // تحديد صيغ الباركود المتوقعة + تفعيل "المحاولة الأقوى" — ده اللي بيحسّن قراءة الباركود الخطي (1D)
+    // بشكل كبير جداً على كاميرات الموبايل، لأن الإعدادات الافتراضية بتكون خفيفة وسريعة بس مش دقيقة كفاية لباركود صغير
+    const hints=new Map();
+    if(ZXing.DecodeHintType && ZXing.BarcodeFormat){
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,[
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.QR_CODE
+      ]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    }
+    _zxingReader=new ZXing.BrowserMultiFormatReader(hints, 150); // 150ms بين كل محاولة قراءة
     _zxingReader.decodeFromVideoElement(video, (result, err)=>{
       if(result && !_scanLock){
         _scanLock=true;
@@ -5266,6 +5282,14 @@ function _initZxingReader(video, statusEl){
         setTimeout(()=>{ _scanLock=false; if(statusEl) statusEl.textContent='🟢 جاهز للمسح التالي'; },1500);
       }
     });
+    // تفعيل التركيز البؤري المستمر (continuous autofocus) لو الجهاز بيدعمه — بيحسّن وضوح الباركود القريب على الموبايل
+    try{
+      const track=_camStream?.getVideoTracks?.()[0];
+      const caps=track?.getCapabilities?.();
+      if(caps && caps.focusMode && caps.focusMode.includes('continuous')){
+        track.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{});
+      }
+    }catch(e){}
   } catch(e){
     if(statusEl) statusEl.textContent='❌ خطأ في تهيئة قارئ الكاميرا';
   }
