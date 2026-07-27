@@ -267,6 +267,9 @@ tr:hover td{background:rgba(255,255,255,.018);}
   .g4,.g3,.g6{grid-template-columns:repeat(2,1fr);}
   .g2{grid-template-columns:1fr;}
   .fr{grid-template-columns:1fr;}
+  /* صفحة الحضور: كانت بعرض ثابت (230px) وبدون التفاف، فكانت تكسر التخطيط وتُخفي قسم الباركود/الكاميرا على الموبايل */
+  .att-row{flex-direction:column;}
+  .att-log-col{width:100%!important;flex-shrink:1!important;}
 }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -732,10 +735,10 @@ async function _loadFromFirebase(){
   <div class="g2">
     <div>
       <!-- ── صف: سجل اليوم (يسار) + قسم الباركود (يمين) ── -->
-      <div style="display:flex;gap:10px;margin-bottom:1rem;align-items:flex-start;">
+      <div class="att-row" style="display:flex;gap:10px;margin-bottom:1rem;align-items:flex-start;">
 
         <!-- سجل اليوم على اليسار -->
-        <div class="tc" style="width:230px;flex-shrink:0;">
+        <div class="tc att-log-col" style="width:230px;flex-shrink:0;">
           <div class="th" style="display:flex;justify-content:space-between;align-items:center;padding:.55rem .85rem;">
             <div>
               <div class="tt" style="margin:0;">📋 سجل اليوم</div>
@@ -5183,29 +5186,43 @@ async function startCamera(){
   _scanLock=false;
 
   // الكاميرا تحتاج سياق آمن (HTTPS) أو localhost — لا تعمل عند فتح الملف مباشرة (file://) أو عبر HTTP عادي
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+  const isSecure = location.protocol==='https:' || location.hostname==='localhost' || location.hostname==='127.0.0.1';
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !isSecure){
     const msg = location.protocol==='file:'
       ? '❌ الكاميرا لا تعمل عند فتح الملف مباشرة من جهازك — ارفع الملف على استضافة تدعم HTTPS (مثل GitHub Pages) لتفعيلها'
-      : '❌ متصفحك لا يدعم الوصول للكاميرا، أو الاتصال غير آمن (HTTPS مطلوب)';
+      : !isSecure ? '❌ الكاميرا تحتاج اتصال آمن (HTTPS) — الرابط الحالي لا يبدأ بـ https://'
+      : '❌ متصفحك لا يدعم الوصول للكاميرا';
     if(status) status.textContent=msg;
     toast(msg,'e');
     return;
   }
 
-  try {
-    const constraints={ video:{ facingMode:_camFacing, width:{ideal:1280}, height:{ideal:720} } };
-    _camStream=await navigator.mediaDevices.getUserMedia(constraints);
-    video.srcObject=_camStream;
-    await video.play();
-    if(status) status.textContent='🟢 الكاميرا تعمل — وجّه الكاميرا نحو الباركود';
-    _startZxing(video, status);
-  } catch(err){
-    const msg=err.name==='NotAllowedError'?'❌ لم يتم السماح بالوصول للكاميرا — تحقق من الإذن في المتصفح'
-             :err.name==='NotFoundError'?'❌ لا توجد كاميرا متاحة على هذا الجهاز'
-             :'❌ خطأ في الكاميرا: '+err.message;
-    if(status) status.textContent=msg;
-    toast(msg,'e');
+  // نجرّب أكثر من مجموعة قيود (constraints) بالترتيب — بعض متصفحات الموبايل ترفض القيد الدقيق
+  // (facingMode كنص مباشر) وتحتاج صيغة "ideal"، وبعض الأجهزة (خصوصاً بكاميرا واحدة) ترفض القيد
+  // تماماً فنرجع لطلب أي كاميرا متاحة كحل أخير بدل الفشل الكامل
+  const attempts=[
+    { video:{ facingMode:{ideal:_camFacing}, width:{ideal:1280}, height:{ideal:720} } },
+    { video:{ facingMode:_camFacing } },
+    { video:true }
+  ];
+  let lastErr=null;
+  for(const constraints of attempts){
+    try{
+      _camStream=await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject=_camStream;
+      await video.play();
+      if(status) status.textContent='🟢 الكاميرا تعمل — وجّه الكاميرا نحو الباركود';
+      _startZxing(video, status);
+      return;
+    }catch(err){ lastErr=err; }
   }
+  const err=lastErr||{};
+  const msg=err.name==='NotAllowedError'?'❌ لم يتم السماح بالوصول للكاميرا — تحقق من إذن الكاميرا في إعدادات المتصفح'
+           :err.name==='NotFoundError'?'❌ لا توجد كاميرا متاحة على هذا الجهاز'
+           :err.name==='NotReadableError'?'❌ الكاميرا مستخدمة حالياً من تطبيق آخر — أغلقه وحاول مرة أخرى'
+           :'❌ خطأ في الكاميرا: '+(err.message||'غير معروف');
+  if(status) status.textContent=msg;
+  toast(msg,'e');
 }
 
 // ── إيقاف الكاميرا ──
