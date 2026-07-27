@@ -5142,7 +5142,7 @@ function manualAttend(status){
 // ═══════════════════════════════════════════════════════════
 // منظومة قراءة الباركود — قارئ خارجي + كاميرا
 // ═══════════════════════════════════════════════════════════
-let _camStream=null, _camFacing='environment', _zxingReader=null, _scanLock=false;
+let _camStream=null, _camFacing='environment', _zxingReader=null, _scanLock=false, _zxingScanInterval=null;
 
 // ── تبديل وضع المسح ──
 function setScanMode(mode){
@@ -5229,6 +5229,7 @@ async function startCamera(){
 
 // ── إيقاف الكاميرا ──
 function stopCamera(){
+  if(_zxingScanInterval){ clearInterval(_zxingScanInterval); _zxingScanInterval=null; }
   if(_zxingReader){ try{ _zxingReader.reset(); }catch(e){} _zxingReader=null; }
   if(_camStream){ _camStream.getTracks().forEach(t=>t.stop()); _camStream=null; }
   const video=document.getElementById('cam-video');
@@ -5271,17 +5272,36 @@ function _initZxingReader(video, statusEl){
       ]);
       hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
     }
-    _zxingReader=new ZXing.BrowserMultiFormatReader(hints, 150); // 150ms بين كل محاولة قراءة
-    _zxingReader.decodeFromVideoElement(video, (result, err)=>{
-      if(result && !_scanLock){
-        _scanLock=true;
-        const code=result.getText();
-        if(statusEl) statusEl.textContent='✅ تم القراءة: '+code;
-        _processBarcode(code);
-        // فترة قفل ثانية ونصف لمنع التكرار
-        setTimeout(()=>{ _scanLock=false; if(statusEl) statusEl.textContent='🟢 جاهز للمسح التالي'; },1500);
-      }
-    });
+    _zxingReader=new ZXing.BrowserMultiFormatReader(hints, 150);
+
+    // ══ فك تشفير من كانفاس مقصوص (زووم على منطقة إطار التصويب) بدل الفريم الكامل ══
+    // مشكلة معروفة في مكتبة ZXing: الباركود الخطي (1D) بيفشل في القراءة لو مساحته صغيرة
+    // بالنسبة لحجم الفريم الكامل — وده بالظبط اللي بيحصل مع كاميرا الموبايل عريضة الزاوية.
+    // الحل: نقتطع مربع من منتصف الفيديو (نفس منطقة الإطار المرسوم للمستخدم) ونكبّره في
+    // كانفاس صغير، فيبقى الباركود يشغل مساحة أكبر نسبياً من الصورة اللي بتتفحص فعلياً.
+    if(_zxingScanInterval){ clearInterval(_zxingScanInterval); _zxingScanInterval=null; }
+    const canvas=document.createElement('canvas');
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    _zxingScanInterval=setInterval(()=>{
+      if(_scanLock || !video.videoWidth || video.readyState<2) return;
+      const vw=video.videoWidth, vh=video.videoHeight;
+      const cropSize=Math.round(Math.min(vw,vh)*0.65); // قريب من نسبة إطار التصويب المرسوم (55%) مع هامش أمان
+      const sx=Math.round((vw-cropSize)/2), sy=Math.round((vh-cropSize)/2);
+      canvas.width=cropSize; canvas.height=cropSize;
+      ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, cropSize, cropSize);
+      _zxingReader.decodeFromCanvas(canvas)
+        .then(result=>{
+          if(result && !_scanLock){
+            _scanLock=true;
+            const code=result.getText();
+            if(statusEl) statusEl.textContent='✅ تم القراءة: '+code;
+            _processBarcode(code);
+            setTimeout(()=>{ _scanLock=false; if(statusEl) statusEl.textContent='🟢 جاهز للمسح التالي'; },1500);
+          }
+        })
+        .catch(()=>{}); // طبيعي جداً: معنى الخطأ إنه مفيش باركود واضح في هذا الفريم بالذات، مش عطل حقيقي
+    }, 220);
+
     // تفعيل التركيز البؤري المستمر (continuous autofocus) لو الجهاز بيدعمه — بيحسّن وضوح الباركود القريب على الموبايل
     try{
       const track=_camStream?.getVideoTracks?.()[0];
