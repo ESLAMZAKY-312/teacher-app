@@ -2348,7 +2348,7 @@ async function _loadFromFirebase(){
         <div class="fg"><label class="fl">🕒 من (بداية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-from"></div>
         <div class="fg"><label class="fl">🕒 إلى (نهاية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-until"></div>
       </div>
-      <div style="font-size:10px;color:var(--text2);margin-top:3px;">اترك الحقلين فارغين ليظهر الامتحان فوراً ويستمر بلا نهاية — أو حدد فترة زمنية محددة لجدولة ظهوره واختفائه تلقائياً</div>
+      <div style="font-size:10px;color:var(--text2);margin-top:3px;">⚠️ لازم تحدد حقل واحد على الأقل ("من" أو "إلى") عشان الامتحان يظهر للطالب — لو سبتهم فاضيين الاثنين الامتحان هيفضل مخفي تمامًا عنه</div>
     </div>
 
     <div class="fg" id="ex-paper-score-row"><label class="fl">الدرجة الكاملة</label><input type="number" class="fi" id="ex-out-of" value="100" min="1" placeholder="مثال: 100"></div>
@@ -2930,6 +2930,7 @@ async function _loadFromFirebase(){
       <button class="btn btn-secondary" onclick="closeModal('selective-delete-modal')">إلغاء</button>
       <button class="btn btn-danger" onclick="deleteAllData()">💥 حذف كل البيانات نهائياً</button>
       <button class="btn btn-amber" onclick="deleteSelected()">🗑 حذف المحددين</button>
+      <button class="btn" style="background:linear-gradient(135deg,#0891b2,#0e7490);color:#fff;" onclick="startNewYear()">🎓 الحذف لبدء السنة الجديدة</button>
     </div>
   </div>
 </div>
@@ -11586,6 +11587,49 @@ function deleteAllData(){
   } else {
     location.reload();
   }
+}
+
+/** حذف مخصص لبدء عام دراسي جديد: بيمسح كل بيانات الطلاب أنفسهم (الطلاب،
+ *  الحضور، الدرجات، المدفوعات، السلوك، نتائج الامتحانات، النقاط والمكافآت
+ *  الممنوحة، مبيعات المتجر، طلبات إعادة الامتحان، حالات الدفع الخاصة،
+ *  الإشعارات، سلة المحذوفات) — ويبقي على أي حاجة مش خاصة بطالب بعينه: بيانات
+ *  المعلم، الصفوف والمجموعات (هتفضل موجودة لكن فاضية من الطلاب)، رسائل
+ *  الواتساب/تيليجرام المحفوظة، بنك الأسئلة، الامتحانات والواجبات (كقوالب
+ *  قابلة لإعادة الاستخدام)، المنتجات، قوالب الشهادات، والمصروفات. */
+function startNewYear(){
+  const msg = '🎓 الحذف لبدء السنة الجديدة\n\n'
+    + 'سيتم حذف نهائيًا: كل الطلاب، الحضور، الدرجات، المدفوعات، مبيعات المتجر، '
+    + 'سلوك الطلاب، النقاط والمكافآت الممنوحة، نتائج الامتحانات، طلبات إعادة '
+    + 'الامتحان، حالات الدفع الخاصة، الإشعارات، وسلة المحذوفات.\n\n'
+    + 'سيبقى كما هو: بيانات المعلم والإعدادات، الصفوف والمجموعات (بدون طلاب)، '
+    + 'رسائل الواتساب/تيليجرام المحفوظة، بنك الأسئلة، الامتحانات، الواجبات، '
+    + 'المنتجات، قوالب الشهادات، والمصروفات.\n\n'
+    + '⚠️ هذا الإجراء نهائي ولا يمكن التراجع عنه. هل تريد المتابعة؟';
+  if(!confirm(msg)) return;
+  if(!confirm('تأكيد أخير: سيتم حذف كل بيانات الطلاب الآن فعليًا. متابعة؟')) return;
+
+  DB.students=[];
+  DB.attendance={};
+  DB.grades=[];
+  DB.examSessions=[];
+  DB.payments=[];
+  DB.sales=[];
+  DB.behaviors=[];
+  DB.points=[];
+  DB.rewardGiven=[];
+  DB.trash=[];
+  DB.retakeRequests=[];
+  DB.retakePermissions=[];
+  DB.specialPays=[];
+  DB.notifications=[];
+  // ── ملحوظة: settings, classes, groups, exams, assignments, questionBank,
+  //    products, rewards, expenses, subjects, supervisors, pinnedMessages,
+  //    tgPinnedMessages, certTemplates, waTmpl ما بتتمسحش خالص ──
+
+  save();
+  toast('✅ تم حذف كل بيانات الطلاب — التطبيق جاهز للعام الدراسي الجديد');
+  closeModal('selective-delete-modal');
+  setTimeout(()=>location.reload(), 900);
 }
 
 // ── ثابت: الصفوف لكل مرحلة (مستقلة عن DB.classes) ──
