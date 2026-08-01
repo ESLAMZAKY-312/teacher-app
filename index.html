@@ -646,6 +646,7 @@ async function _loadFromFirebase(){
       <option value="alpha_desc">أبجدياً (ي-أ)</option>
       <option value="oldest">أقدم تسجيلاً</option>
       <option value="newest">أحدث تسجيلاً</option>
+      <option value="gender">الجنس (ذكور ثم إناث)</option>
     </select>
   </div>
   <!-- Export row + counter -->
@@ -3670,6 +3671,11 @@ function renderStudents(){
   else if(sf==='alpha_desc') list=list.slice().sort((a,b)=>(b.fname+b.lname).localeCompare(a.fname+a.lname,'ar'));
   else if(sf==='oldest') list=list.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   else if(sf==='newest') list=list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  else if(sf==='gender') list=list.slice().sort((a,b)=>{
+    const ga=a.gender==='female'?1:0, gb=b.gender==='female'?1:0;
+    if(ga!==gb) return ga-gb; // الذكور (0) قبل الإناث (1)
+    return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'); // أبجدياً داخل نفس الجنس
+  });
   // update counter
   const countEl=document.getElementById('stu-count');
   if(countEl) countEl.textContent=list.length+'/'+DB.students.length;
@@ -3864,6 +3870,11 @@ function getFilteredStudentsList(){
   else if(sf==='alpha_desc') list=list.slice().sort((a,b)=>(b.fname+b.lname).localeCompare(a.fname+a.lname,'ar'));
   else if(sf==='oldest') list=list.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   else if(sf==='newest') list=list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  else if(sf==='gender') list=list.slice().sort((a,b)=>{
+    const ga=a.gender==='female'?1:0, gb=b.gender==='female'?1:0;
+    if(ga!==gb) return ga-gb; // الذكور (0) قبل الإناث (1)
+    return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'); // أبجدياً داخل نفس الجنس
+  });
   return list;
 }
 
