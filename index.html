@@ -4004,7 +4004,20 @@ function addStudent(){
   let pin=document.getElementById('s-pin')?.value.trim()||'';
   if(!pin || pin.length<8) pin=genPin('s-pin'); // ضمان وجود رقم سري صالح دائماً حتى لو الحقل فارغ لأي سبب
   DB.students.push({id:bc,fname:fn,lname:ln,gender,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:document.getElementById('s-date').value,fee,notes:'',barcode:bc,pin,color:COLORS[DB.students.length%COLORS.length]});
-  save(); closeModal('add-student-modal'); renderStudents(); toast('✅ تم إضافة '+(gender==='female'?'الطالبة':'الطالب')+' '+fullName);
+  save(); renderStudents(); toast('✅ تم إضافة '+(gender==='female'?'الطالبة':'الطالب')+' '+fullName+' — الصف والمجموعة باقيين لإضافة طالب تاني بسرعة');
+  _resetAddStudentFieldsOnly();
+}
+
+// ── تصفير حقول بيانات الطالب فقط بعد الإضافة، مع الإبقاء على الصف والمجموعة المختارين لتسريع إضافة عدة طلاب لنفس المجموعة ──
+function _resetAddStudentFieldsOnly(){
+  ['s-fn','s-ph','s-pph','s-bc','s-tg-chatid','s-tg-username'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  document.getElementById('s-fee').value='';
+  document.getElementById('s-gender-m').checked=true;
+  document.getElementById('s-gender-f').checked=false;
+  if(typeof updateGenderLabel==='function') updateGenderLabel();
+  genPin('s-pin');
+  const nameEl=document.getElementById('s-fn');
+  if(nameEl) nameEl.focus();
 }
 
 function openEditStudent(id){
