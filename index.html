@@ -4069,21 +4069,22 @@ function genBC(){ document.getElementById('s-bc').value=String(parseInt(Date.now
 
 // ── توليد رقم سري (Pin) 8 خانات على الأقل، حروف وأرقام معاً ──
 // مجموعة أحرف بدون رموز ملتبسة بصرياً (استُبعد: 0/O, 1/I/L) لتقليل أخطاء القراءة عند طباعته على كارت الطالب
-function genPin(targetId){
+/** يولّد رقم سري عشوائي (8 خانات، حرف ورقم على الأقل) — دالة نقية قابلة لإعادة الاستخدام */
+function _generatePin(){
   const LETTERS='ABCDEFGHJKMNPQRSTUVWXYZ';
   const DIGITS='23456789';
   const ALL=LETTERS+DIGITS;
   const LEN=8;
   let pin='';
-  // ضمان وجود حرف واحد ورقم واحد على الأقل
   pin+=LETTERS[Math.floor(Math.random()*LETTERS.length)];
   pin+=DIGITS[Math.floor(Math.random()*DIGITS.length)];
   for(let i=2;i<LEN;i++) pin+=ALL[Math.floor(Math.random()*ALL.length)];
-  // خلط الترتيب حتى لا يكون الحرف والرقم دائماً في نفس الموضع
   pin=pin.split('').sort(()=>Math.random()-0.5).join('');
-  const el=document.getElementById(targetId);
-  if(el) el.value=pin;
   return pin;
+}
+function genPin(targetId){
+  const el=document.getElementById(targetId);
+  if(el) el.value=_generatePin();
 }
 
 function delStudent(id){
@@ -11540,12 +11541,57 @@ function exportPortalData(){
 function importJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=async ev=>{ try{ DB=JSON.parse(ev.target.result); DB.__lastSave=Date.now(); if(_fbSyncPending){clearTimeout(_fbSyncPending);_fbSyncPending=null;} _idbSet('etp3',DB).catch(()=>{}); await _saveFlush(); location.reload(); }catch(err){toast('خطأ في الملف','e');} }; r.readAsText(f); }
 function importExcel(e){
   const f=e.target.files[0]; if(!f)return;
-  const r=new FileReader(); r.onload=ev=>{ try{ const wb=XLSX.read(ev.target.result,{type:'binary'}); const ws=wb.Sheets[wb.SheetNames[0]]; const data=XLSX.utils.sheet_to_json(ws); let added=0;
-    data.forEach(row=>{ const fullname=(row['الاسم']||row['name']||'').trim(); if(!fullname)return; const parts=fullname.split(' '); const fn=parts[0], ln=parts.slice(1).join(' ')||'.'; const id='STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*99);
+  const r=new FileReader(); r.onload=ev=>{ try{ const wb=XLSX.read(ev.target.result,{type:'binary'}); const ws=wb.Sheets[wb.SheetNames[0]]; const data=XLSX.utils.sheet_to_json(ws); let added=0, unmatched=0;
+    const norm=t=>String(t||'').replace(/\s+/g,'').trim();
+    data.forEach(row=>{ const fullname=(row['الاسم']||row['الاسم الكامل']||row['name']||'').trim(); if(!fullname)return; const parts=fullname.split(' '); const fn=parts[0], ln=parts.slice(1).join(' ')||'.';
       const genderRaw=String(row['الجنس']||row['النوع']||row['gender']||'').trim().toLowerCase();
       const gender=['أنثى','انثى','بنت','طالبة','f','female'].includes(genderRaw)?'female':'male';
-      DB.students.push({id,fname:fn,lname:ln,gender,phone:row['الهاتف']||row['phone']||'',parentPhone:row['هاتف_ولي_الأمر']||'',classId:DB.classes[0]?.id||'',groupId:DB.groups[0]?.id||'',date:localDate(),fee:DB.settings.fee,notes:'',barcode:id,color:COLORS[DB.students.length%COLORS.length]}); added++; });
-    save(); toast('✅ تم استيراد '+added+' طالب'); }catch(err){toast('خطأ في الملف','e');} }; r.readAsBinaryString(f);
+
+      // ── مطابقة الصف والمجموعة من بيانات نفس الصف في الملف (بدل تثبيت الكل على أول صف/مجموعة في القائمة) ──
+      const clsNameRaw=String(row['الصف']||row['الصف الدراسي']||row['class']||'').trim();
+      const grpNameRaw=String(row['المجموعة']||row['group']||'').trim();
+      let matchedClass = clsNameRaw ? DB.classes.find(c=>norm(c.name)===norm(clsNameRaw)) || DB.classes.find(c=>norm(c.name).includes(norm(clsNameRaw))||norm(clsNameRaw).includes(norm(c.name))) : null;
+      let matchedGroup = null;
+      if(grpNameRaw){
+        matchedGroup = DB.groups.find(g=>(!matchedClass||g.classId===matchedClass.id) && norm(g.name)===norm(grpNameRaw))
+          || DB.groups.find(g=>(!matchedClass||g.classId===matchedClass.id) && (norm(g.name).includes(norm(grpNameRaw))||norm(grpNameRaw).includes(norm(g.name))));
+        if(matchedGroup && !matchedClass) matchedClass = DB.classes.find(c=>c.id===matchedGroup.classId);
+      }
+      if(clsNameRaw && !matchedClass) unmatched++;
+      if(grpNameRaw && !matchedGroup) unmatched++;
+
+      // ── باقي بيانات الطالب: تُقرأ من الملف لو موجودة، وإلا تتولّد/تُفترض تلقائيًا ──
+      const barcodeRaw=String(row['الباركود']||row['كود']||row['barcode']||row['code']||'').trim();
+      const id=barcodeRaw || ('STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*99));
+      const pinRaw=String(row['الرقم السري']||row['كلمة السر']||row['pin']||'').trim();
+      const feeRaw=row['الرسوم']||row['رسوم']||row['fee'];
+      const joinDateRaw=row['تاريخ الالتحاق']||row['التاريخ']||row['date'];
+      let joinDate=localDate();
+      if(joinDateRaw){
+        const d = joinDateRaw instanceof Date ? joinDateRaw : new Date(joinDateRaw);
+        if(!isNaN(d.getTime())) joinDate = d.toISOString().slice(0,10);
+      }
+
+      DB.students.push({
+        id, fname:fn, lname:ln, gender,
+        phone: row['الهاتف']||row['هاتف الطالب']||row['phone']||'',
+        parentPhone: row['هاتف ولي الأمر']||row['هاتف_ولي_الأمر']||row['parentPhone']||row['parent_phone']||'',
+        classId: matchedClass?.id||DB.classes[0]?.id||'',
+        groupId: matchedGroup?.id||DB.groups[0]?.id||'',
+        date: joinDate,
+        fee: (feeRaw!==undefined && feeRaw!=='' && !isNaN(+feeRaw)) ? +feeRaw : DB.settings.fee,
+        notes:'',
+        barcode: id,
+        pin: pinRaw || _generatePin(),
+        tgChatId: String(row['شات تيليجرام']||row['tgChatId']||'').trim(),
+        tgUsername: String(row['تيليجرام']||row['tgUsername']||'').trim(),
+        color: COLORS[DB.students.length%COLORS.length]
+      });
+      added++;
+    });
+    save();
+    toast(unmatched ? `✅ تم استيراد ${added} طالب — تنبيه: ${unmatched} حالة صف/مجموعة لم تتطابق بدقة مع أسماء الملف واستُخدم الافتراضي بدلها، راجعها يدويًا` : `✅ تم استيراد ${added} طالب بكل بياناتهم (الصف، المجموعة، الباركود، الرقم السري، وغيرها) حسب الملف`);
+  }catch(err){toast('خطأ في الملف','e');} }; r.readAsBinaryString(f);
 }
 function renderTrash(){ document.getElementById('trash-body').innerHTML=DB.trash.length?DB.trash.map((t,i)=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();renderTrash()">حذف نهائي</button></div>`).join(''):'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>'; }
 function restoreTrash(i){ const t=DB.trash[i]; if(t.type==='student')DB.students.push(t.data); DB.trash.splice(i,1); save(); toast('✅ تم الاستعادة'); renderTrash(); }
