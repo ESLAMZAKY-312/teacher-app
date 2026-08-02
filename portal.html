@@ -304,6 +304,24 @@ function doLogout(){
 // ── دوال مساعدة: البحث عن اسم الصف/المجموعة من المعرّف (classId/groupId) ──
 function clsName(id){ return (schoolData?.classes||[]).find(c=>c.id===id)?.name || '—'; }
 function grpInfo(id){ return (schoolData?.groups||[]).find(g=>g.id===id) || null; }
+// ── يحدد أيام الأسبوع (كأرقام 0=أحد..6=سبت) اللي مجموعة الطالب بتنعقد فيها فعلياً ──
+function _grpDayNums(grpId){
+  const g=grpInfo(grpId);
+  if(!g||!g.days) return null;
+  const txt=g.days.toLowerCase();
+  const map=[
+    {keys:['أحد','احد','sunday','sun'],num:0},
+    {keys:['إثنين','اثنين','اثنن','monday','mon'],num:1},
+    {keys:['ثلاثاء','ثلاث','tuesday','tue'],num:2},
+    {keys:['أربعاء','اربعاء','ربع','wednesday','wed'],num:3},
+    {keys:['خميس','thursday','thu'],num:4},
+    {keys:['جمعة','جمع','friday','fri'],num:5},
+    {keys:['سبت','saturday','sat'],num:6},
+  ];
+  const nums=new Set();
+  map.forEach(({keys,num})=>{ if(keys.some(k=>txt.includes(k))) nums.add(num); });
+  return nums.size?nums:null;
+}
 
 function renderPortal(s){
   document.getElementById('login-screen').style.display = 'none';
@@ -694,6 +712,7 @@ function _endMcqExam(){
 function renderAtt(s){
   const att = schoolData?.attendance || {};
   const grp = grpInfo(s.groupId);
+  const allowedDays = _grpDayNums(s.groupId);
   let present=0, absent=0, late=0, records=[];
 
   Object.entries(att).sort((a,b)=>b[0].localeCompare(a[0])).forEach(([dateKey, rec])=>{
@@ -707,6 +726,13 @@ function renderAtt(s){
       date = dateKey;
       // حاول استخراج الوقت من خاصية منفصلة إن وجدت
       time = rec[s.id+'_time'] || rec['_time'] || '';
+    }
+    // نحسب فقط الأيام اللي فعلاً من جدول مجموعة الطالب الأسبوعي — أي يوم تاني (خارج
+    // جدول المجموعة) لا يُعتبر غياباً ولا حضوراً، إلا لو كانت الحالة "استثنائي" (حصة تعويض)
+    if(allowedDays && st!=='exceptional'){
+      const parts=date.split('-');
+      const dt=new Date(+parts[0], +parts[1]-1, +parts[2]);
+      if(!allowedDays.has(dt.getDay())) return;
     }
     records.push({date, time, status:st, key:dateKey});
     if(st==='present'||st==='exceptional') present++;
