@@ -4030,13 +4030,12 @@ function addStudent(){
   _resetAddStudentFieldsOnly();
 }
 
-// ── تصفير حقول بيانات الطالب فقط بعد الإضافة، مع الإبقاء على الصف والمجموعة المختارين لتسريع إضافة عدة طلاب لنفس المجموعة ──
+// ── تصفير حقول بيانات الطالب فقط بعد الإضافة، مع الإبقاء على الصف والمجموعة والجنس المختارين لتسريع إضافة عدة طلاب لنفس المجموعة/النوع ──
 function _resetAddStudentFieldsOnly(){
   ['s-fn','s-ph','s-pph','s-bc','s-tg-chatid','s-tg-username'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('s-fee').value='';
-  document.getElementById('s-gender-m').checked=true;
-  document.getElementById('s-gender-f').checked=false;
-  if(typeof updateGenderLabel==='function') updateGenderLabel();
+  // ملحوظة: خانتي الجنس (s-gender-m / s-gender-f) ما بيتلمسوش هنا عمدًا —
+  // بيفضلوا على آخر اختيار تم استخدامه فعليًا في آخر عملية إضافة ناجحة
   genPin('s-pin');
   const nameEl=document.getElementById('s-fn');
   if(nameEl) nameEl.focus();
