@@ -3233,14 +3233,25 @@ const grpN = id => { const g=grp(id); return g?g.name:'—'; };
 const stuN = id => { const s=stu(id); return s?s.fname+' '+s.lname:'—'; };
 
 // ── attPct مع Cache ──
+// لا يتم احتساب أي يوم إلا لو كان ضمن الجدول الأسبوعي الفعلي لمجموعة الطالب
+// (أو كانت الحالة "استثنائي" — وده مخصص لحصص التعويض/الأيام الاستثنائية فتُحسب دائماً)
 function attPct(sid){
   const key='apc_'+sid;
   if(_cache[key]!=null) return _cache[key];
+  const s=stu(sid);
+  const allowedDays=s?_grpDayNums(s.groupId):null;
   let t=0,p=0;
-  const days=Object.values(DB.attendance);
-  for(let i=0;i<days.length;i++){
-    const v=days[i][sid];
-    if(v!==undefined){ t++; if(v==='present'||v==='exceptional') p++; }
+  const dateKeys=Object.keys(DB.attendance);
+  for(let i=0;i<dateKeys.length;i++){
+    const d=dateKeys[i];
+    const v=DB.attendance[d][sid];
+    if(v===undefined) continue;
+    if(allowedDays && v!=='exceptional'){
+      const parts=d.split('-');
+      const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+      if(!allowedDays.has(dt.getDay())) continue; // يوم خارج جدول مجموعة الطالب — لا يُحتسب غياباً ولا حضوراً
+    }
+    t++; if(v==='present'||v==='exceptional') p++;
   }
   return (_cache[key]=t?Math.round(p/t*100):100);
 }
@@ -3600,7 +3611,7 @@ function renderDashboard(){
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${total?Math.round(present/total*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${present} حاضر من ${total}</div></div>
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${DB.grades.length} درجة مسجلة</div></div>
-    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaidN*DB.settings.fee)} متأخر</div></div>`;
+    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaid.reduce((a,s)=>a+(s.fee||DB.settings.fee||0),0))} متأخر</div></div>`;
 
   document.getElementById('dash-stu-tb').innerHTML=DB.students.slice(0,6).map(s=>`
     <tr><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td>
@@ -12002,7 +12013,15 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{موعد_آخر_حضور_مسجل\}/g, lastAttDate)
     .replace(/\{مرات_الغياب_المتتالي\}/g,(()=>{
       if(!s) return extra?.count!==undefined?String(extra.count):'0';
-      const sortedDays=Object.keys(DB.attendance).sort().reverse();
+      const allowedDays=_grpDayNums(s.groupId);
+      const sortedDays=Object.keys(DB.attendance).sort().reverse().filter(d=>{
+        if(!allowedDays) return true;
+        const st=DB.attendance[d]?.[s.id];
+        if(st==='exceptional') return true;
+        const parts=d.split('-');
+        const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+        return allowedDays.has(dt.getDay());
+      });
       let consec=0;
       for(const d of sortedDays){
         const st=DB.attendance[d]?.[s.id];
@@ -13009,7 +13028,17 @@ function spDownloadCard(){
 function spRenderAttend(){
   if(!spCurrentStu)return;
   const s=spCurrentStu;
-  const attEntries=Object.entries(DB.attendance).sort((a,b)=>b[0].localeCompare(a[0]));
+  // نعرض/نحسب فقط الأيام اللي فعلاً من جدول مجموعة الطالب الأسبوعي (أو أيام "استثنائي" المسجّلة عمداً)
+  const allowedDays=_grpDayNums(s.groupId);
+  const attEntries=Object.entries(DB.attendance).filter(([date,rec])=>{
+    const st=rec[s.id]; if(!st) return false;
+    if(allowedDays && st!=='exceptional'){
+      const parts=date.split('-');
+      const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+      if(!allowedDays.has(dt.getDay())) return false;
+    }
+    return true;
+  }).sort((a,b)=>b[0].localeCompare(a[0]));
   const rows=attEntries.map(([date,rec])=>{
     const st=rec[s.id]; if(!st)return '';
     const ic={present:'✅',late:'⏰',absent:'❌'}[st]||'—';
