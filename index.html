@@ -826,7 +826,7 @@ async function _loadFromFirebase(){
         <input type="date" class="fi" id="att-date" style="width:150px" onchange="renderAttGrid()">
         <select class="fs" style="width:130px" id="att-cls" onchange="attFilterGroup()"><option value="">كل الصفوف</option></select>
         <select class="fs" style="width:140px" id="att-grp" onchange="renderAttGrid();_updateCountdownBar();"><option value="">كل المجموعات</option></select>
-        <button class="btn btn-success btn-sm" onclick="saveAtt()">💾 حفظ</button>
+        <button class="btn btn-success btn-sm" onclick="bulkMarkGroupPresent()" title="تسجيل حضور كل طلاب المجموعة دفعة واحدة، مع إمكانية تعديل أي طالب بعدها">👥 حضور جماعي</button>
         <button class="btn btn-danger btn-sm" onclick="closeAttendance()" title="تطبيق الغياب على من لم يسجل">🔒 إغلاق الحضور</button>
         <button class="btn btn-wa btn-sm" onclick="openAbsenceNotifyModal()">📱 إشعار الغياب</button><button class="btn btn-tg btn-sm" onclick="sendDefaultAbsenceTG()">✈️ تيليجرام الغياب</button>
         <div id="auto-close-countdown" style="display:none;align-items:center;gap:6px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:var(--red);">
@@ -1090,7 +1090,26 @@ async function _loadFromFirebase(){
       <div id="products-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.9rem;margin-bottom:1rem;"></div>
       <div class="tc"><div class="th"><div class="tt">📊 إحصاء المبيعات بالمنتج</div></div><div id="products-stats" style="padding:.75rem;"></div></div>
     </div>
-    <div class="tc"><div class="th"><div class="tt">سجل المبيعات</div><button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button></div><table><thead><tr><th>المنتج</th><th>الطالب</th><th>الكمية</th><th>الإيراد</th><th>التاريخ</th></tr></thead><tbody id="sales-tbody"></tbody></table></div>
+    <div class="tc"><div class="th" style="flex-wrap:wrap;gap:8px;">
+      <div class="tt">سجل المبيعات</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <select class="fs" id="sales-filter-product" style="width:150px;" onchange="renderStore()"><option value="">كل المنتجات</option></select>
+        <select class="fs" id="sales-filter-cls" style="width:140px;" onchange="_onSalesClsFilterChange()"><option value="">كل الصفوف</option></select>
+        <select class="fs" id="sales-filter-grp" style="width:140px;" onchange="renderStore()"><option value="">كل المجموعات</option></select>
+        <input class="fi" id="sales-filter-stu" placeholder="🔍 اسم الطالب..." style="width:150px;" oninput="_debouncedRenderStore()">
+        <select class="fs" id="sales-filter-paid" style="width:130px;" onchange="renderStore()">
+          <option value="">كل حالات الدفع</option>
+          <option value="paid">💰 مدفوع</option>
+          <option value="unpaid">⏳ غير مدفوع</option>
+        </select>
+        <select class="fs" id="sales-filter-received" style="width:140px;" onchange="renderStore()">
+          <option value="">كل حالات الاستلام</option>
+          <option value="received">✅ مستلم</option>
+          <option value="unreceived">⏳ غير مستلم</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
+    </div><table><thead><tr><th>المنتج</th><th>الطالب</th><th>الكمية</th><th>الإيراد</th><th>الدفع</th><th>الاستلام</th><th>التاريخ</th></tr></thead><tbody id="sales-tbody"></tbody></table></div>
   </div>
 </div>
 
@@ -5058,6 +5077,20 @@ function closeAttendance(){
 function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',unknown:'— غير محدد'}[st]||''; }
 function setAtt(sid,status){
   attState[sid]=status;
+  const date=document.getElementById('att-date')?.value;
+  if(date){
+    // حفظ فوري لحظة الضغط — بدون الحاجة لزر حفظ منفصل
+    if(!DB.attendance[date]) DB.attendance[date]={};
+    DB.attendance[date][sid]=status;
+    save();
+    const s=stu(sid);
+    if(s){
+      const STATUS_LBL={present:'حضور',absent:'غياب',late:'تأخير'};
+      const STATUS_ICON={present:'✅',absent:'❌',late:'⏰'};
+      pushNotif(sid,'attendance',STATUS_ICON[status]||'📅',`تسجيل ${STATUS_LBL[status]||status}`,`تم تسجيل ${STATUS_LBL[status]||status} ${s.fname} ${s.lname} بتاريخ ${date}`);
+    }
+    renderTodayLog();
+  }
   const card=document.getElementById('ac-'+sid);
   const bcs={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',absent:'rgba(255,77,109,.4)'};
   const bgs={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',absent:'rgba(255,77,109,.04)'};
@@ -5074,17 +5107,22 @@ function updateAttCounts(students){
   const p=students.filter(s=>attState[s.id]==='present').length, a=students.filter(s=>attState[s.id]==='absent').length, l=students.filter(s=>attState[s.id]==='late').length;
   document.getElementById('att-p').textContent='حاضر: '+p; document.getElementById('att-a').textContent='غائب: '+a; document.getElementById('att-l').textContent='متأخر: '+l;
 }
-function saveAtt(){
-  const date=document.getElementById('att-date').value;
-  if(!DB.attendance[date])DB.attendance[date]={};
-  Object.assign(DB.attendance[date],attState);
-  const STATUS_LBL={present:'حضور',absent:'غياب',late:'تأخير'};
-  const STATUS_ICON={present:'✅',absent:'❌',late:'⏰'};
-  Object.entries(attState).forEach(([sid,status])=>{
-    const s=stu(sid); if(!s) return;
-    pushNotif(sid,'attendance',STATUS_ICON[status]||'📅',`تسجيل ${STATUS_LBL[status]||status}`,`تم تسجيل ${STATUS_LBL[status]||status} ${s.fname} ${s.lname} بتاريخ ${date}`);
+// ── تسجيل حضور جماعي فوري لكل طلاب المجموعة/الصف المختار دفعة واحدة — يمكن تعديل أي طالب فردياً بعدها ──
+function bulkMarkGroupPresent(){
+  const date=document.getElementById('att-date')?.value; if(!date){toast('اختر التاريخ أولاً','e');return;}
+  const gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  if(!students.length){toast('اختر صفاً أو مجموعة أولاً','e');return;}
+  if(!confirm(`سيتم تسجيل حضور جميع طلاب هذه المجموعة (${students.length} طالب) دفعة واحدة.\nتقدر تعدّل أي طالب بعد كده لو محتاج. متابعة؟`))return;
+  if(!DB.attendance[date]) DB.attendance[date]={};
+  students.forEach(s=>{
+    attState[s.id]='present';
+    DB.attendance[date][s.id]='present';
+    pushNotif(s.id,'attendance','✅','تسجيل حضور',`تم تسجيل حضور ${s.fname} ${s.lname} بتاريخ ${date}`);
   });
-  save(); toast('✅ تم حفظ الحضور'); renderTodayLog();
+  save();
+  renderAttGrid(); renderTodayLog();
+  toast(`✅ تم تسجيل حضور ${students.length} طالب دفعة واحدة — تقدر تعدّل أي طالب فردياً لو حابب`);
 }
 function renderTodayLog(){
   // سجل اليوم يعرض اليوم الحالي دائماً — بغض النظر عن التاريخ المختار في حقل att-date
@@ -8826,15 +8864,19 @@ function openStudentStoreModal(sid){
     <div class="sec-title"><span>🧾</span> الأصناف المشتراة (${purchases.length})</div>
     ${purchases.length ? `
     <table style="margin-bottom:.75rem;">
-      <thead><tr><th>المنتج</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th></tr></thead>
+      <thead><tr><th>المنتج</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th><th>الدفع</th><th>الاستلام</th></tr></thead>
       <tbody>
         ${purchases.slice().reverse().map(x=>{
           const p=DB.products.find(pp=>pp.id===x.productId);
+          const received = x.received !== false; // توافقي: مبيعات قديمة قبل إضافة الحقل تُعتبر مستلمة
+          const paid = x.paid !== false; // توافقي: مبيعات قديمة قبل إضافة الحقل تُعتبر مدفوعة
           return `<tr>
             <td>${p?.icon||'📦'} ${x.productName}</td>
             <td style="text-align:center;">${x.qty}</td>
             <td style="color:var(--green);font-weight:700;">${fmtM(x.total)}</td>
             <td style="font-size:11px;color:var(--text2);">${x.date}</td>
+            <td style="text-align:center;"><span onclick="toggleSalePaid('${x.id}')" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>
+            <td style="text-align:center;"><span onclick="toggleSaleReceived('${x.id}')" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -8990,6 +9032,22 @@ function printStudentPurchases(sid){
   w.document.close();
 }
 
+// ── يعيد بناء فلتر المجموعة حسب الصف المختار في فلتر المبيعات (مع الحفاظ على القيمة لو لسه صالحة) ──
+function _fillSalesGroupFilter(){
+  const grpFilterEl=document.getElementById('sales-filter-grp');
+  if(!grpFilterEl) return;
+  const cid=document.getElementById('sales-filter-cls')?.value||'';
+  const prevVal=grpFilterEl.value;
+  const groups=DB.groups.filter(g=>!cid||g.classId===cid);
+  grpFilterEl.innerHTML='<option value="">كل المجموعات</option>'+groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  if(groups.some(g=>g.id===prevVal)) grpFilterEl.value=prevVal;
+}
+function _onSalesClsFilterChange(){
+  _fillSalesGroupFilter();
+  renderStore();
+}
+const _debouncedRenderStore = debounce(renderStore, 280);
+
 function renderStore(){
   document.getElementById('products-grid').innerHTML=DB.products.map(p=>`
     <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.9rem;text-align:center;position:relative;">
@@ -9021,10 +9079,52 @@ function renderStore(){
       </div>`).join(''):'<div style="color:var(--text3);text-align:center;padding:1rem;">لا توجد مبيعات بعد</div>';
   }
 
-  document.getElementById('sales-tbody').innerHTML=DB.sales.slice().reverse().map(s=>{
+  // ── تعبئة فلتر المنتج (مع الحفاظ على القيمة المختارة عبر إعادة الرسم) ──
+  const prodFilterEl=document.getElementById('sales-filter-product');
+  if(prodFilterEl){
+    const prevVal=prodFilterEl.value;
+    prodFilterEl.innerHTML='<option value="">كل المنتجات</option>'+DB.products.map(p=>`<option value="${p.id}">${p.icon} ${p.name}</option>`).join('');
+    if([...prodFilterEl.options].some(o=>o.value===prevVal)) prodFilterEl.value=prevVal;
+  }
+  // ── تعبئة فلتر الصف ──
+  const clsFilterEl=document.getElementById('sales-filter-cls');
+  if(clsFilterEl){
+    const prevCls=clsFilterEl.value;
+    clsFilterEl.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    if([...clsFilterEl.options].some(o=>o.value===prevCls)) clsFilterEl.value=prevCls;
+  }
+  // ── تعبئة فلتر المجموعة (مرتبطة بالصف المختار) ──
+  _fillSalesGroupFilter();
+  const fProd=document.getElementById('sales-filter-product')?.value||'';
+  const fCls=document.getElementById('sales-filter-cls')?.value||'';
+  const fGrp=document.getElementById('sales-filter-grp')?.value||'';
+  const fStuQ=(document.getElementById('sales-filter-stu')?.value||'').trim().toLowerCase();
+  const fPaid=document.getElementById('sales-filter-paid')?.value||'';
+  const fReceived=document.getElementById('sales-filter-received')?.value||'';
+  const filteredSales=DB.sales.filter(s=>{
+    if(fProd && s.productId!==fProd) return false;
+    if(fCls || fGrp || fStuQ){
+      const st=s.studentId?stu(s.studentId):null;
+      if(!st) return false; // عميل عام بدون طالب مربوط — يُستبعد لو فيه فلترة بالصف/المجموعة/الاسم
+      if(fCls && st.classId!==fCls) return false;
+      if(fGrp && st.groupId!==fGrp) return false;
+      if(fStuQ && !((st.fname+' '+st.lname).toLowerCase().includes(fStuQ))) return false;
+    }
+    const paid=s.paid!==false, received=s.received!==false;
+    if(fPaid==='paid' && !paid) return false;
+    if(fPaid==='unpaid' && paid) return false;
+    if(fReceived==='received' && !received) return false;
+    if(fReceived==='unreceived' && received) return false;
+    return true;
+  });
+  document.getElementById('sales-tbody').innerHTML=filteredSales.slice().reverse().map(s=>{
     const p=DB.products.find(x=>x.id===s.productId);
     const stuLabel=s.studentId?stuN(s.studentId):'عميل عام';
-    return `<tr><td>${p?.icon||'📦'} ${s.productName}</td><td style="font-size:11px;color:var(--text2);">${stuLabel}</td><td>${s.qty}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td><td style="font-size:11px;color:var(--text2);">${s.date}</td>`; }).join('')||'<tr><td colspan="5" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات</td></tr>';
+    const paid=s.paid!==false, received=s.received!==false;
+    return `<tr><td>${p?.icon||'📦'} ${s.productName}</td><td style="font-size:11px;color:var(--text2);">${stuLabel}</td><td>${s.qty}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td>`
+      +`<td style="text-align:center;"><span onclick="toggleSalePaid('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>`
+      +`<td style="text-align:center;"><span onclick="toggleSaleReceived('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>`
+      +`<td style="font-size:11px;color:var(--text2);">${s.date}</td></tr>`; }).join('')||'<tr><td colspan="7" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
 }
 function delProductConfirm(id){ const p=DB.products.find(x=>x.id===id); if(!p)return; if(!confirm(`⚠️ تحذير: هل تريد حذف المنتج "${p.name}"؟ لن تختفي المبيعات السابقة ولكن لا يمكن التراجع عن هذا الإجراء.`))return; DB.products=DB.products.filter(x=>x.id!==id); save(); renderStore(); toast('تم حذف المنتج','e'); }
 function editProduct(id){
@@ -9203,10 +9303,13 @@ function _saveAllInventory(){
 }
 function sellProduct(id){
   const p=DB.products.find(x=>x.id===id); if(!p)return;
-  // تصفية المجموعات بناءً على الصف المرتبط بالمنتج
+  // تصفية المجموعات بناءً على الصف المرتبط بالمنتج، بنفس ترتيب الصفوف الفعلي
+  // في تبويب "الصفوف والمجموعات" (بدل ترتيب مصفوفة DB.groups الخام)
   const productCls=p.classId||'';
-  const filteredGrps=DB.groups.filter(g=>!productCls||g.classId===productCls);
-  const grpOpts=filteredGrps.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  const filteredGrps = productCls
+    ? DB.groups.filter(g=>g.classId===productCls)
+    : DB.classes.flatMap(c=>DB.groups.filter(g=>g.classId===c.id));
+  const grpOpts=filteredGrps.map(g=>`<option value="${g.id}">${g.name}${productCls?'':' — '+(clsN(g.classId)||'')}</option>`).join('');
   // اسم الصف للعرض في حالة وجوده
   const clsLabel=productCls?(DB.classes.find(c=>c.id===productCls)?.name||''):'';
   const html=`
@@ -9224,6 +9327,14 @@ function sellProduct(id){
         <option value="">— بدون طالب (عميل عام) —</option>
       </select>
     </div>
+    <div class="fg" style="display:flex;align-items:center;gap:8px;padding:.35rem 0;">
+      <input type="checkbox" id="sell-paid" checked style="width:17px;height:17px;accent-color:var(--accent);cursor:pointer;" onchange="_updateSellConfirmBtn()">
+      <label for="sell-paid" style="font-size:12.5px;cursor:pointer;">💰 تم الدفع</label>
+    </div>
+    <div class="fg" style="display:flex;align-items:center;gap:8px;padding:.35rem 0;">
+      <input type="checkbox" id="sell-received" checked style="width:17px;height:17px;accent-color:var(--green);cursor:pointer;">
+      <label for="sell-received" style="font-size:12.5px;cursor:pointer;">✅ تم الاستلام</label>
+    </div>
     <div class="fg"><label class="fl">الكمية</label>
       <input type="number" class="fi" id="sell-qty" value="1" min="1" oninput="document.getElementById('sell-total').textContent=fmtM((+this.value||1)*${p.price})">
     </div>
@@ -9233,11 +9344,21 @@ function sellProduct(id){
     </div>
     <div class="fa">
       <button class="btn btn-secondary" onclick="closeModal('sell-modal')">إلغاء</button>
-      <button class="btn btn-success" onclick="confirmSell('${id}')">✅ تأكيد البيع</button>
+      <button class="btn btn-success" id="sell-confirm-btn" onclick="confirmSell('${id}')">✅ تأكيد البيع</button>
     </div>`;
   document.getElementById('sell-modal-body').innerHTML=html;
   sellFilterStudents();
+  _updateSellConfirmBtn();
   openModal('sell-modal');
+}
+/** يبدّل نص وشكل زر التأكيد حسب حالة خانة "تم الدفع":
+ *  لو مفعّلة (عملية بيع كاملة/مؤكدة) → "✅ تأكيد البيع"
+ *  لو مش مفعّلة (البيع من غير دفع فعلي حاليًا) → "موافق" */
+function _updateSellConfirmBtn(){
+  const btn=document.getElementById('sell-confirm-btn'); if(!btn)return;
+  const paid=document.getElementById('sell-paid')?.checked;
+  if(paid){ btn.textContent='✅ تأكيد البيع'; btn.className='btn btn-success'; }
+  else { btn.textContent='موافق'; btn.className='btn btn-secondary'; }
 }
 function sellFilterStudents(){
   const gid=document.getElementById('sell-grp')?.value||'';
@@ -9252,8 +9373,31 @@ function confirmSell(pid){
   const qty=+document.getElementById('sell-qty').value||1;
   const sid=document.getElementById('sell-stu').value;
   const stuName=sid?stuN(sid):'عميل عام';
-  DB.sales.push({id:nid('sl'),productId:pid,productName:p.name,qty,total:qty*p.price,studentId:sid,studentName:stuName,date:localDate()});
-  save(); closeModal('sell-modal'); renderStore(); toast(`✅ تم بيع ${qty} × ${p.name} لـ ${stuName} — ${fmtM(qty*p.price)}`);
+  const paid=document.getElementById('sell-paid')?.checked ?? true;
+  const received=document.getElementById('sell-received')?.checked ?? true;
+  DB.sales.push({id:nid('sl'),productId:pid,productName:p.name,qty,total:qty*p.price,studentId:sid,studentName:stuName,date:localDate(),paid,received});
+  save(); closeModal('sell-modal'); renderStore();
+  const statusNote=[!paid?'⚠️ لم يتم الدفع':'', !received?'⚠️ لم يتم الاستلام':''].filter(Boolean).join(' — ');
+  toast(`✅ تم تسجيل ${qty} × ${p.name} لـ ${stuName} — ${fmtM(qty*p.price)}${statusNote?' — '+statusNote:''}`);
+}
+
+/** يبدّل حالة استلام صنف مباع بعد تسجيله (لو اتسلّم لاحقًا مثلاً) */
+function toggleSaleReceived(saleId){
+  const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
+  s.received=!s.received;
+  save();
+  if(document.getElementById('sales-tbody')) renderStore();
+  if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
+  toast(s.received?'✅ تم تسجيل الاستلام':'↩️ تم إلغاء تسجيل الاستلام');
+}
+/** يبدّل حالة دفع صنف مباع بعد تسجيله (لو اتدفع لاحقًا مثلاً) */
+function toggleSalePaid(saleId){
+  const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
+  s.paid=!s.paid;
+  save();
+  if(document.getElementById('sales-tbody')) renderStore();
+  if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
+  toast(s.paid?'💰 تم تسجيل الدفع':'↩️ تم إلغاء تسجيل الدفع');
 }
 
 // ================================================================
