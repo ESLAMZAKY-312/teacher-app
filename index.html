@@ -422,6 +422,16 @@ function _startFirebaseListener(){
     if(!data || !data.students) return;
     // تجاهل لو البيانات الواردة أقدم من المحلية
     if(data.__syncedAt && DB.__syncedAt && data.__syncedAt <= DB.__syncedAt) return;
+    // ── حماية من فقد البيانات: لو عندنا تغييرات محلية لسه ما اتبعتتش لـ Firebase،
+    // منقبلش استبدالها بالتحديث الوارد دلوقتي (ده كان بيضيع أي حاجة عملتها للتو على
+    // هذا الجهاز). نبعت تغييراتنا الأول، وهيوصلنا تحديث تاني بعدها يوضح آخر حالة فعلية ──
+    if(_saveDirty){
+      _showSyncIndicator('saving', '⚠️ وصل تحديث من جهاز آخر — جارٍ حفظ تغييراتك أولاً لتفادي فقدها...');
+      if(_fbSyncPending){ clearTimeout(_fbSyncPending); _fbSyncPending=null; _fbSyncStartTime=null; }
+      if(_countdownTimer){ clearInterval(_countdownTimer); _countdownTimer=null; }
+      _saveFlush();
+      return;
+    }
     // ── رصد طلبات إعادة امتحان جديدة وصلت للتو من بوابة ولي الأمر ──
     const prevPendingIds = new Set((DB.retakeRequests||[]).filter(r=>r.status==='pending').map(r=>r.id));
     const incomingPending = (data.retakeRequests||[]).filter(r=>r.status==='pending');
@@ -3176,9 +3186,9 @@ function _saveFlushSync(){
 //    - توفير ~95% من استهلاك النت
 // ══════════════════════════════════════════════════════════
 
-const FIREBASE_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 10 دقائق
+const FIREBASE_SYNC_INTERVAL_MS = 15 * 1000; // 15 ثانية (بدل 10 دقائق) — تقليل نافذة الخطر عند استخدام أكثر من جهاز في نفس الوقت
 let _saveDirty    = false;
-let _fbSyncPending = null; // مؤقت الـ 10 دقائق
+let _fbSyncPending = null; // مؤقت انتظار المزامنة (15 ثانية)
 let _fbSyncStartTime = null; // وقت بدء العد التنازلي
 let _countdownTimer = null; // مؤقت عرض العد التنازلي
 
@@ -3190,7 +3200,7 @@ function save(){
   // ── ١. حفظ محلي فوري في IndexedDB ──
   _idbSet('etp3', DB).catch(()=>{});
 
-  // ── ٢. جدولة إرسال Firebase بعد 10 دقائق (لو مش مجدول) ──
+  // ── ٢. جدولة إرسال Firebase بعد 15 ثانية (لو مش مجدول) ──
   if(!_fbSyncPending){
     _fbSyncStartTime = Date.now();
     _fbSyncPending = setTimeout(()=>{
@@ -3202,7 +3212,7 @@ function save(){
     // ── عداد تنازلي في المؤشر ──
     _updateCountdown();
     if(_countdownTimer) clearInterval(_countdownTimer);
-    _countdownTimer = setInterval(_updateCountdown, 30000); // تحديث كل 30 ثانية
+    _countdownTimer = setInterval(_updateCountdown, 3000); // تحديث كل 3 ثوانٍ
   }
 }
 
@@ -3210,8 +3220,8 @@ function _updateCountdown(){
   if(!_fbSyncStartTime || !_saveDirty) return;
   const elapsed = Date.now() - _fbSyncStartTime;
   const remaining = Math.max(0, FIREBASE_SYNC_INTERVAL_MS - elapsed);
-  const mins = Math.ceil(remaining / 60000);
-  _showSyncIndicator('pending', `💾 محفوظ محلياً — مزامنة بعد ${mins} د`);
+  const secs = Math.ceil(remaining / 1000);
+  _showSyncIndicator('pending', `💾 محفوظ محلياً — مزامنة خلال ${secs} ث`);
 }
 
 // ── عند إغلاق الصفحة — إرسال فوري ──
@@ -3227,6 +3237,17 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState==='hidden' && _saveDirty){
     if(_fbSyncPending){ clearTimeout(_fbSyncPending); _fbSyncPending=null; }
     _saveFlush();
+  }
+  // ── عند الرجوع للتاب/الجهاز بعد غياب: تحقّق فوري من وجود تحديثات جديدة من أجهزة أخرى ──
+  // (اتصال Firebase اللحظي أحياناً بيتعلّق في الخلفية، خصوصاً على الموبايل بعد فترة طويلة)
+  if(document.visibilityState==='visible' && _fbDB && !_saveDirty){
+    _fbDB.ref('schoolData').once('value').then(snap=>{
+      const data=_dewireDB(snap.val());
+      if(data && data.__syncedAt && (!DB.__syncedAt || data.__syncedAt>DB.__syncedAt)){
+        toast('🔄 تم العثور على تحديثات جديدة من جهاز آخر — جارٍ التحديث...','i');
+        location.reload();
+      }
+    }).catch(()=>{});
   }
 });
 
@@ -3246,6 +3267,13 @@ function _getStuMap(){ if(!_cache.stuMap) _cache.stuMap=new Map(DB.students.map(
 
 const cls  = id => _getClsMap().get(id);
 const grp  = id => _getGrpMap().get(id);
+// ── الرسوم الفعلية للطالب: حالة الدفع الخاصة أولاً، وإلا فسعر مجموعته المُحدد، وإلا رسومه الفردية، وإلا الرسوم العامة ──
+function stuEffectiveFee(s){
+  if(!s) return DB.settings.fee||0;
+  const special=(DB.specialPays||[]).find(x=>x.studentId===s.id);
+  if(special && special.amount!=null) return special.amount;
+  return grp(s.groupId)?.fee || s.fee || DB.settings.fee || 0;
+}
 const stu  = id => _getStuMap().get(id);
 const clsN = id => { const c=cls(id); return c?c.name:'—'; };
 const grpN = id => { const g=grp(id); return g?g.name:'—'; };
@@ -3342,7 +3370,7 @@ if(DB.classes.length===0){
   names.forEach((n,i)=>{ const grp=DB.groups[i%DB.groups.length]; DB.students.push({id:'STU'+String(i+1).padStart(4,'0'),fname:n[0],lname:n[1],phone:'010'+Math.floor(10000000+Math.random()*89999999),parentPhone:'012'+Math.floor(10000000+Math.random()*89999999),classId:grp.classId,groupId:grp.id,date:'2024-09-01',fee:grp.fee,notes:'',barcode:'STU'+String(i+1).padStart(4,'0'),color:COLORS[i%COLORS.length]}); });
   DB.exams=[{id:'EX001',title:'امتحان الفصل الأول',group:'الكل',duration:30,date:'2024-11-15',questions:[{id:'q1',text:'ناتج 7×8؟',options:['54','56','48','64'],correct:1},{id:'q2',text:'الجذر التربيعي لـ144؟',options:['10','11','12','13'],correct:2},{id:'q3',text:'قيمة π تقريباً؟',options:['3.14','3.12','3.16','3.18'],correct:0},{id:'q4',text:'2²+3²=؟',options:['10','12','13','25'],correct:2},{id:'q5',text:'مثلث زواياه 60°×3؟',options:['متساوي الساقين','قائم الزاوية','متساوي الأضلاع','مختلف الأضلاع'],correct:2}]}];
   DB.students.slice(0,14).forEach((s,i)=>{ DB.grades.push({id:'g'+i,studentId:s.id,examId:'EX001',examTitle:'امتحان الفصل الأول',score:50+Math.floor(Math.random()*50),outOf:100,date:'2024-11-15',note:''}); });
-  DB.students.forEach((s,i)=>{ if(i<12) DB.payments.push({id:'p'+i,studentId:s.id,amount:s.fee,month:'2025-03',date:'2025-03-01',status:'paid',note:''}); });
+  DB.students.forEach((s,i)=>{ if(i<12) DB.payments.push({id:'p'+i,studentId:s.id,amount:stuEffectiveFee(s),month:'2025-03',date:'2025-03-01',status:'paid',note:''}); });
   const today=localDate(); DB.attendance[today]={};
   DB.students.forEach(s=>{ DB.attendance[today][s.id]=Math.random()>.15?'present':Math.random()>.5?'late':'absent'; });
   DB.products=[{id:'pr1',name:'كتاب المنهج',icon:'📚',price:120,classId:'c1'},{id:'pr2',name:'ورق A4',icon:'📄',price:30,classId:''},{id:'pr3',name:'قلم تحديد',icon:'✏️',price:15,classId:''}];
@@ -3630,7 +3658,7 @@ function renderDashboard(){
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${total?Math.round(present/total*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${present} حاضر من ${total}</div></div>
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${DB.grades.length} درجة مسجلة</div></div>
-    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaid.reduce((a,s)=>a+(s.fee||DB.settings.fee||0),0))} متأخر</div></div>`;
+    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaid.reduce((a,s)=>a+stuEffectiveFee(s),0))} متأخر</div></div>`;
 
   document.getElementById('dash-stu-tb').innerHTML=DB.students.slice(0,6).map(s=>`
     <tr><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td>
@@ -3852,7 +3880,7 @@ function getExportStudentRow(s, selectedIds, idx){
     joindate:  s.date    || '—',
     class:     clsN(s.classId),
     group:     grpN(s.groupId),
-    fee:       s.fee     || 0,
+    fee:       stuEffectiveFee(s),
     phone:     s.phone   || '—',
     pphone:    s.parentPhone || '—',
     paystatus: isPaid(s.id) ? 'مسدد' : pays.length ? 'جزئي' : 'لم يسدد',
@@ -6795,7 +6823,7 @@ function renderPayments(){
   document.getElementById('pay-metrics').innerHTML=`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
     <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidSt.length}</div><div class="ml">غير مسددين</div></div>
-    ${document.body.dataset.role!=='supervisor'?`<div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidSt.reduce((a,s)=>a+s.fee,0))}</div><div class="ml">إجمالي المتأخر</div></div>`:''}
+    ${document.body.dataset.role!=='supervisor'?`<div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidSt.reduce((a,s)=>a+stuEffectiveFee(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>`:''}
     <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${DB.payments.length}</div><div class="ml">إجمالي الدفعات</div></div>`;
 
   // ── شرط العرض: يجب وجود بحث أو صف/مجموعة أو حالة ──
@@ -6835,7 +6863,7 @@ function renderPayments(){
       return;
     }
     document.getElementById('pay-tbody').innerHTML=rows.map(({s,unpaidMonths})=>{
-      const fee=(DB.specialPays||[]).find(x=>x.studentId===s.id)?.amount||s.fee||DB.settings.fee||0;
+      const fee=stuEffectiveFee(s);
       const totalDebt=unpaidMonths.length*fee;
       return `<tr onclick="_payToggleBtns(this)" style="cursor:pointer;">
         <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color||'#4f7cff'}20;color:${s.color||'#4f7cff'}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}</div><div style="font-size:10px;color:var(--text2)">${clsN(s.classId)} · ${grpN(s.groupId)}</div>
@@ -6872,7 +6900,7 @@ function renderPayments(){
     const allPays=DB.payments.filter(p=>p.studentId===sid);
     const unpaidCount=allPays.filter(p=>p.status==='unpaid').length;
     const s2=stu(sid);
-    const fee=(DB.specialPays||[]).find(x=>x.studentId===sid)?.amount||s2?.fee||DB.settings.fee||0;
+    const fee=stuEffectiveFee(s2);
     // حساب الباقي: مجموع ما دُفع في كل الشهور الجزئية مقارنةً بالرسوم
     const partialMonths=[...new Set(allPays.filter(p=>p.status==='partial').map(p=>p.month))];
     let partialTotal=0;
@@ -6936,7 +6964,7 @@ function renderPayments(){
     const extraRows=unlistedUnpaid.map(s=>`<tr onclick="_payToggleBtns(this)" style="cursor:pointer;opacity:.85">
       <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}</div><div style="font-size:10px;color:var(--text2)">${clsN(s.classId)} · ${grpN(s.groupId)}</div>${_btns('',s.id)}</div></div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
-      <td style="font-weight:700;color:var(--red);">${fmtM(s.fee)}</td>
+      <td style="font-weight:700;color:var(--red);">${fmtM(stuEffectiveFee(s))}</td>
       <td colspan="2" style="font-size:11px;color:var(--text3);">—</td>
       <td><span class="badge bg-r">⏳ لم يسدد</span></td><td></td>
     </tr>`).join('');
@@ -7026,7 +7054,7 @@ function _showInvDetails(code){
     </div>`;
   openModal('inv-details-modal');
 }
-function addPayment(){ const sid=document.getElementById('p-st').value, amt=+document.getElementById('p-amt').value; if(!sid||!amt){toast('أكمل البيانات','e');return;} const s=stu(sid); const finalAmt=document.body.dataset.role==='supervisor'?(s?s.fee:amt):amt; const pMonth=document.getElementById('p-month').value, pStatus=document.getElementById('p-status').value; DB.payments.push({id:nid('p'),studentId:sid,amount:finalAmt,month:pMonth,date:document.getElementById('p-date').value,status:pStatus,note:document.getElementById('p-note').value}); pushNotif(sid,'payment','💳','دفعة جديدة',`تم تسجيل دفعة بقيمة ${fmtM(finalAmt)} لشهر ${pMonth}${pStatus==='paid'?' (مسددة)':''}`); save(); closeModal('add-payment-modal'); renderPayments(); toast('✅ تم تسجيل الدفعة'); }
+function addPayment(){ const sid=document.getElementById('p-st').value, amt=+document.getElementById('p-amt').value; if(!sid||!amt){toast('أكمل البيانات','e');return;} const s=stu(sid); const finalAmt=document.body.dataset.role==='supervisor'?(s?stuEffectiveFee(s):amt):amt; const pMonth=document.getElementById('p-month').value, pStatus=document.getElementById('p-status').value; DB.payments.push({id:nid('p'),studentId:sid,amount:finalAmt,month:pMonth,date:document.getElementById('p-date').value,status:pStatus,note:document.getElementById('p-note').value}); pushNotif(sid,'payment','💳','دفعة جديدة',`تم تسجيل دفعة بقيمة ${fmtM(finalAmt)} لشهر ${pMonth}${pStatus==='paid'?' (مسددة)':''}`); save(); closeModal('add-payment-modal'); renderPayments(); toast('✅ تم تسجيل الدفعة'); }
 function openPayInvoice(pid){
   // View/print receipt only — does NOT edit
   const p=DB.payments.find(x=>x.id===pid); if(!p)return;
@@ -7045,7 +7073,7 @@ function _settlePartialPay(pid,sid,remaining){
   const s=stu(sid);
   if(!p||!s)return;
   // إعادة حساب الباقي الفعلي من مجموع دفعات الشهر
-  const effectiveFee=(DB.specialPays||[]).find(x=>x.studentId===sid)?.amount||s.fee||DB.settings.fee||0;
+  const effectiveFee=stuEffectiveFee(s);
   const monthPays=DB.payments.filter(x=>x.studentId===sid&&x.month===p.month);
   const totalPaidInMonth=monthPays.reduce((a,x)=>a+(+x.amount||0),0);
   const actualRemaining=Math.max(0,effectiveFee-totalPaidInMonth);
@@ -7469,7 +7497,7 @@ function openEditPaysForStudent(sid){
     ${pays.length ? `
     <div style="display:flex;flex-direction:column;gap:5px;max-height:420px;overflow-y:auto;padding-left:2px;">
       ${pays.map(p=>{
-        const effectiveFee=(DB.specialPays||[]).find(x=>x.studentId===sid)?.amount||s.fee||DB.settings.fee||0;
+        const effectiveFee=stuEffectiveFee(s);
         const monthPays=DB.payments.filter(x=>x.studentId===sid&&x.month===p.month);
         const totalPaidInMonth=monthPays.reduce((a,x)=>a+(+x.amount||0),0);
         const remaining=p.status==='partial'?Math.max(0,effectiveFee-totalPaidInMonth):0;
@@ -7612,9 +7640,7 @@ function showInlineNewPay(sid){
   _invoiceMode={type:'new',sid,_fromList:sid};
   const isSup=document.body.dataset.role==='supervisor';
   // ── فحص الحالة الخاصة ──
-  const specialEntry=(DB.specialPays||[]).find(x=>x.studentId===s.id);
-  const hasSpecial=specialEntry&&specialEntry.amount!=null;
-  const effectiveFee=hasSpecial?specialEntry.amount:(s.fee||DB.settings.fee||0);
+  const effectiveFee=stuEffectiveFee(s);
 
   // ── تاريخ أول حضور للطالب ──
   const attDates=Object.keys(DB.attendance||{}).filter(d=>DB.attendance[d]?.[sid]).sort();
@@ -7835,7 +7861,7 @@ function openPayInvoiceNew(sid){
   const s=stu(sid); if(!s)return;
   const now=new Date(); const month=localMonth();
   _invoiceMode={type:'new',sid};
-  _buildInvoiceForm(s,s.fee,month,localDate(),'paid','',false);
+  _buildInvoiceForm(s,stuEffectiveFee(s),month,localDate(),'paid','',false);
   document.querySelector('#pay-invoice-modal .mtt').innerHTML='💰 إضافة دفعة جديدة <button class="mc-btn" onclick="closeModal(\'pay-invoice-modal\')">✕</button>';
   openModal('pay-invoice-modal');
 }
@@ -7847,7 +7873,7 @@ function _buildInvoiceForm(s,amt,month,date,status,note,readOnly=false){
                     : (isSupervisor ? 'disabled style="opacity:.65;pointer-events:none;"' : '');
   const disabled = readOnly ? 'disabled style="opacity:.7;pointer-events:none;"' : '';
   if(!window._invCode) window._invCode='';
-  const effectiveFee=(DB.specialPays||[]).find(x=>x.studentId===s?.id)?.amount||s?.fee||DB.settings.fee||0;
+  const effectiveFee=stuEffectiveFee(s);
   const remaining=Math.max(0,effectiveFee-(+amt||0));
 
   document.getElementById('pay-invoice-body').innerHTML=`
@@ -8049,7 +8075,7 @@ function saveInvoicePay(){
       }
       if(document.body.dataset.role==='supervisor'){
         if(status==='partial'){
-          const effectiveFee=(DB.specialPays||[]).find(x=>x.studentId===p.studentId)?.amount||stu(p.studentId)?.fee||DB.settings.fee||0;
+          const effectiveFee=stuEffectiveFee(stu(p.studentId));
           const remaining=Math.max(0,effectiveFee-amt);
           p.amount=amt; p.month=month; p.date=date; p.status=status;
           p.note=remaining>0?`باقي: ${fmtM(remaining)}`:'';
@@ -8173,7 +8199,7 @@ function printPayReceipt(){
     window._invCode || _existingPay?.invCode || ''
   ).trim();
 
-  const effectiveFee = (DB.specialPays||[]).find(x=>x.studentId===s_id)?.amount || s?.fee || DB.settings.fee || 0;
+  const effectiveFee = stuEffectiveFee(s);
   const tName    = DB.settings.name    || 'المدرس';
   const tSubject = DB.settings.subject || '';
   const tPhone   = DB.settings.phone   || '';
@@ -8443,7 +8469,7 @@ function sendPayWABulk(){
     const ph=fmtPhone(s.parentPhone||s.phone||''); if(!ph)return null;
     const paid=isPaid(s.id);
     const tmpl=paid?(DB.waTmpl.paid||DB.waTmpl.pay):DB.waTmpl.pay;
-    return {name:s.fname+' '+s.lname, ph, msg:applyWAVars(tmpl,s,{month,amount:s.fee})};
+    return {name:s.fname+' '+s.lname, ph, msg:applyWAVars(tmpl,s,{month,amount:stuEffectiveFee(s)})};
   }).filter(Boolean);
   showWAList(list);
 }
@@ -8458,7 +8484,7 @@ function showStudentPayHistory(sid){
     <div style="display:flex;gap:1rem;margin-bottom:1rem;">
       <div class="mc mc-g" style="flex:1"><div class="mv">${fmtM(total)}</div><div class="ml">إجمالي المسدد</div></div>
       <div class="mc mc-b" style="flex:1"><div class="mv">${pays.length}</div><div class="ml">عدد الدفعات</div></div>
-      <div class="mc mc-a" style="flex:1"><div class="mv">${fmtM(s.fee)}</div><div class="ml">الرسوم الشهرية</div></div>
+      <div class="mc mc-a" style="flex:1"><div class="mv">${fmtM(stuEffectiveFee(s))}</div><div class="ml">الرسوم الشهرية</div></div>
     </div>
     <table><thead><tr><th>المبلغ</th><th>الشهر</th><th>التاريخ</th><th>الحالة</th><th>كود الفاتورة</th><th>ملاحظة</th></tr></thead><tbody>
     ${pays.map(p=>`<tr><td style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</td><td style="font-size:12px;">${p.month}</td><td style="font-size:12px;color:var(--text2);">${p.date}</td><td><span class="badge ${p.status==='paid'?'bg-g':p.status==='partial'?'bg-a':'bg-r'}">${{paid:'✅ مسدد',partial:'🔶 جزئي',unpaid:'⏳ غير مسدد'}[p.status]}</span></td><td style="font-size:12px;font-weight:700;color:var(--accent);font-family:monospace;letter-spacing:.5px;">${p.invCode||'—'}</td><td style="font-size:11px;color:var(--text2);">${p.note||'—'}</td>`).join('')}
@@ -8604,7 +8630,7 @@ function printStudentPayHistory(){
     <div class="sec-title"><span>📊</span> ملخص المالي</div>
     <div class="kpi-strip">
       <div class="kpi"><div class="kv" style="color:#22c97a;">${Number(totalPaid).toLocaleString()}</div><div class="kl">إجمالي المسدد (ج)</div></div>
-      <div class="kpi"><div class="kv" style="color:#4f7cff;">${Number(s.fee||0).toLocaleString()}</div><div class="kl">الرسوم الشهرية (ج)</div></div>
+      <div class="kpi"><div class="kv" style="color:#4f7cff;">${Number(stuEffectiveFee(s)).toLocaleString()}</div><div class="kl">الرسوم الشهرية (ج)</div></div>
       <div class="kpi"><div class="kv" style="color:#f5a623;">${countPaid}</div><div class="kl">دفعات مكتملة</div></div>
       <div class="kpi"><div class="kv" style="color:#ff4d6d;">${countUnpaid}</div><div class="kl">دفعات غير مسددة</div></div>
     </div>
@@ -9625,7 +9651,7 @@ function switchRep(tab,btn){
         <div><div style="font-weight:700;">${s.fname} ${s.lname}</div><div style="font-size:10px;color:var(--text2);">${grpN(s.groupId)}</div></div>
       </div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td>
-      <td style="font-weight:800;color:var(--red);">${fmtM(s.fee)}</td>
+      <td style="font-weight:800;color:var(--red);">${fmtM(stuEffectiveFee(s))}</td>
       <td style="text-align:center;"><span class="badge bg-r">⏳ غير مسدد</span></td>
       <td style="text-align:center;" class="no-print"><button class="btn btn-wa btn-xs" onclick="sendStuWA('${s.id}','pay')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG('${s.id}','pay')">✈️</button></td>
     </tr>`).join('');
@@ -11225,7 +11251,7 @@ function buildCardByTemplate(s,tpl){
         <div style="flex:1;min-width:0;">
           <div style="font-size:14px;font-weight:900;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.fname} ${s.lname}</div>
           <div style="font-size:9px;color:rgba(255,255,255,.5);margin-top:3px;">${clsN(s.classId)} · ${grpLabel}</div>
-          <div style="font-size:8.5px;color:rgba(255,255,255,.35);margin-top:1px;">💰 ${fmtM(s.fee||0)} &nbsp;|&nbsp; ${s.phone||'—'}</div>
+          <div style="font-size:8.5px;color:rgba(255,255,255,.35);margin-top:1px;">💰 ${fmtM(stuEffectiveFee(s))} &nbsp;|&nbsp; ${s.phone||'—'}</div>
         </div>
       </div>
       <!-- الباركود -->
@@ -11284,7 +11310,7 @@ function printChosenCards(){
           <div class="stu-info">
             <div class="stu-name">${s.fname} ${s.lname}</div>
             <div class="stu-sub">${clsN(s.classId)} · ${grpLabel}</div>
-            <div class="stu-fee">💰 ${fmtM(s.fee||0)}</div>
+            <div class="stu-fee">💰 ${fmtM(stuEffectiveFee(s))}</div>
           </div>
         </div>
         <!-- الباركود -->
@@ -11595,7 +11621,7 @@ function exportExcel(){
       'هاتف ولي الأمر'     : s.parentPhone  || '—',
       'تاريخ الالتحاق'     : s.date         || '—',
       'الباركود / الكود'   : s.barcode || s.id,
-      'الرسوم الشهرية'     : s.fee           || 0,
+      'الرسوم الشهرية'     : stuEffectiveFee(s),
       'حالة الدفع'         : isPaid(s.id) ? 'مسدد' : pays.length > 0 ? 'جزئي' : 'لم يسدد',
       'إجمالي المسدد'      : totalPaid,
       'آخر دفعة'           : lastPay ? lastPay.amount : 0,
@@ -11701,7 +11727,7 @@ function exportPortalData(){
         class: DB.classes.find(c=>c.id===s.classId)?.name||'',
         group: DB.groups.find(g=>g.id===s.groupId)?.name||'',
         joinDate: s.date||'',
-        fee: s.fee||DB.settings.fee||0,
+        fee: stuEffectiveFee(s),
         attendance: { totalDays, presentDays, absentDays, percent: attPercent, records: attDays },
         grades: { list: grades, average: avgPercent },
         payments: { list: payments, totalPaid },
@@ -12065,7 +12091,7 @@ function applyWAVars(tmpl, s, extra){
   const parentPh   = s ? fmtPhone(s.parentPhone||s.phone||'') : '';
   const parentRel  = s ? (s.parentRelation||'ولي الأمر') : '';
   // ── المالية ──
-  const stuFee     = s ? (s.fee||DB.settings.fee||0) : 0;
+  const stuFee     = s ? stuEffectiveFee(s) : 0;
   const mStr       = extra?.month || month;
   const paidRec    = s ? (DB.payments||[]).filter(p=>p.studentId===s.id&&p.month===mStr&&p.status==='paid') : [];
   const paidAmt    = paidRec.reduce((a,p)=>a+(+p.amount||0),0);
@@ -12277,7 +12303,7 @@ function sendStuWA(sid, ctx){
   } else if(ctx==='pay'){
     const paid=isPaid(sid);
     tmpl=paid?(DB.waTmpl.paid||DB.waTmpl.pay):DB.waTmpl.pay;
-    extra={month, amount:s.fee};
+    extra={month, amount:stuEffectiveFee(s)};
   } else if(ctx==='beh'){
     const lastB=DB.behaviors.filter(b=>b.studentId===sid).slice(-1)[0];
     tmpl=DB.waTmpl.beh;
@@ -12607,7 +12633,7 @@ function sendStuTG(sid, ctx){
   } else if(ctx==='pay'){
     const paid=isPaid(sid);
     tmpl=paid?(DB.waTmpl.paid||DB.waTmpl.pay):DB.waTmpl.pay;
-    extra={month, amount:s.fee};
+    extra={month, amount:stuEffectiveFee(s)};
   } else if(ctx==='beh'){
     const lastB=DB.behaviors.filter(b=>b.studentId===sid).slice(-1)[0];
     tmpl=DB.waTmpl.beh;
@@ -12670,7 +12696,7 @@ function sendPayTGBulk(){
   let list=filtered.map(s=>{
     const paid=isPaid(s.id);
     const tmpl=paid?(DB.waTmpl.paid||'مرحباً {اسم_الطالب}، نشكركم على سداد رسوم {الشهر}. ✅'):DB.waTmpl.pay;
-    const msg=applyWAVars(tmpl, s, {month, amount:s.fee});
+    const msg=applyWAVars(tmpl, s, {month, amount:stuEffectiveFee(s)});
     return {sid:s.id,name:s.fname+' '+s.lname,msg,paid};
   });
   if(!list.length){toast('لا يوجد طلاب في هذا الاختيار','e');return;}
@@ -12753,7 +12779,7 @@ function sendPayWARem(sid){
   if(!ph){toast('لا يوجد رقم هاتف','e');return;}
   const paid=isPaid(sid);
   const tmpl=paid?(DB.waTmpl.paid||DB.waTmpl.pay):DB.waTmpl.pay;
-  const msg=applyWAVars(tmpl, s, {month:localMonth(), amount:s.fee});
+  const msg=applyWAVars(tmpl, s, {month:localMonth(), amount:stuEffectiveFee(s)});
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
 }
 
@@ -12897,7 +12923,7 @@ function sendWAUnpaid(){
   showWAList(DB.students.filter(s=>!isPaid(s.id)).map(s=>({
     name:s.fname+' '+s.lname,
     ph:fmtPhone(s.parentPhone||s.phone||''),
-    msg:applyWAVars(msg,s,{month,amount:s.fee})
+    msg:applyWAVars(msg,s,{month,amount:stuEffectiveFee(s)})
   })).filter(x=>x.ph));
 }
 function sendWAAbsent(){
@@ -12948,7 +12974,7 @@ function sendTGUnpaid(){
   showTgList(DB.students.filter(s=>!isPaid(s.id)).map(s=>({
     sid:s.id,
     name:s.fname+' '+s.lname,
-    msg:applyWAVars(msg,s,{month,amount:s.fee})
+    msg:applyWAVars(msg,s,{month,amount:stuEffectiveFee(s)})
   })));
 }
 function sendTGAbsent(){
@@ -13150,7 +13176,7 @@ function spRenderInfo(){
         ['الصف الدراسي',clsN(s.classId)],
         ['المجموعة',grpN(s.groupId)],
         ['مدة الدفع','شهرياً'],
-        ['قيمة الإشتراك',fmtM(s.fee)]
+        ['قيمة الإشتراك',fmtM(stuEffectiveFee(s))]
       ].map(([lbl,val])=>`
         <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:.7rem 1rem;display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;color:rgba(255,255,255,.5);">${lbl}:</span>
@@ -13664,7 +13690,7 @@ function buildComprehensiveReportHTML(sid){
         <div><span style="color:var(--text2);">هاتف الطالب: </span><b>${s.phone||'—'}</b></div>
         <div><span style="color:var(--text2);">هاتف ولي الأمر: </span><b>${s.parentPhone||'—'}</b></div>
         <div><span style="color:var(--text2);">تاريخ الالتحاق: </span><b>${s.date||'—'}</b></div>
-        <div><span style="color:var(--text2);">الرسوم الشهرية: </span><b>${fmtM(s.fee)}</b></div>
+        <div><span style="color:var(--text2);">الرسوم الشهرية: </span><b>${fmtM(stuEffectiveFee(s))}</b></div>
       </div>
     </div>
 
@@ -13802,7 +13828,7 @@ function sendPayWABulkSequential(){
     if(!ph)return null;
     const paid=isPaid(s.id);
     const tmpl=paid?(DB.waTmpl.paid||'مرحباً {اسم_الطالب}، نشكركم على سداد رسوم {الشهر}. ✅'):DB.waTmpl.pay;
-    const msg=applyWAVars(tmpl, s, {month, amount:s.fee});
+    const msg=applyWAVars(tmpl, s, {month, amount:stuEffectiveFee(s)});
     return {name:s.fname+' '+s.lname,ph,msg,paid,_wid:'pw'+i+Date.now()};
   }).filter(Boolean);
   if(!_payList.length){toast('لا يوجد طلاب بأرقام هواتف في هذا الاختيار','e');return;}
@@ -13999,7 +14025,7 @@ function _spSelectFromSearch(sid){
   document.getElementById('sp-code').value=s.barcode||s.id;
   _spShowCodeBadge(s.barcode||s.id);
   const existSp=DB.specialPays?.find(x=>x.studentId===s.id);
-  document.getElementById('sp-amount').value=existSp?existSp.amount:(s.fee||'');
+  document.getElementById('sp-amount').value=existSp?existSp.amount:(stuEffectiveFee(s)||'');
   // ── اختر الصف تلقائياً ──
   const clsSel=document.getElementById('sp-cls-sel');
   if(clsSel){ clsSel.value=s.classId||''; filterSpGrp(); }
@@ -14286,8 +14312,7 @@ function _renderDetailedReportResult(s, resultId){
   const attPc=attPct(s.id);
   const avg=stuAvg(s.id);
   const paid=isPaid(s.id);
-  const spPay=DB.specialPays?.find(x=>x.studentId===s.id);
-  const effectiveFee=spPay?spPay.amount:s.fee;
+  const effectiveFee=stuEffectiveFee(s);
   const el=document.getElementById(resultId);
   if(!el) return;
   el.innerHTML=`
