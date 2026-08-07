@@ -1080,7 +1080,10 @@ async function _loadFromFirebase(){
 <!-- ======= STORE ======= -->
 <div id="page-store" class="page">
   <div class="sh" style="margin-bottom:1rem;">
-    <input class="fi" id="store-barcode-search" placeholder="🔍 بحث بالباركود — مسح كود الطالب لفتح نافذته الخاصة..." style="width:320px;" onkeydown="if(event.key==='Enter'){_storeBarcodeScan();}" autocomplete="off">
+    <div style="position:relative;width:320px;">
+      <input class="fi" id="store-barcode-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:100%;" oninput="_storeSearchInput()" onkeydown="if(event.key==='Enter'){_storeBarcodeScan();}" onblur="setTimeout(()=>{const b=document.getElementById('store-search-results'); if(b) b.style.display='none';},200)" autocomplete="off">
+      <div id="store-search-results" style="display:none;position:absolute;top:100%;right:0;left:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);margin-top:4px;max-height:260px;overflow-y:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4);"></div>
+    </div>
   </div>
   <div class="g2">
     <div>
@@ -8811,16 +8814,56 @@ function updateLogoDisplay(){
 // STORE
 // ================================================================
 // ================================================================
-// 🔍 بحث بالباركود في تبويب المتجر — يفتح نافذة خاصة بالطالب
+// 🔍 بحث بالاسم أو الباركود في تبويب المتجر — يفتح نافذة خاصة بالطالب
 // ================================================================
+/** بحث حي أثناء الكتابة — بيدوّر بالاسم أو الباركود ويعرض نتائج متعددة لو لزم */
+function _storeSearchInput(){
+  const inp=document.getElementById('store-barcode-search');
+  const resultsBox=document.getElementById('store-search-results');
+  if(!inp||!resultsBox) return;
+  const qf=(inp.value||'').trim().toLowerCase();
+  if(!qf){ resultsBox.innerHTML=''; resultsBox.style.display='none'; return; }
+  const matches=DB.students.filter(s=>{
+    const bc=(s.barcode||s.id||'').toLowerCase();
+    const name=(s.fname+' '+s.lname).toLowerCase();
+    return bc.includes(qf) || name.includes(qf);
+  }).slice(0,8);
+  if(!matches.length){
+    resultsBox.innerHTML='<div style="padding:10px 12px;font-size:11.5px;color:var(--text2);">لا يوجد طالب مطابق</div>';
+    resultsBox.style.display='block';
+    return;
+  }
+  resultsBox.innerHTML = matches.map(s=>`
+    <div onmousedown="_pickStoreSearchResult('${s.id}')" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <span style="font-size:12.5px;font-weight:600;">${s.fname} ${s.lname}</span>
+      <span style="font-size:10.5px;color:var(--text2);font-family:monospace;flex-shrink:0;">${s.barcode||s.id}</span>
+    </div>`).join('');
+  resultsBox.style.display='block';
+}
+/** يفتح متجر الطالب المختار من نتائج البحث ويصفّر خانة البحث */
+function _pickStoreSearchResult(sid){
+  const inp=document.getElementById('store-barcode-search');
+  if(inp) inp.value='';
+  const resultsBox=document.getElementById('store-search-results');
+  if(resultsBox){ resultsBox.innerHTML=''; resultsBox.style.display='none'; }
+  openStudentStoreModal(sid);
+}
 function _storeBarcodeScan(){
   const inp=document.getElementById('store-barcode-search');
   const qf=(inp?.value||'').trim().toLowerCase();
   if(!qf) return;
-  const match=DB.students.find(s=>(s.barcode||s.id||'').toLowerCase()===qf);
-  if(!match){ toast('لا يوجد طالب بهذا الباركود','e'); return; }
-  inp.value='';
-  openStudentStoreModal(match.id);
+  // تطابق دقيق بالباركود (زي ماسح الباركود اللي بيبعت Enter تلقائيًا) يفتح فورًا
+  const exact=DB.students.find(s=>(s.barcode||s.id||'').toLowerCase()===qf);
+  if(exact){ _pickStoreSearchResult(exact.id); return; }
+  // وإلا نجرّب البحث بالاسم/الباركود الجزئي
+  const matches=DB.students.filter(s=>{
+    const bc=(s.barcode||s.id||'').toLowerCase();
+    const name=(s.fname+' '+s.lname).toLowerCase();
+    return bc.includes(qf) || name.includes(qf);
+  });
+  if(matches.length===1){ _pickStoreSearchResult(matches[0].id); return; }
+  if(matches.length>1){ toast('فيه أكتر من طالب مطابق — اختر من القائمة الظاهرة تحت الخانة','i'); return; }
+  toast('لا يوجد طالب مطابق','e');
 }
 function openStudentStoreModal(sid){
   const s=stu(sid); if(!s)return;
