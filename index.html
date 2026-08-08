@@ -6926,12 +6926,27 @@ function renderPayments(){
     return `<div style="margin-top:5px;padding:5px 9px;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.3);border-radius:var(--rs);font-size:10.5px;display:flex;gap:8px;flex-wrap:wrap;">${parts.join('<span style="color:var(--text3);">|</span>')}</div>`;
   };
 
+  const _chkMonth=mf||(()=>{const n=new Date();return localMonth();})();
   let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
   // ── سجل واحد فقط لكل طالب (آخر دفعة بحسب تاريخ الإنشاء) ──
   const seenStu=new Map();
   rawList.forEach(p=>{ const ex=seenStu.get(p.studentId); if(!ex||(p.createdAt||'')>(ex.createdAt||''))seenStu.set(p.studentId,p); });
   const list=[...seenStu.values()];
-  document.getElementById('pay-tbody').innerHTML=list.map(p=>{
+  const listedIds=new Set(list.map(p=>p.studentId));
+  const unlistedUnpaid=DB.students.filter(s=>{
+    const paidInMonth=DB.payments.some(p=>p.studentId===s.id&&p.month===_chkMonth&&p.status==='paid');
+    if(paidInMonth)return false;
+    if(cf&&s.classId!==cf)return false;
+    if(gf&&s.groupId!==gf)return false;
+    if(listedIds.has(s.id))return false;
+    if(sf&&sf!=='unpaid')return false;
+    if(qf){ const nm=(s.fname+' '+s.lname).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); if(!nm.includes(qf)&&!bc.includes(qf))return false; }
+    return true;
+  });
+  const showUnlisted = unlistedUnpaid.length && (!sf||sf==='unpaid');
+
+  document.getElementById('pay-tbody').innerHTML = (list.length||showUnlisted)
+    ? list.map(p=>{
     const s=stu(p.studentId);
     const {unpaidCount,partialTotal}=_stuDebt(p.studentId);
     // لون المبلغ: amber إذا كان هناك متبقي، green إذا مسدد
@@ -6949,21 +6964,10 @@ function renderPayments(){
       <td><span class="badge ${p.status==='paid'?'bg-g':p.status==='partial'?'bg-a':'bg-r'}">${{paid:'✅ مسدد',partial:'🔶 جزئي',unpaid:'⏳ غير مسدد'}[p.status]}</span></td>
       <td></td>
     </tr>`;
-  }).join('')||'<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text3)">لا توجد مدفوعات</td></tr>';
+  }).join('')
+    : '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text3)">لا توجد مدفوعات</td></tr>';
 
-  const listedIds=new Set(list.map(p=>p.studentId));
-  const _chkMonth=mf||(()=>{const n=new Date();return localMonth();})();
-  const unlistedUnpaid=DB.students.filter(s=>{
-    const paidInMonth=DB.payments.some(p=>p.studentId===s.id&&p.month===_chkMonth&&p.status==='paid');
-    if(paidInMonth)return false;
-    if(cf&&s.classId!==cf)return false;
-    if(gf&&s.groupId!==gf)return false;
-    if(listedIds.has(s.id))return false;
-    if(sf&&sf!=='unpaid')return false;
-    if(qf){ const nm=(s.fname+' '+s.lname).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); if(!nm.includes(qf)&&!bc.includes(qf))return false; }
-    return true;
-  });
-  if(unlistedUnpaid.length&&(!sf||sf==='unpaid')){
+  if(showUnlisted){
     const extraRows=unlistedUnpaid.map(s=>`<tr onclick="_payToggleBtns(this)" style="cursor:pointer;opacity:.85">
       <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}</div><div style="font-size:10px;color:var(--text2)">${clsN(s.classId)} · ${grpN(s.groupId)}</div>${_btns('',s.id)}</div></div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
@@ -6972,6 +6976,14 @@ function renderPayments(){
       <td><span class="badge bg-r">⏳ لم يسدد</span></td><td></td>
     </tr>`).join('');
     document.getElementById('pay-tbody').innerHTML+=extraRows;
+  }
+
+  // ── لو في بحث نشط باسم/كود، افتح صف الإجراءات تلقائياً بدون الحاجة للضغط على الاسم ──
+  if(qf){
+    document.querySelectorAll('#pay-tbody tr').forEach(row=>{
+      const btns=row.querySelector('.pay-btns-row');
+      if(btns){ btns.style.display='flex'; row.style.background='rgba(79,124,255,.07)'; }
+    });
   }
 }
 function _payToggleBtns(row){
