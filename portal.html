@@ -57,9 +57,9 @@ html,body{background:var(--bg);font-family:Cairo,sans-serif;color:var(--text);mi
 /* ── صفوف معلومات (بيانات الطالب) ── */
 .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 @media(max-width:560px){.info-grid{grid-template-columns:1fr;}}
-.info-row{background:var(--card2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.info-row{background:var(--card2);border:1px solid var(--border);border-radius:var(--rs);padding:12px 14px;display:flex;align-items:center;justify-content:flex-start;gap:8px;}
 .info-lbl{font-size:11.5px;color:var(--text2);font-weight:700;white-space:nowrap;}
-.info-val{font-size:13.5px;font-weight:800;text-align:left;}
+.info-val{font-size:13.5px;font-weight:800;text-align:right;}
 .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;}
 .kpi{background:var(--card2);border:1px solid var(--border);border-radius:var(--rs);padding:14px 10px;text-align:center;}
 .kpi-val{font-size:22px;font-weight:900;}
@@ -75,6 +75,7 @@ tbody tr:last-child td{border-bottom:none;}
 .badge-red{background:rgba(255,77,109,.15);color:var(--red);border:1px solid rgba(255,77,109,.3);}
 .badge-amber{background:rgba(245,166,35,.15);color:var(--amber);border:1px solid rgba(245,166,35,.3);}
 .badge-blue{background:rgba(79,124,255,.15);color:var(--accent);border:1px solid rgba(79,124,255,.3);}
+.badge-purple{background:rgba(124,92,255,.15);color:#7c5cff;border:1px solid rgba(124,92,255,.3);}
 .att-grid{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;}
 .att-dot{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;}
 .prog-bar{height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:4px;}
@@ -148,10 +149,11 @@ tbody tr:last-child td{border-bottom:none;}
 
     <!-- ── سجل الغياب ── -->
     <div class="tab-content" id="tab-att">
-      <div class="kpi-row">
+      <div class="kpi-row" style="grid-template-columns:repeat(4,1fr);">
         <div class="kpi"><div class="kpi-val" id="att-pct" style="color:var(--green);">—</div><div class="kpi-lbl">نسبة الحضور</div></div>
         <div class="kpi"><div class="kpi-val" id="att-present" style="color:var(--green);">—</div><div class="kpi-lbl">أيام الحضور</div></div>
         <div class="kpi"><div class="kpi-val" id="att-absent" style="color:var(--red);">—</div><div class="kpi-lbl">أيام الغياب</div></div>
+        <div class="kpi"><div class="kpi-val" id="att-excused" style="color:#7c5cff;">—</div><div class="kpi-lbl">أيام الاستئذان</div></div>
       </div>
       <div class="prog-bar"><div class="prog-fill" id="att-bar" style="background:var(--green);width:0%;"></div></div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 8px;">
@@ -364,7 +366,7 @@ function renderInfo(s){
     ['المجموعة', grp ? (grp.name + (grp.days ? (' — '+grp.days) : '') + (grp.timeFrom ? (' '+grp.timeFrom+(grp.timeTo?('-'+grp.timeTo):'')) : '')) : '—'],
     ['تاريخ الالتحاق', s.date ? new Date(s.date).toLocaleDateString('ar-EG',{day:'numeric',month:'long',year:'numeric'}) : '—'],
     ['رقم هاتف ولي الأمر', s.parentPhone || '—'],
-    ['قيمة الاشتراك', (s.fee || grp?.fee || schoolData?.settings?.fee || 0).toLocaleString()+' جنيه'],
+    ['قيمة الاشتراك', (grp?.fee || s.fee || schoolData?.settings?.fee || 0).toLocaleString()+' جنيه'],
     ['مدة الدفع', 'شهرياً'],
   ];
   document.getElementById('info-grid').innerHTML = rows.map(([lbl,val])=>
@@ -713,7 +715,7 @@ function renderAtt(s){
   const att = schoolData?.attendance || {};
   const grp = grpInfo(s.groupId);
   const allowedDays = _grpDayNums(s.groupId);
-  let present=0, absent=0, late=0, records=[];
+  let present=0, absent=0, late=0, excused=0, records=[];
 
   Object.entries(att).sort((a,b)=>b[0].localeCompare(a[0])).forEach(([dateKey, rec])=>{
     const st = rec[s.id];
@@ -766,6 +768,7 @@ function renderAtt(s){
     absent:      {lbl:'غائب',     cls:'badge-red',    ic:'❌'},
     late:        {lbl:'متأخر',    cls:'badge-amber',  ic:'⏰'},
     exceptional: {lbl:'استثنائي', cls:'badge-blue',   ic:'⭐'},
+    excused:     {lbl:'مستأذن',   cls:'badge-purple', ic:'🙋'},
   };
   const grpName = grp ? (grp.name||'') : '—';
 
