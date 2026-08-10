@@ -2149,6 +2149,16 @@ async function _loadFromFirebase(){
           </label>
         </div>
       </div>
+      <div class="fg"><label class="fl">نظام التعليم</label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;font-size:12.5px;font-weight:700;transition:all .15s;">
+            <input type="checkbox" id="s-edu-general" value="general" style="accent-color:#4f7cff;" onchange="_onEduSystemChange('s-edu-general','s-edu-azhar')"> 🏫 عام
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;font-size:12.5px;font-weight:700;transition:all .15s;">
+            <input type="checkbox" id="s-edu-azhar" value="azhar" style="accent-color:#22c97a;" onchange="_onEduSystemChange('s-edu-azhar','s-edu-general')"> 🕌 أزهر
+          </label>
+        </div>
+      </div>
     </div>
     <div class="fr">
       <div class="fg"><label class="fl">هاتف الطالب</label><input class="fi" id="s-ph" placeholder="010xxxxxxxx"></div>
@@ -2218,6 +2228,16 @@ async function _loadFromFirebase(){
           </label>
           <label style="display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;flex:1;justify-content:center;font-size:13px;font-weight:700;transition:all .15s;" id="edit-gender-female-lbl">
             <input type="radio" name="edit-s-gender" id="edit-s-gender-f" value="female" style="accent-color:#a855f7;" onchange="updateEditGenderLabel()"> 👧 أنثى
+          </label>
+        </div>
+      </div>
+      <div class="fg"><label class="fl">نظام التعليم</label>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;font-size:12.5px;font-weight:700;transition:all .15s;">
+            <input type="checkbox" id="edit-s-edu-general" value="general" style="accent-color:#4f7cff;" onchange="_onEduSystemChange('edit-s-edu-general','edit-s-edu-azhar')"> 🏫 عام
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:var(--rs);border:2px solid var(--border);cursor:pointer;font-size:12.5px;font-weight:700;transition:all .15s;">
+            <input type="checkbox" id="edit-s-edu-azhar" value="azhar" style="accent-color:#22c97a;" onchange="_onEduSystemChange('edit-s-edu-azhar','edit-s-edu-general')"> 🕌 أزهر
           </label>
         </div>
       </div>
@@ -4051,6 +4071,12 @@ tr:nth-child(even) td{background:#f8f9ff;-webkit-print-color-adjust:exact;print-
 function printStudentsPDF(){ openExportModal('pdf'); }
 function exportExcel(){ openExportModal('excel'); }
 
+// ── يخلي خانتي "عام" و"أزهر" متبادلتين (اختيار واحد بس) رغم إنهم مربّعات اختيار مستقلة ──
+function _onEduSystemChange(checkedId, otherId){
+  const checkedEl=document.getElementById(checkedId);
+  const otherEl=document.getElementById(otherId);
+  if(checkedEl?.checked && otherEl) otherEl.checked=false;
+}
 function updateGenderLabel(){
   const isMale=document.getElementById('s-gender-m').checked;
   document.getElementById('gender-male-lbl').style.borderColor=isMale?'#4f7cff':'var(--border)';
@@ -4074,18 +4100,19 @@ function addStudent(){
   const clsId=document.getElementById('s-cls').value, grpId=document.getElementById('s-grp').value;
   const fee=document.body.dataset.role==='supervisor'?DB.settings.fee:(+document.getElementById('s-fee').value||grp(grpId)?.fee||DB.settings.fee);
   const gender=document.getElementById('s-gender-f').checked?'female':'male';
+  const eduSystem=document.getElementById('s-edu-azhar')?.checked?'azhar':(document.getElementById('s-edu-general')?.checked?'general':'');
   let pin=document.getElementById('s-pin')?.value.trim()||'';
   if(!pin || pin.length<8) pin=genPin('s-pin'); // ضمان وجود رقم سري صالح دائماً حتى لو الحقل فارغ لأي سبب
-  DB.students.push({id:bc,fname:fn,lname:ln,gender,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:document.getElementById('s-date').value,fee,notes:'',barcode:bc,pin,color:COLORS[DB.students.length%COLORS.length]});
+  DB.students.push({id:bc,fname:fn,lname:ln,gender,eduSystem,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:document.getElementById('s-date').value,fee,notes:'',barcode:bc,pin,color:COLORS[DB.students.length%COLORS.length]});
   save(); renderStudents(); toast('✅ تم إضافة '+(gender==='female'?'الطالبة':'الطالب')+' '+fullName+' — الصف والمجموعة باقيين لإضافة طالب تاني بسرعة');
   _resetAddStudentFieldsOnly();
 }
 
-// ── تصفير حقول بيانات الطالب فقط بعد الإضافة، مع الإبقاء على الصف والمجموعة والجنس المختارين لتسريع إضافة عدة طلاب لنفس المجموعة/النوع ──
+// ── تصفير حقول بيانات الطالب فقط بعد الإضافة، مع الإبقاء على الصف والمجموعة والجنس ونظام التعليم المختارين لتسريع إضافة عدة طلاب لنفس المجموعة/النوع ──
 function _resetAddStudentFieldsOnly(){
   ['s-fn','s-ph','s-pph','s-bc','s-tg-chatid','s-tg-username'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('s-fee').value='';
-  // ملحوظة: خانتي الجنس (s-gender-m / s-gender-f) ما بيتلمسوش هنا عمدًا —
+  // ملحوظة: خانتي الجنس ونظام التعليم ما بيتلمسوش هنا عمدًا —
   // بيفضلوا على آخر اختيار تم استخدامه فعليًا في آخر عملية إضافة ناجحة
   genPin('s-pin');
   const nameEl=document.getElementById('s-fn');
@@ -4115,6 +4142,8 @@ function openEditStudent(id){
   document.getElementById('edit-s-gender-m').checked=!isFemale;
   document.getElementById('edit-s-gender-f').checked=isFemale;
   setTimeout(updateEditGenderLabel,10);
+  const eduGenEl=document.getElementById('edit-s-edu-general'); if(eduGenEl) eduGenEl.checked=s.eduSystem==='general';
+  const eduAzEl=document.getElementById('edit-s-edu-azhar'); if(eduAzEl) eduAzEl.checked=s.eduSystem==='azhar';
   const cs=document.getElementById('edit-s-cls');
   cs.innerHTML=DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   cs.value=s.classId;
@@ -4143,6 +4172,8 @@ function saveEditStudent(){
   const editPin=document.getElementById('edit-s-pin').value.trim();
   s.pin=(editPin && editPin.length>=8) ? editPin : (s.pin||genPin('edit-s-pin'));
   s.gender=document.getElementById('edit-s-gender-f').checked?'female':'male';
+  const eduGenChk=document.getElementById('edit-s-edu-general'), eduAzChk=document.getElementById('edit-s-edu-azhar');
+  s.eduSystem = eduAzChk?.checked?'azhar':(eduGenChk?.checked?'general':'');
   save(); closeModal('edit-student-modal'); renderStudents(); toast('✅ تم تحديث بيانات '+s.fname);
 }
 
