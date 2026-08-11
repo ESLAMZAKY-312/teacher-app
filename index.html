@@ -14401,6 +14401,7 @@ function _renderDetailedReportResult(s, resultId){
   const attPc=attPct(s.id);
   const avg=stuAvg(s.id);
   const paid=isPaid(s.id);
+  const spPay=(DB.specialPays||[]).find(x=>x.studentId===s.id);
   const effectiveFee=stuEffectiveFee(s);
   const el=document.getElementById(resultId);
   if(!el) return;
