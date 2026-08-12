@@ -1051,6 +1051,9 @@ async function _loadFromFirebase(){
       <div style="padding:9px 13px;background:rgba(168,85,247,.06);border-bottom:1px solid var(--border);font-size:11.5px;color:var(--text2);">
         💡 يمكنك هنا تحديد مبلغ اشتراك مختلف لطالب معين بدلاً من المبلغ الافتراضي.
       </div>
+      <div style="padding:10px 13px;border-bottom:1px solid var(--border);">
+        <input class="fi" id="sp-list-search" placeholder="🔍 بحث بالاسم أو الكود..." style="width:100%;max-width:320px;" oninput="renderSpecialPays()">
+      </div>
       <div id="specialpays-inline-body">
         <div class="empty"><div class="empty-ic">💎</div><div>لا توجد حالات دفع خاصة</div></div>
       </div>
@@ -3210,9 +3213,9 @@ function _saveFlushSync(){
 //    - توفير ~95% من استهلاك النت
 // ══════════════════════════════════════════════════════════
 
-const FIREBASE_SYNC_INTERVAL_MS = 15 * 1000; // 15 ثانية (بدل 10 دقائق) — تقليل نافذة الخطر عند استخدام أكثر من جهاز في نفس الوقت
+const FIREBASE_SYNC_INTERVAL_MS = 10 * 60 * 1000; // 10 دقائق (رجّعناها بناءً على طلب المستخدم)
 let _saveDirty    = false;
-let _fbSyncPending = null; // مؤقت انتظار المزامنة (15 ثانية)
+let _fbSyncPending = null; // مؤقت انتظار المزامنة (10 دقائق)
 let _fbSyncStartTime = null; // وقت بدء العد التنازلي
 let _countdownTimer = null; // مؤقت عرض العد التنازلي
 
@@ -3224,7 +3227,7 @@ function save(){
   // ── ١. حفظ محلي فوري في IndexedDB ──
   _idbSet('etp3', DB).catch(()=>{});
 
-  // ── ٢. جدولة إرسال Firebase بعد 15 ثانية (لو مش مجدول) ──
+  // ── ٢. جدولة إرسال Firebase بعد 10 دقائق (لو مش مجدول) ──
   if(!_fbSyncPending){
     _fbSyncStartTime = Date.now();
     _fbSyncPending = setTimeout(()=>{
@@ -3236,7 +3239,7 @@ function save(){
     // ── عداد تنازلي في المؤشر ──
     _updateCountdown();
     if(_countdownTimer) clearInterval(_countdownTimer);
-    _countdownTimer = setInterval(_updateCountdown, 3000); // تحديث كل 3 ثوانٍ
+    _countdownTimer = setInterval(_updateCountdown, 30000); // تحديث كل 30 ثانية
   }
 }
 
@@ -3244,8 +3247,8 @@ function _updateCountdown(){
   if(!_fbSyncStartTime || !_saveDirty) return;
   const elapsed = Date.now() - _fbSyncStartTime;
   const remaining = Math.max(0, FIREBASE_SYNC_INTERVAL_MS - elapsed);
-  const secs = Math.ceil(remaining / 1000);
-  _showSyncIndicator('pending', `💾 محفوظ محلياً — مزامنة خلال ${secs} ث`);
+  const mins = Math.ceil(remaining / 60000);
+  _showSyncIndicator('pending', `💾 محفوظ محلياً — مزامنة بعد ${mins} د`);
 }
 
 // ── عند إغلاق الصفحة — إرسال فوري ──
@@ -3745,7 +3748,9 @@ function renderStudents(){
     return;
   }
   let list=DB.students.filter(s=>{
-    const nm=(s.fname+' '+s.lname+s.id+(s.barcode||'')).toLowerCase().includes(q);
+    const nameMatch = (s.fname+' '+s.lname).toLowerCase().includes(q);
+    const codeMatch = !!q && ((s.id||'').toLowerCase()===q || (s.barcode||'').toLowerCase()===q);
+    const nm = !q || nameMatch || codeMatch;
     const cc=!cf||s.classId===cf; const gc=!gf||s.groupId===gf;
     return nm&&cc&&gc;
   });
@@ -13983,7 +13988,20 @@ function renderSpecialPays(){
     container.innerHTML=`<div class="empty" style="padding:2.5rem;"><div class="empty-ic">💎</div><div>لا توجد حالات دفع خاصة</div></div>`;
     return;
   }
-  const rows=DB.specialPays.map((sp,i)=>{
+  // ── فلترة بالبحث (بالاسم أو الكود) مع الحفاظ على الفهرس الأصلي لكل سجل (مهم لزرار الحذف) ──
+  const q=(document.getElementById('sp-list-search')?.value||'').trim().toLowerCase();
+  const indexed=DB.specialPays.map((sp,i)=>({sp,i}));
+  const filtered=!q ? indexed : indexed.filter(({sp})=>{
+    const s=stu(sp.studentId);
+    const name=s?(s.fname+' '+s.lname).toLowerCase():'';
+    const code=(sp.studentCode||'').toLowerCase();
+    return name.includes(q) || code.includes(q);
+  });
+  if(!filtered.length){
+    container.innerHTML=`<div class="empty" style="padding:2.5rem;"><div class="empty-ic">🔍</div><div>لا توجد نتائج مطابقة</div></div>`;
+    return;
+  }
+  const rows=filtered.map(({sp,i})=>{
     const s=stu(sp.studentId);
     const typeMap={exemption:{label:'إعفاء',color:'var(--green)',bg:'rgba(34,201,122,.13)',icon:'🟢'},discount:{label:'تخفيض',color:'var(--amber)',bg:'rgba(245,166,35,.13)',icon:'🟡'},siblings:{label:'إخوة',color:'var(--accent)',bg:'rgba(79,124,255,.13)',icon:'🔵'}};
     const t=typeMap[sp.type]||{label:'—',color:'var(--text2)',bg:'transparent',icon:'💎'};
