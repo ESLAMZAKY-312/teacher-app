@@ -15113,7 +15113,7 @@ function sendSelectedStudentsCredentials(){
     if(!ph){ missingPhone++; return null; }
     const bc=s.barcode||s.id;
     const pin=s.pin||'—';
-    const msg=`اسم الطالب: ${s.fname} ${s.lname}\nكود الطالب: ${bc}\nكلمة السر: ${pin}`;
+    const msg=`اسم الطالب: ${s.fname} ${s.lname}\nكود الطالب: ${bc}\nكلمة السر: ${pin}\nرابط البوابة: https://eslamzaky-312.github.io/teacher-app/portal.html`;
     return {name:s.fname+' '+s.lname, ph, msg, color:s.color?s.color+'20':undefined};
   }).filter(Boolean);
   if(missingPhone>0) toast(`⚠️ تم تجاهل ${missingPhone} طالب بدون رقم هاتف`,'e');
