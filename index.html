@@ -610,6 +610,9 @@ async function _loadFromFirebase(){
     <button class="btn btn-secondary" style="padding:6px 9px;" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">☰</button>
     <div class="pg-title" id="pg-title">لوحة التحكم</div>
     <div style="flex:1"></div>
+    <button id="manual-sync-btn" onclick="_manualSyncNow()" title="مزامنة الآن" style="position:relative;width:38px;height:38px;border-radius:50%;background:var(--glass);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:opacity .15s;">
+      <span id="manual-sync-ic" style="display:inline-block;">🔄</span>
+    </button>
     <div style="position:relative;display:inline-block;">
       <button onclick="toggleAdminNotifPanel()" style="position:relative;width:38px;height:38px;border-radius:50%;background:var(--glass);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;">
         🔔<span id="admin-notif-badge" style="display:none;position:absolute;top:-4px;left:-4px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:800;align-items:center;justify-content:center;line-height:18px;box-shadow:0 0 0 2px var(--bg2);"></span>
@@ -658,10 +661,14 @@ async function _loadFromFirebase(){
       <option value="newest">أحدث تسجيلاً</option>
       <option value="gender">الجنس (ذكور ثم إناث)</option>
     </select>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;" title="الطلاب اللي غابوا أكتر من 3 حصص بيتم استبعادهم تلقائياً من القوائم والحسابات المالية دون حذفهم">
+      <input type="checkbox" id="st-show-excluded" onchange="renderStudents()" style="cursor:pointer;">
+      إظهار المستبعدين (غياب متكرر)
+    </label>
   </div>
   <!-- Export row + counter -->
   <div style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;margin-bottom:.85rem;">
-    <div style="font-size:12.5px;font-weight:700;color:var(--text2);flex:1;">إجمالي الطلاب: <span id="stu-count" style="color:var(--accent);font-size:14px;font-weight:800;">0</span></div>
+    <div style="font-size:12.5px;font-weight:700;color:var(--text2);flex:1;">إجمالي الطلاب: <span id="stu-count" style="color:var(--accent);font-size:14px;font-weight:800;">0</span><span id="stu-excluded-note" style="margin-right:8px;color:var(--red);font-size:11px;font-weight:700;"></span></div>
     <button class="btn btn-secondary btn-sm" onclick="printAllCardsPVC()" style="gap:5px;">📄 تصدير الكروت PDF</button>
     <button class="btn btn-secondary btn-sm" onclick="openExportModal('pdf')" style="gap:5px;">تصدير الطلاب PDF</button>
     <button class="btn btn-success btn-sm" onclick="openExportModal('excel')" style="gap:5px;">تصدير Excel</button>
@@ -694,6 +701,16 @@ async function _loadFromFirebase(){
   </div>
   <!-- Accordion list -->
   <div id="cls-accordion" style="display:flex;flex-direction:column;gap:.6rem;"></div>
+
+  <!-- مجموعات "يتيمة" — مش تابعة لأي صف موجود حالياً (مثلاً بقايا صف اتحذف أو استيراد قديم) -->
+  <div id="orphan-groups-box" style="display:none;margin-top:1.3rem;background:rgba(255,77,109,.05);border:1px solid rgba(255,77,109,.22);border-radius:var(--r);padding:14px 16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:13.5px;font-weight:800;color:var(--red);">⚠️ مجموعات غير تابعة لأي صف حالي</div>
+      <button onclick="delAllOrphanGroups()" style="height:30px;padding:0 12px;border-radius:7px;background:rgba(255,77,109,.15);border:1px solid rgba(255,77,109,.35);color:var(--red);font-size:11.5px;font-weight:700;cursor:pointer;">🗑 حذف كل المجموعات دي</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--text2);margin-bottom:.7rem;">المجموعات دي ظاهرة في فلاتر البحث بس مش ظاهرة جوه أي صف (غالباً صفها القديم اتحذف)، ولو مفيهاش طلاب تقدر تمسحها بأمان.</div>
+    <div id="orphan-groups-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
 </div>
 
 <!-- ======= BEHAVIOR ======= -->
@@ -1000,6 +1017,34 @@ async function _loadFromFirebase(){
           <input class="fi" type="month" id="pay-month-f" style="width:145px;" oninput="_debouncedRenderPayments()" title="تصفية حسب الشهر">
           <input class="fi" id="pay-inv-code" placeholder="🔑 التأكد من الفاتورة..." style="width:200px;" oninput="_verifyInvCode(this.value.trim())" onpaste="setTimeout(()=>_verifyInvCode(document.getElementById('pay-inv-code').value.trim()),50)" onchange="_verifyInvCode(this.value.trim())" onkeydown="if(event.key==='Enter')_showInvDetails(this.value.trim())" title="ابحث بكود الفاتورة — اضغط Enter لعرض التفاصيل">
           <button class="btn btn-wa btn-sm" onclick="sendPayWABulkSequential()">📱 تذكير واتساب (للجميع)</button><button class="btn btn-tg btn-sm" onclick="sendPayTGBulk()">✈️ تذكير تيليجرام (للجميع)</button>
+          <div style="position:relative;display:inline-block;" id="pay-export-dropdown-wrap">
+            <button class="btn btn-secondary btn-sm" onclick="togglePayExportDropdown()" id="pay-export-btn" style="gap:6px;">
+              📤 تصدير
+              <span style="font-size:10px;opacity:.8;">▼</span>
+            </button>
+            <div id="pay-export-dropdown" style="
+              display:none;position:absolute;top:calc(100% + 6px);left:0;
+              min-width:150px;background:var(--bg2);border:1px solid var(--border2);
+              border-radius:var(--rs);overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.35);
+              z-index:200;">
+              <button onclick="closePayExportDropdown();openPayExportModal('excel')" style="
+                width:100%;text-align:right;padding:10px 14px;background:transparent;border:none;
+                border-bottom:1px solid var(--border);color:var(--text);font-family:'Cairo',sans-serif;
+                font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;
+                transition:background .12s;"
+                onmouseover="this.style.background='rgba(34,201,122,.1)'" onmouseout="this.style.background='transparent'">
+                <span style="font-size:15px;">📊</span> Excel
+              </button>
+              <button onclick="closePayExportDropdown();openPayExportModal('pdf')" style="
+                width:100%;text-align:right;padding:10px 14px;background:transparent;border:none;
+                color:var(--text);font-family:'Cairo',sans-serif;
+                font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px;
+                transition:background .12s;"
+                onmouseover="this.style.background='rgba(255,77,109,.1)'" onmouseout="this.style.background='transparent'">
+                <span style="font-size:15px;">🖨️</span> PDF
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <table><thead><tr><th>الطالب</th><th>الصف</th><th>المجموعة</th><th>المبلغ</th><th>الشهر</th><th>التاريخ</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="pay-tbody"></tbody></table>
@@ -1125,6 +1170,7 @@ async function _loadFromFirebase(){
           <option value="unreceived">⏳ غير مستلم</option>
         </select>
       </div>
+      <div id="sales-filter-stats" style="display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:700;color:var(--text2);background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:5px 10px;"></div>
       <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
     </div><table><thead><tr><th>المنتج</th><th>الطالب</th><th>الكمية</th><th>الإيراد</th><th>الدفع</th><th>الاستلام</th><th>التاريخ</th></tr></thead><tbody id="sales-tbody"></tbody></table></div>
   </div>
@@ -2216,6 +2262,69 @@ async function _loadFromFirebase(){
   </div>
 </div>
 
+<!-- Payments Export Modal -->
+<div class="modal-ov" id="pay-export-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="mtt" id="pay-export-title">📊 اختيار بيانات تصدير المدفوعات <button class="mc-btn" onclick="closeModal('pay-export-modal')">✕</button></div>
+
+    <!-- اختصارات الأعمدة -->
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:1rem;padding:.75rem;background:var(--glass);border-radius:var(--rs);">
+      <button onclick="payExportColsSelectAll(true)"  style="padding:5px 12px;border-radius:20px;background:rgba(79,124,255,.12);border:1px solid rgba(79,124,255,.3);color:var(--accent);font-family:'Cairo',sans-serif;font-size:11.5px;font-weight:700;cursor:pointer;">✅ تحديد الكل</button>
+      <button onclick="payExportColsSelectAll(false)" style="padding:5px 12px;border-radius:20px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.25);color:var(--red);font-family:'Cairo',sans-serif;font-size:11.5px;font-weight:700;cursor:pointer;">✕ إلغاء الكل</button>
+      <button onclick="payExportColsPreset('basic')"   style="padding:5px 12px;border-radius:20px;background:rgba(34,201,122,.1);border:1px solid rgba(34,201,122,.3);color:var(--green);font-family:'Cairo',sans-serif;font-size:11.5px;font-weight:700;cursor:pointer;">📋 أساسية</button>
+      <button onclick="payExportColsPreset('full')"    style="padding:5px 12px;border-radius:20px;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3);color:#a855f7;font-family:'Cairo',sans-serif;font-size:11.5px;font-weight:700;cursor:pointer;">📦 شاملة</button>
+    </div>
+
+    <!-- الأعمدة -->
+    <div id="pay-export-cols-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:5px;max-height:220px;overflow-y:auto;padding:4px 2px;margin-bottom:1rem;"></div>
+
+    <!-- الشهور -->
+    <div style="background:var(--glass);border-radius:var(--rs);padding:.75rem;margin-bottom:1rem;">
+      <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:.5rem;">📅 الشهور المطلوب تصديرها</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:.6rem;">
+        <input class="fi" type="month" id="pay-export-month-add" style="width:150px;">
+        <button class="btn btn-secondary btn-sm" onclick="payExportAddMonth()">➕ إضافة شهر</button>
+        <span style="width:1px;height:22px;background:var(--border2);margin:0 4px;"></span>
+        <input class="fi" type="number" id="pay-export-year-add" placeholder="السنة" style="width:90px;" value="${new Date().getFullYear()}">
+        <button class="btn btn-secondary btn-sm" onclick="payExportAddYearMonths()">➕ إضافة كل شهور السنة</button>
+      </div>
+      <div id="pay-export-months-chips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+
+    <!-- حالة السداد -->
+    <div style="background:var(--glass);border-radius:var(--rs);padding:.75rem;margin-bottom:1rem;">
+      <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:.5rem;">💰 حالة السداد</div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-st-paid" checked style="accent-color:var(--accent);">✅ مسدد</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-st-partial" checked style="accent-color:var(--accent);">🟡 جزئي</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-st-unpaid" checked style="accent-color:var(--accent);">⏳ غير مسدد</label>
+      </div>
+    </div>
+
+    <!-- حالة الدفع الخاصة -->
+    <div style="background:var(--glass);border-radius:var(--rs);padding:.75rem;margin-bottom:1rem;">
+      <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:.5rem;">💎 حالة الدفع الخاصة</div>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-sp-none" checked style="accent-color:var(--accent);">بدون حالة خاصة</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-sp-exemption" checked style="accent-color:var(--accent);">🟢 إعفاء</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-sp-discount" checked style="accent-color:var(--accent);">🟡 تخفيض</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;"><input type="checkbox" id="pex-sp-siblings" checked style="accent-color:var(--accent);">🔵 إخوة</label>
+      </div>
+    </div>
+
+    <!-- الصف / المجموعة -->
+    <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;">
+      <select class="fs" id="pex-cls" style="flex:1;min-width:140px;" onchange="_filterPexGrp()"><option value="">كل الصفوف</option></select>
+      <select class="fs" id="pex-grp" style="flex:1;min-width:140px;"><option value="">كل المجموعات</option></select>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem;">
+      <button class="btn btn-secondary" onclick="closeModal('pay-export-modal')" style="flex:1;">إلغاء</button>
+      <button class="btn btn-primary" onclick="runPayExport()" style="flex:2;" id="pay-export-run-btn">📊 تصدير Excel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit Student -->
 <div class="modal-ov" id="edit-student-modal">
   <div class="modal">
@@ -3183,6 +3292,19 @@ async function _syncNow(){
   return await _saveFlush();
 }
 
+// ── مزامنة يدوية بضغطة زر (من التوب بار) — لا تنتظر الـ 10 دقائق ──
+async function _manualSyncNow(){
+  if(_isSyncing){ toast('☁️ جارٍ المزامنة بالفعل…','i'); return; }
+  const btn = document.getElementById('manual-sync-btn');
+  const ic  = document.getElementById('manual-sync-ic');
+  if(btn){ btn.style.pointerEvents='none'; btn.style.opacity='.5'; }
+  if(ic){ ic.style.animation='_bootspin .8s linear infinite'; }
+  const ok = await _syncNow();
+  if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; }
+  if(ic){ ic.style.animation=''; }
+  toast(ok ? '✅ تمت المزامنة بنجاح' : '⚠️ فشلت المزامنة — تحقق من الاتصال بالإنترنت', ok ? 's' : 'e');
+}
+
 function _saveFlushSync(){
   // ══ إرسال اضطراري عند إغلاق الصفحة ══
   if(!_fbDB || !_saveDirty) return;
@@ -3313,21 +3435,37 @@ function attPct(sid){
   const key='apc_'+sid;
   if(_cache[key]!=null) return _cache[key];
   const s=stu(sid);
-  const allowedDays=s?_grpDayNums(s.groupId):null;
   let t=0,p=0;
   const dateKeys=Object.keys(DB.attendance);
   for(let i=0;i<dateKeys.length;i++){
     const d=dateKeys[i];
     const v=DB.attendance[d][sid];
     if(v===undefined) continue;
-    if(allowedDays && v!=='exceptional'){
-      const parts=d.split('-');
-      const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
-      if(!allowedDays.has(dt.getDay())) continue; // يوم خارج جدول مجموعة الطالب — لا يُحتسب غياباً ولا حضوراً
+    if(s && v!=='exceptional'){
+      // نحدد مجموعة الطالب *وقت* هذا اليوم بالتحديد (تدعم النقل بين المجموعات)
+      const allowedDays=_grpDayNums(_grpIdOnDate(s,d));
+      if(allowedDays){
+        const parts=d.split('-');
+        const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+        if(!allowedDays.has(dt.getDay())) continue; // يوم خارج جدول مجموعته وقتها — لا يُحتسب غياباً ولا حضوراً
+      }
     }
     t++; if(v==='present'||v==='exceptional') p++;
   }
   return (_cache[key]=t?Math.round(p/t*100):100);
+}
+
+// ── إجمالي أيام الغياب لطالب معين (كل السجل) مع Cache ──
+function stuAbsentCount(sid){
+  const key='sab_'+sid;
+  if(_cache[key]!=null) return _cache[key];
+  let c=0;
+  Object.values(DB.attendance).forEach(day=>{ if(day[sid]==='absent') c++; });
+  return (_cache[key]=c);
+}
+// ── طالب "مستبعد" بسبب تكرار الغياب: غاب أكتر من 3 حصص — يُستبعد من قوائم الطلاب والحسابات المالية دون حذفه ──
+function isStuFinExcluded(sid){
+  return stuAbsentCount(sid) > 3;
 }
 
 // ── stuAvg مع Cache ──
@@ -3675,19 +3813,30 @@ function toggleTheme(){
 // ================================================================
 function renderDashboard(){
   const today=localDate(), att=DB.attendance[today]||{};
-  const total=DB.students.length, present=Object.values(att).filter(v=>v==='present').length;
-  const unpaid=DB.students.filter(s=>!isPaid(s.id)), unpaidN=unpaid.length;
+  const total=DB.students.length;
+  // ── معدل حضور اليوم: يُحسب فقط من طلاب المجموعات اللي ليها حصة النهاردة ──
+  // (مش من إجمالي كل الطلاب) — طالب في مجموعة مالهاش حصة النهاردة أصلاً مش
+  // المفروض يتحسب لا في المقام ولا في البسط.
+  const todayDow=new Date().getDay();
+  const todayStudents=DB.students.filter(s=>{
+    const allowed=_grpDayNums(s.groupId);
+    return !allowed || allowed.has(todayDow); // مجموعة من غير أيام محددة = تتحسب دايماً
+  });
+  const todayTotal=todayStudents.length;
+  const todayPresent=todayStudents.filter(s=>att[s.id]==='present').length;
+  const unpaid=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)), unpaidN=unpaid.length;
   const allScores=DB.grades.map(g=>Math.round(g.score/g.outOf*100));
   const avg=allScores.length?Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length):0;
   const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
 
   document.getElementById('dash-metrics').innerHTML=`
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
-    <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${total?Math.round(present/total*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${present} حاضر من ${total}</div></div>
+    <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${todayTotal?Math.round(todayPresent/todayTotal*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${todayPresent} حاضر من ${todayTotal}</div></div>
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${DB.grades.length} درجة مسجلة</div></div>
     <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaid.reduce((a,s)=>a+stuEffectiveFee(s),0))} متأخر</div></div>`;
 
-  document.getElementById('dash-stu-tb').innerHTML=DB.students.slice(0,6).map(s=>`
+  // ── أحدث الطلاب: آخر 6 طلاب تمت إضافتهم فعلاً (آخر عناصر مُضافة للمصفوفة)، مش أول 6 بترتيب التخزين ──
+  document.getElementById('dash-stu-tb').innerHTML=DB.students.slice(-6).reverse().map(s=>`
     <tr><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td>
     <td style="font-size:11px;color:var(--text2)">${clsN(s.classId)}</td>
     <td><div class="pw" style="min-width:70px"><div class="pb"><div class="pf" style="width:${attPct(s.id)}%;background:${grCol(attPct(s.id))}"></div></div><span class="pl" style="color:${grCol(attPct(s.id))}">${attPct(s.id)}%</span></div></td>
@@ -3747,6 +3896,7 @@ function renderStudents(){
     document.getElementById('stu-tbody').innerHTML=`<tr><td colspan="9" style="text-align:center;padding:3.5rem 1rem;color:var(--text3);"><div style="font-size:48px;margin-bottom:.8rem;">👨‍🎓</div><div style="font-size:13.5px;font-weight:700;margin-bottom:.35rem;">اختر الصف الدراسي والمجموعة لعرض الطلاب</div><div style="font-size:11.5px;opacity:.7;">أو ابحث باسم الطالب / الكود في حقل البحث</div></td></tr>`;
     return;
   }
+  const showExcluded = document.getElementById('st-show-excluded')?.checked||false;
   let list=DB.students.filter(s=>{
     const nameMatch = (s.fname+' '+s.lname).toLowerCase().includes(q);
     const codeMatch = !!q && ((s.id||'').toLowerCase()===q || (s.barcode||'').toLowerCase()===q);
@@ -3754,6 +3904,11 @@ function renderStudents(){
     const cc=!cf||s.classId===cf; const gc=!gf||s.groupId===gf;
     return nm&&cc&&gc;
   });
+  // ── استبعاد الطلاب اللي غابوا أكتر من 3 حصص من القوائم افتراضياً (بدون حذفهم من قاعدة البيانات) ──
+  const excludedCount = list.filter(s=>isStuFinExcluded(s.id)).length;
+  if(!showExcluded) list = list.filter(s=>!isStuFinExcluded(s.id));
+  const excNoteEl=document.getElementById('stu-excluded-note');
+  if(excNoteEl) excNoteEl.textContent = excludedCount ? `(${excludedCount} مستبعد بسبب الغياب المتكرر)` : '';
   if(sf==='alpha') list=list.slice().sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
   else if(sf==='alpha_desc') list=list.slice().sort((a,b)=>(b.fname+b.lname).localeCompare(a.fname+a.lname,'ar'));
   else if(sf==='oldest') list=list.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
@@ -3771,13 +3926,14 @@ function renderStudents(){
   const html = list.length ? list.map((s)=>{
     const initials=(s.fname?.[0]||'')+(s.lname?.[0]||'');
     const isActive=s.portalActive!==false;
-    return `<tr style="transition:background .12s;" onmouseover="this.style.background='rgba(79,124,255,.04)'" onmouseout="this.style.background=''">
+    const isExc=isStuFinExcluded(s.id);
+    return `<tr style="transition:background .12s;${isExc?'opacity:.6;':''}" onmouseover="this.style.background='rgba(79,124,255,.04)'" onmouseout="this.style.background=''">
       <td style="text-align:center;"><input type="checkbox" class="stu-check" value="${s.id}" style="cursor:pointer;"></td>
       <td>
         <div style="width:40px;height:40px;border-radius:50%;background:${s.color}22;border:2px solid ${s.color}55;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:${s.color};">${initials||'?'}</div>
       </td>
       <td>
-        <div style="font-weight:700;font-size:13px;">${s.fname} ${s.lname}</div>
+        <div style="font-weight:700;font-size:13px;">${s.fname} ${s.lname}${isExc?' <span title="مستبعد — غاب أكتر من 3 حصص" style="font-size:9.5px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>
         <div style="font-size:10px;color:var(--text2);margin-top:1px;">📞 ${s.phone||'—'}</div>
       </td>
       <td style="font-size:12px;color:var(--text2);">${s.parentPhone||'—'}</td>
@@ -4076,6 +4232,329 @@ tr:nth-child(even) td{background:#f8f9ff;-webkit-print-color-adjust:exact;print-
 function printStudentsPDF(){ openExportModal('pdf'); }
 function exportExcel(){ openExportModal('excel'); }
 
+// ════════════════════════════════════════════════════════
+// تصدير المدفوعات (Excel / PDF) — أعمدة قابلة للاختيار + شهور متعددة + فلاتر
+// ════════════════════════════════════════════════════════
+const PAY_EXPORT_COLS = [
+  // بيانات أساسية
+  { id:'num',      label:'م',                group:'أساسية', default:true  },
+  { id:'fullname', label:'اسم الطالب',        group:'أساسية', default:true  },
+  { id:'gender',   label:'النوع',             group:'أساسية', default:false },
+  { id:'class',    label:'الصف',              group:'أساسية', default:true  },
+  { id:'group',    label:'المجموعة',          group:'أساسية', default:true  },
+  { id:'phone',    label:'هاتف الطالب',       group:'أساسية', default:false },
+  { id:'pphone',   label:'هاتف ولي الأمر',    group:'أساسية', default:false },
+  { id:'barcode',  label:'الكود',             group:'أساسية', default:false },
+  // حالة خاصة
+  { id:'sptype',   label:'الحالة الخاصة',     group:'حالة خاصة', default:true  },
+  { id:'spamount', label:'قيمة الحالة الخاصة',group:'حالة خاصة', default:false },
+];
+// ملحوظة: أعمدة الشهور مش جزء من القائمة دي — بتتضاف ديناميكياً كأعمدة متجاورة
+// بترتيب اختيارها (زي علامة ✔ / ☐ لكل شهر)، مش عمود "شهر" واحد بيتكرر لكل صف.
+
+let _payExportMode = 'excel'; // 'excel' | 'pdf'
+let _payExportMonths = []; // ['2026-08', ...] — بترتيب الإضافة فعلياً (مش مُرتّبة أبجدياً/زمنياً)
+
+function togglePayExportDropdown(){
+  const dd=document.getElementById('pay-export-dropdown');
+  if(!dd) return;
+  dd.style.display = dd.style.display==='none' ? 'block' : 'none';
+}
+function closePayExportDropdown(){ const dd=document.getElementById('pay-export-dropdown'); if(dd) dd.style.display='none'; }
+document.addEventListener('click',function(e){
+  const wrap=document.getElementById('pay-export-dropdown-wrap');
+  if(wrap && !wrap.contains(e.target)) closePayExportDropdown();
+});
+
+function _filterPexGrp(){
+  const cid=document.getElementById('pex-cls')?.value||'';
+  const grpSel=document.getElementById('pex-grp');
+  if(!grpSel) return;
+  grpSel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cid||g.classId===cid).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+}
+
+function openPayExportModal(mode){
+  _payExportMode = mode;
+  const isExcel = mode === 'excel';
+  document.getElementById('pay-export-title').innerHTML =
+    (isExcel ? '📊 اختيار بيانات تصدير المدفوعات — Excel' : '🖨️ اختيار بيانات تصدير المدفوعات — PDF') +
+    ' <button class="mc-btn" onclick="closeModal(\'pay-export-modal\')">✕</button>';
+  document.getElementById('pay-export-run-btn').textContent = isExcel ? '📊 تصدير Excel' : '🖨️ تصدير PDF';
+
+  // بناء خانات الأعمدة (مجمّعة)
+  const groups = [...new Set(PAY_EXPORT_COLS.map(c=>c.group))];
+  let html = '';
+  groups.forEach(g => {
+    html += `<div style="grid-column:1/-1;font-size:10.5px;font-weight:800;color:var(--text2);padding:5px 4px 2px;border-bottom:1px solid var(--border);margin-top:4px;">${g}</div>`;
+    PAY_EXPORT_COLS.filter(c=>c.group===g).forEach(c => {
+      html += `<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;background:var(--glass2);border:1px solid var(--border);font-size:12.5px;font-weight:600;transition:background .12s;" onmouseover="this.style.background='rgba(79,124,255,.07)'" onmouseout="this.style.background='var(--glass2)'">
+        <input type="checkbox" id="pecol-${c.id}" ${c.default?'checked':''} style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+        ${c.label}
+      </label>`;
+    });
+  });
+  document.getElementById('pay-export-cols-grid').innerHTML = html;
+
+  // تصفية الصف/المجموعة — تبدأ بنفس فلتر صفحة المدفوعات الحالي لو موجود
+  const csel=document.getElementById('pex-cls');
+  if(csel){ csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); csel.value=document.getElementById('pay-cls-f')?.value||''; }
+  _filterPexGrp();
+  const gsel=document.getElementById('pex-grp');
+  if(gsel) gsel.value=document.getElementById('pay-grp-f')?.value||'';
+
+  // الشهور — تبدأ بشهر واحد افتراضي (فلتر صفحة المدفوعات الحالي أو الشهر الحالي)
+  const defMonth = document.getElementById('pay-month-f')?.value || localMonth();
+  _payExportMonths = [defMonth];
+  const mAddEl=document.getElementById('pay-export-month-add'); if(mAddEl) mAddEl.value=defMonth;
+  const yAddEl=document.getElementById('pay-export-year-add'); if(yAddEl) yAddEl.value=new Date().getFullYear();
+  _renderPayExportMonthChips();
+
+  openModal('pay-export-modal');
+}
+
+function payExportColsSelectAll(val){
+  PAY_EXPORT_COLS.forEach(c=>{ const el=document.getElementById('pecol-'+c.id); if(el) el.checked=val; });
+}
+function payExportColsPreset(preset){
+  const basic = ['num','fullname','class','group'];
+  const full  = PAY_EXPORT_COLS.map(c=>c.id);
+  const active = preset==='basic' ? basic : full;
+  PAY_EXPORT_COLS.forEach(c=>{ const el=document.getElementById('pecol-'+c.id); if(el) el.checked=active.includes(c.id); });
+}
+
+// ── إدارة شهور التصدير (يمكن إضافة أكثر من شهر في نفس القائمة) ──
+// بترتيب الإضافة فعلياً (من غير sort) عشان أعمدة الشهور في الملف الناتج تطلع بنفس ترتيب اختيارها
+function _renderPayExportMonthChips(){
+  const box=document.getElementById('pay-export-months-chips');
+  if(!box) return;
+  if(!_payExportMonths.length){
+    box.innerHTML='<span style="font-size:11.5px;color:var(--text3);">لم تُضف أي شهور بعد — أضف شهراً واحداً على الأقل</span>';
+    return;
+  }
+  box.innerHTML=_payExportMonths.map(m=>`
+    <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:16px;background:rgba(79,124,255,.12);border:1px solid rgba(79,124,255,.3);color:var(--accent);font-size:11.5px;font-weight:700;">
+      ${monthLabelAr(m)}
+      <span onclick="payExportRemoveMonth('${m}')" style="cursor:pointer;font-weight:900;opacity:.75;">✕</span>
+    </span>`).join('');
+}
+function payExportAddMonth(){
+  const v=document.getElementById('pay-export-month-add')?.value;
+  if(!v){ toast('اختر شهراً أولاً','e'); return; }
+  if(!_payExportMonths.includes(v)) _payExportMonths.push(v);
+  _renderPayExportMonthChips();
+}
+function payExportAddYearMonths(){
+  const y=+document.getElementById('pay-export-year-add')?.value;
+  if(!y || y<2000 || y>2100){ toast('أدخل سنة صحيحة','e'); return; }
+  for(let mo=1; mo<=12; mo++){
+    const m=y+'-'+String(mo).padStart(2,'0');
+    if(!_payExportMonths.includes(m)) _payExportMonths.push(m);
+  }
+  _renderPayExportMonthChips();
+  toast('✅ تم إضافة شهور سنة '+y);
+}
+function payExportRemoveMonth(m){
+  _payExportMonths=_payExportMonths.filter(x=>x!==m);
+  _renderPayExportMonthChips();
+}
+
+// ── تجميع صفوف التصدير: صف واحد لكل طالب (حسب فلاتر الصف/المجموعة والحالة الخاصة) ──
+// طالب بيتضاف لو عنده على الأقل شهر واحد من الشهور المختارة بحالة سداد ضمن الحالات المختارة
+function getPayExportRows(months, statusSet, spSet, clsF, grpF){
+  const students = DB.students.filter(s=>(!clsF||s.classId===clsF)&&(!grpF||s.groupId===grpF));
+  const rows=[];
+  students.forEach(s=>{
+    const sp = (DB.specialPays||[]).find(x=>x.studentId===s.id);
+    const spKey = sp ? sp.type : 'none';
+    if(!spSet.has(spKey)) return;
+    const matches = months.some(m=>{
+      const p = DB.payments.find(x=>x.studentId===s.id && x.month===m);
+      const status = p ? p.status : 'unpaid';
+      return statusSet.has(status);
+    });
+    if(!matches) return;
+    rows.push({s, sp});
+  });
+  return rows.sort((a,b)=>(a.s.fname+a.s.lname).localeCompare(b.s.fname+b.s.lname,'ar'));
+}
+
+// ── علامة كل شهر: ✔ لو مسدد بالكامل، ☐ لو لسه مش مسدد، "جزئي" لو دفع جزء بس ──
+function _pexMonthMark(sid, m){
+  const p = DB.payments.find(x=>x.studentId===sid && x.month===m);
+  const status = p ? p.status : 'unpaid';
+  if(status==='paid') return '✔';
+  if(status==='partial') return 'جزئي';
+  return '☐';
+}
+const _PEX_SP_TEXT = {exemption:'معفي', discount:'تخفيض', siblings:'إخوة', none:'—'};
+
+function getExportPaymentRow(row, selectedIds, idx, months){
+  const {s,sp} = row;
+  const map = {
+    num:       idx + 1,
+    fullname:  s.fname + ' ' + s.lname,
+    gender:    s.gender === 'female' ? 'أنثى' : 'ذكر',
+    class:     clsN(s.classId),
+    group:     grpN(s.groupId),
+    phone:     s.phone || '—',
+    pphone:    s.parentPhone || '—',
+    barcode:   s.barcode || s.id,
+    sptype:    sp ? (_PEX_SP_TEXT[sp.type]||'—') : '—',
+    spamount:  sp && sp.amount!=null ? sp.amount : '—',
+  };
+  const rowOut = {};
+  selectedIds.forEach(id => {
+    const col = PAY_EXPORT_COLS.find(c=>c.id===id);
+    if(col) rowOut[col.label] = map[id];
+  });
+  // أعمدة الشهور متجاورة بترتيب اختيارها، كل عمود بعلامة الحالة بتاعته
+  months.forEach(m => { rowOut[monthLabelAr(m)] = _pexMonthMark(s.id, m); });
+  return rowOut;
+}
+
+function runPayExport(){
+  const selectedIds = PAY_EXPORT_COLS.filter(c=>{ const el=document.getElementById('pecol-'+c.id); return el&&el.checked; }).map(c=>c.id);
+  if(!selectedIds.length){ toast('اختر عموداً واحداً على الأقل','e'); return; }
+  if(!_payExportMonths.length){ toast('أضف شهراً واحداً على الأقل','e'); return; }
+  const statusSet=new Set();
+  if(document.getElementById('pex-st-paid')?.checked) statusSet.add('paid');
+  if(document.getElementById('pex-st-partial')?.checked) statusSet.add('partial');
+  if(document.getElementById('pex-st-unpaid')?.checked) statusSet.add('unpaid');
+  if(!statusSet.size){ toast('اختر حالة سداد واحدة على الأقل','e'); return; }
+  const spSet=new Set();
+  if(document.getElementById('pex-sp-none')?.checked) spSet.add('none');
+  if(document.getElementById('pex-sp-exemption')?.checked) spSet.add('exemption');
+  if(document.getElementById('pex-sp-discount')?.checked) spSet.add('discount');
+  if(document.getElementById('pex-sp-siblings')?.checked) spSet.add('siblings');
+  if(!spSet.size){ toast('اختر حالة دفع خاصة واحدة على الأقل','e'); return; }
+  const clsF=document.getElementById('pex-cls')?.value||'';
+  const grpF=document.getElementById('pex-grp')?.value||'';
+
+  closeModal('pay-export-modal');
+  const months = _payExportMonths.slice(); // بترتيب اختيارها فعلياً
+  const rows = getPayExportRows(months, statusSet, spSet, clsF, grpF);
+  if(!rows.length){ toast('لا توجد بيانات تطابق الفلاتر المختارة','e'); return; }
+  if(_payExportMode === 'excel') doPayExcelExport(rows, selectedIds, months);
+  else doPayPdfExport(rows, selectedIds, months, clsF, grpF);
+}
+
+function doPayExcelExport(rows, selectedIds, months){
+  const outRows = rows.map((r,i) => getExportPaymentRow(r, selectedIds, i, months));
+  const ws = XLSX.utils.json_to_sheet(outRows);
+  const colW = selectedIds.map(id => {
+    const col = PAY_EXPORT_COLS.find(c=>c.id===id);
+    return {wch: Math.max(col.label.length * 2, 12)};
+  }).concat(months.map(()=>({wch:12})));
+  ws['!cols'] = colW;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'المدفوعات');
+  // ملخص
+  let paidCount=0, partialCount=0, unpaidCount=0, totalCollected=0;
+  rows.forEach(r=>{
+    months.forEach(m=>{
+      const p=DB.payments.find(x=>x.studentId===r.s.id&&x.month===m);
+      const status=p?p.status:'unpaid';
+      if(status==='paid'){ paidCount++; totalCollected+=p.amount; }
+      else if(status==='partial'){ partialCount++; totalCollected+=p.amount; }
+      else unpaidCount++;
+    });
+  });
+  const summary = [
+    {'البيان':'عدد الطلاب','القيمة':rows.length},
+    {'البيان':'عدد خانات (طالب×شهر) مسددة بالكامل','القيمة':paidCount},
+    {'البيان':'عدد خانات (طالب×شهر) جزئية','القيمة':partialCount},
+    {'البيان':'عدد خانات (طالب×شهر) غير مسددة','القيمة':unpaidCount},
+    {'البيان':'إجمالي المحصل من الشهور دي','القيمة':totalCollected},
+    {'البيان':'الشهور المُصدَّرة (بترتيب الاختيار)','القيمة':months.map(monthLabelAr).join(' ، ')},
+    {'البيان':'تاريخ التصدير','القيمة':new Date().toLocaleDateString('ar-EG')},
+  ];
+  const ws2 = XLSX.utils.json_to_sheet(summary);
+  ws2['!cols']=[{wch:28},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws2, 'ملخص');
+  XLSX.writeFile(wb, `edutrack-payments-${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast('📊 تم تصدير ' + rows.length + ' طالب بنجاح');
+}
+
+function doPayPdfExport(rows, selectedIds, months, clsF, grpF){
+  const clsLabel=clsF?(DB.classes.find(c=>c.id===clsF)?.name||'كل الصفوف'):'كل الصفوف';
+  const grpLabel=grpF?(DB.groups.find(g=>g.id===grpF)?.name||'كل المجموعات'):'كل المجموعات';
+  const monthsLabel=months.map(monthLabelAr).join(' ، ');
+  const cols = PAY_EXPORT_COLS.filter(c=>selectedIds.includes(c.id));
+  const logoSrc = DB.settings.logo;
+  const logoHtml = logoSrc
+    ? `<img src="${logoSrc}" style="height:44px;object-fit:contain;border-radius:8px;">`
+    : `<span style="font-size:22px;font-weight:900;color:#4f7cff;">${(DB.settings.name||'أ')[0]}</span>`;
+  let totalCollected=0;
+  rows.forEach(r=>months.forEach(m=>{
+    const p=DB.payments.find(x=>x.studentId===r.s.id&&x.month===m);
+    if(p&&(p.status==='paid'||p.status==='partial')) totalCollected+=p.amount;
+  }));
+
+  const thead = cols.map(c=>`<th>${c.label}</th>`).join('') + months.map(m=>`<th class="pex-m">${monthLabelAr(m)}</th>`).join('');
+  const tbody = rows.map((r,i)=>{
+    const row = getExportPaymentRow(r, selectedIds, i, months);
+    return '<tr>'
+      + cols.map(c=>`<td>${row[c.label]??'—'}</td>`).join('')
+      + months.map(m=>`<td class="pex-m">${row[monthLabelAr(m)]}</td>`).join('')
+      + '</tr>';
+  }).join('');
+
+  const w = window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">
+<title>كشف المدفوعات</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&family=Tajawal:wght@700;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Cairo,sans-serif;background:#fff;color:#1a1f45;}
+.hdr{background:linear-gradient(135deg,#0d1030,#1a1f45);padding:16px 22px;display:flex;justify-content:space-between;align-items:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.hdr-left{display:flex;align-items:center;gap:12px;}
+.hdr-name{font-size:17px;font-weight:900;color:#fff;}
+.hdr-sub{font-size:10px;color:rgba(255,255,255,.5);margin-top:2px;}
+.hdr-right{text-align:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:9px;padding:8px 14px;}
+.hdr-title{font-size:11px;color:rgba(255,255,255,.6);}
+.hdr-val{font-size:16px;font-weight:900;color:#fff;font-family:Tajawal,sans-serif;}
+.strip{height:3px;background:linear-gradient(90deg,#4f7cff,#7c5cff,#a855f7,#00c9b1);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.meta{padding:9px 22px;background:#f8f9ff;font-size:11.5px;color:#6b7a99;display:flex;gap:16px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #e8ecf8;}
+.body{padding:14px 18px;}
+table{width:100%;border-collapse:collapse;font-size:11.5px;}
+thead tr{background:linear-gradient(135deg,#4f7cff,#7c5cff);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+th{padding:8px 10px;text-align:right;font-weight:700;color:#fff;font-size:11px;white-space:nowrap;}
+th.pex-m{text-align:center;}
+td{padding:7px 10px;border-bottom:1px solid #eef0fa;vertical-align:middle;}
+td.pex-m{text-align:center;font-weight:800;font-size:14px;}
+tr:nth-child(even) td{background:#f8f9ff;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.ftr{background:linear-gradient(135deg,#0d1030,#1a1f45);padding:10px 22px;display:flex;justify-content:space-between;align-items:center;margin-top:14px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.ftr-social{font-size:9.5px;color:rgba(255,255,255,.5);display:flex;flex-wrap:wrap;gap:10px;}
+.ftr-brand{font-size:8.5px;color:rgba(255,255,255,.3);}
+@media print{body{background:#fff;}@page{size:A4;margin:0;}table{font-size:10px;}th,td{padding:5px 7px;}}
+@media screen{body{padding:16px;}}
+</style></head><body>
+<div class="hdr">
+  <div class="hdr-left">${logoHtml}<div><div class="hdr-name">${DB.settings.name||'الأستاذ'}</div><div class="hdr-sub">${DB.settings.subject||''}</div></div></div>
+  <div class="hdr-right"><div class="hdr-title">📋 كشف المدفوعات</div><div class="hdr-val">${rows.length} سجل</div></div>
+</div>
+<div class="strip"></div>
+<div class="meta">
+  <span>🏫 الصف: <b>${clsLabel}</b></span>
+  <span>👥 المجموعة: <b>${grpLabel}</b></span>
+  <span>📅 الشهور: <b>${monthsLabel}</b></span>
+  <span>💰 إجمالي المحصل: <b>${fmtM(totalCollected)}</b></span>
+</div>
+<div class="body">
+<table>
+  <thead><tr>${thead}</tr></thead>
+  <tbody>${tbody||'<tr><td colspan="'+cols.length+'" style="text-align:center;padding:2rem;color:#aaa;">لا توجد بيانات</td></tr>'}</tbody>
+</table>
+</div>
+<div class="ftr">
+  <div class="ftr-social">${[DB.settings.phone?'📱 '+DB.settings.phone:'',DB.settings.facebook?'📘 '+DB.settings.facebook:'',DB.settings.instagram?'📸 '+DB.settings.instagram:''].filter(Boolean).join(' | ')||'—'}</div>
+  <div class="ftr-brand">EduTrack Pro • طُبعت: ${new Date().toLocaleTimeString('ar-EG')}</div>
+</div>
+<script>window.onload=()=>window.print()<\/script>
+</body></html>`);
+  w.document.close();
+}
+
 // ── يخلي خانتي "عام" و"أزهر" متبادلتين (اختيار واحد بس) رغم إنهم مربّعات اختيار مستقلة ──
 function _onEduSystemChange(checkedId, otherId){
   const checkedEl=document.getElementById(checkedId);
@@ -4170,7 +4649,18 @@ function saveEditStudent(){
   const etcid2=document.getElementById('edit-s-tg-chatid'); if(etcid2) s.tgChatId=etcid2.value.trim();
   const etuser2=document.getElementById('edit-s-tg-username'); if(etuser2) s.tgUsername=etuser2.value.trim().replace(/^@/,'');
   s.classId=document.getElementById('edit-s-cls').value;
-  s.groupId=document.getElementById('edit-s-grp').value;
+  // ── نقل الطالب لمجموعة جديدة: نسجّل تاريخ التحويل في سجل تحويلاته ──
+  // بحيث تقارير/إحصائيات الحضور القديمة تفضل مبنية على أيام المجموعة *القديمة*،
+  // وأي حضور/غياب من تاريخ التحويل فصاعداً يُحسب على أيام المجموعة *الجديدة* فقط.
+  // (السجلات الفعلية في DB.attendance نفسها لا تُمس إطلاقاً — تبقى كما هي).
+  const newGrpId=document.getElementById('edit-s-grp').value;
+  if(newGrpId && s.groupId && newGrpId!==s.groupId){
+    const today=localDate();
+    if(!s.groupHistory) s.groupHistory=[];
+    const prevFrom=s.groupHistory.length ? s.groupHistory[s.groupHistory.length-1].to : (s.date||today);
+    s.groupHistory.push({groupId:s.groupId, from:prevFrom, to:today});
+  }
+  s.groupId=newGrpId;
   s.date=document.getElementById('edit-s-date').value||s.date;
   s.fee=document.body.dataset.role==='supervisor'?s.fee:(+document.getElementById('edit-s-fee').value||s.fee);
   s.barcode=document.getElementById('edit-s-bc').value||s.barcode;
@@ -4539,6 +5029,30 @@ function renderClasses(filterClsId){
   const container = document.getElementById('cls-accordion');
   if(!container) return;
 
+  // ── مجموعات يتيمة: classId مالهاش صف موجود فعلاً في DB.classes ──
+  const validClsIds = new Set(DB.classes.map(c=>c.id));
+  const orphanGrps = DB.groups.filter(g => !validClsIds.has(g.classId));
+  const orphanBox = document.getElementById('orphan-groups-box');
+  const orphanList = document.getElementById('orphan-groups-list');
+  if(orphanBox && orphanList){
+    if(orphanGrps.length){
+      orphanBox.style.display='block';
+      orphanList.innerHTML = orphanGrps.map(g=>{
+        const stuInGrp = DB.students.filter(s=>s.groupId===g.id).length;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;">
+          <div style="font-size:12.5px;font-weight:700;">${g.name||'—'} <span style="font-weight:400;color:var(--text3);font-size:11px;">(${g.days||'بدون أيام محددة'})</span></div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:11px;color:${stuInGrp?'var(--amber)':'var(--text3)'};">${stuInGrp?`⚠️ فيها ${stuInGrp} طالب`:'لا يوجد طلاب بها'}</span>
+            <button onclick="delGrp('${g.id}')" style="width:26px;height:26px;border-radius:7px;background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:12px;cursor:pointer;">🗑</button>
+          </div>
+        </div>`;
+      }).join('');
+    } else {
+      orphanBox.style.display='none';
+      orphanList.innerHTML='';
+    }
+  }
+
   if(!DB.classes.length){
     container.innerHTML='<div class="empty"><div class="empty-ic">🏫</div><div>لا توجد صفوف دراسية — أنشئ أول صف الآن</div></div>';
     return;
@@ -4825,6 +5339,19 @@ function addGrp(){
   renderClasses(); toast('✅ تم إضافة المجموعة');
 }
 function delGrp(id){ if(!confirm('حذف المجموعة؟'))return; DB.groups=DB.groups.filter(g=>g.id!==id); save(); renderClasses(); }
+function delAllOrphanGroups(){
+  const validClsIds=new Set(DB.classes.map(c=>c.id));
+  const orphanGrps=DB.groups.filter(g=>!validClsIds.has(g.classId));
+  if(!orphanGrps.length) return;
+  const withStudents=orphanGrps.filter(g=>DB.students.some(s=>s.groupId===g.id)).length;
+  const msg = withStudents
+    ? `هيتم حذف ${orphanGrps.length} مجموعة، منهم ${withStudents} فيها طلاب مسجلين بيها (مش هيتم حذف الطلاب نفسهم، بس هيفضل الطالب مربوط بمجموعة محذوفة). متأكد؟`
+    : `هيتم حذف ${orphanGrps.length} مجموعة غير تابعة لأي صف. متأكد؟`;
+  if(!confirm(msg)) return;
+  const orphanIds=new Set(orphanGrps.map(g=>g.id));
+  DB.groups=DB.groups.filter(g=>!orphanIds.has(g.id));
+  save(); renderClasses(); toast('✅ تم حذف '+orphanGrps.length+' مجموعة');
+}
 
 let _importGrpData=[];
 function openImportGroupModal(gid){
@@ -5538,25 +6065,22 @@ function checkIn(sid, forceAll){
   const s=stu(sid); if(!s) return;
   const today=localDate();
 
-  // ── 1. فحص المجموعة ──────────────────────────────────────────
-  const activeGrp=document.getElementById('att-grp')?.value||'';
-  const wrongGroup= activeGrp && s.groupId && s.groupId!==activeGrp;
-
-  // ── 2. فحص الوقت (مجموعة الطالب الأصلية) ─────────────────────
+  // ── فحص الوقت فقط، بناءً على ميعاد مجموعة الطالب الأصلية المسجل بها ──
+  // (تم إلغاء فحص "المجموعة المعروضة حالياً على الشاشة" بناءً على طلب المستخدم:
+  // بمجرد مسح الباركود، يُسجَّل الطالب حاضراً تلقائياً طالما الوقت الحالي يقع
+  // ضمن ميعاد مجموعته الأصلية — بغض النظر عن أي مجموعة مفتوحة حالياً في الصفحة.
+  // مودال الموافقة/الرفض بيظهر بس لو الحضور جه في غير ميعاد مجموعته الأصلية).
   const ownGrpObj=DB.groups.find(g=>g.id===s.groupId);
   const timeCheck=checkGroupTime(ownGrpObj);
   const wrongTime=!timeCheck.inTime;
 
-  // ── إذا كل شيء سليم أو تجاوزنا الفحص → سجّل مباشرة ────────────
-  if((!wrongGroup && !wrongTime) || forceAll){
+  // ── الوقت سليم أو تجاوزنا الفحص → سجّل مباشرة ────────────
+  if(!wrongTime || forceAll){
     if(!DB.attendance[today]) DB.attendance[today]={};
     DB.attendance[today][sid]='present'; attState[sid]='present'; save();
     pushNotif(sid,'attendance','✅','تسجيل حضور',`تم تسجيل حضور ${s.fname} ${s.lname} بتاريخ ${today}`);
 
-    const extras=[];
-    if(forceAll && wrongGroup) extras.push('مجموعة أخرى ✔');
-    if(forceAll && wrongTime)  extras.push('خارج الوقت ✔');
-    const extraTxt=extras.length?' ('+extras.join(' · ')+')':'';
+    const extraTxt = (forceAll && wrongTime) ? ' (خارج الوقت ✔)' : '';
 
     const r=document.getElementById('scan-res');
     if(r){
@@ -5575,24 +6099,11 @@ function checkIn(sid, forceAll){
     return;
   }
 
-  // ── يوجد مخالفة → جهّز المودال ────────────────────────────────
+  // ── خارج ميعاد مجموعته الأصلية → جهّز مودال الموافقة/الرفض ────────────────────────────────
   _wgmPending={ sid };
 
-  const curGrpObj=activeGrp?DB.groups.find(g=>g.id===activeGrp):null;
-  const both=wrongGroup && wrongTime;
-
-  // لون + أيقونة + عنوان بحسب نوع المخالفة
-  let iconBg, iconBorder, titleColor, iconEmoji, titleTxt;
-  if(both){
-    iconBg='rgba(255,77,109,.15)'; iconBorder='rgba(255,77,109,.5)';
-    titleColor='var(--red)'; iconEmoji='🚫'; titleTxt='مخالفتان: مجموعة ووقت!';
-  } else if(wrongGroup){
-    iconBg='rgba(245,166,35,.15)'; iconBorder='rgba(245,166,35,.4)';
-    titleColor='var(--amber)'; iconEmoji='⚠️'; titleTxt='طالب خارج مجموعته!';
-  } else {
-    iconBg='rgba(79,124,255,.15)'; iconBorder='rgba(79,124,255,.4)';
-    titleColor='var(--accent)'; iconEmoji='🕐'; titleTxt='خارج وقت المجموعة!';
-  }
+  const iconBg='rgba(79,124,255,.15)', iconBorder='rgba(79,124,255,.4)';
+  const titleColor='var(--accent)', iconEmoji='🕐', titleTxt='خارج وقت المجموعة!';
 
   // أيقونة + عنوان
   document.getElementById('wgm-icon').style.cssText=
@@ -5613,35 +6124,23 @@ function checkIn(sid, forceAll){
     _tag('📚', clsN(s.classId), '#4f7cff')+
     _tag('👥', grpN(s.groupId), '#7c5cff');
 
-  // تفاصيل التعارض
-  let conflicts='';
-  if(wrongGroup){
-    conflicts+=`<div style="background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.25);border-radius:var(--rs);padding:9px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;">
-      <span style="font-size:16px;flex-shrink:0;">👥</span>
-      <div><span style="font-weight:700;color:var(--amber);">مجموعة خاطئة</span><br>
-      مجموعته: <b>${ownGrpObj?.name||'—'}</b> &nbsp;·&nbsp; المجموعة الحالية: <b>${curGrpObj?.name||'—'}</b></div>
-    </div>`;
-  }
-  if(wrongTime){
-    conflicts+=`<div style="background:rgba(79,124,255,.07);border:1px solid rgba(79,124,255,.25);border-radius:var(--rs);padding:9px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;">
+  // تفاصيل التعارض (وقت فقط)
+  const conflicts=`<div style="background:rgba(79,124,255,.07);border:1px solid rgba(79,124,255,.25);border-radius:var(--rs);padding:9px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;">
       <span style="font-size:16px;flex-shrink:0;">🕐</span>
       <div><span style="font-weight:700;color:var(--accent);">خارج وقت المجموعة</span><br>
       وقت المجموعة: <b>${timeCheck.grpTimeFrom} — ${timeCheck.grpTimeTo}</b> &nbsp;·&nbsp; الوقت الحالي: <b>${timeCheck.nowStr}</b></div>
     </div>`;
-  }
   document.getElementById('wgm-conflicts').innerHTML=conflicts;
   document.getElementById('wgm-subtitle').textContent=
-    both ? 'هذا الطالب ليس في مجموعته وحضوره خارج وقت مجموعته أيضاً'
-    : wrongGroup ? `مسجّل في "${ownGrpObj?.name||'—'}" — يحاول الحضور في "${curGrpObj?.name||'—'}"`
-    : `وقت المجموعة ${timeCheck.grpTimeFrom}–${timeCheck.grpTimeTo} — الوقت الحالي ${timeCheck.nowStr}`;
+    `وقت المجموعة ${timeCheck.grpTimeFrom}–${timeCheck.grpTimeTo} — الوقت الحالي ${timeCheck.nowStr}`;
 
   // scan-res بلون تحذيري
   const r=document.getElementById('scan-res');
   if(r){
     r.style.display='block';
-    r.style.background=both?'rgba(255,77,109,.08)':'rgba(245,166,35,.08)';
-    r.style.borderColor=both?'rgba(255,77,109,.3)':'rgba(245,166,35,.3)';
-    r.style.color=both?'var(--red)':'var(--amber)';
+    r.style.background='rgba(245,166,35,.08)';
+    r.style.borderColor='rgba(245,166,35,.3)';
+    r.style.color='var(--amber)';
     r.innerHTML=`${iconEmoji} <b>${s.fname} ${s.lname}</b> — ${titleTxt} — ينتظر الموافقة`;
   }
 
@@ -6861,7 +7360,8 @@ function renderPayments(){
   const csel=document.getElementById('pay-cls-f'); if(csel){ const v=csel.value; csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); csel.value=v; }
   const gsel=document.getElementById('pay-grp-f'); if(gsel){ const v=gsel.value; gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cf||g.classId===cf).map(g=>`<option value="${g.id}">${g.name}</option>`).join(''); gsel.value=v; }
   const paid=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
-  const unpaidSt=DB.students.filter(s=>!isPaid(s.id));
+  // ── الطلاب المستبعدين (غياب أكتر من 3 حصص) لا يُحتسبون ضمن غير المسددين ولا المتأخرات ──
+  const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
   document.getElementById('pay-metrics').innerHTML=`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
     <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidSt.length}</div><div class="ml">غير مسددين</div></div>
@@ -6883,7 +7383,7 @@ function renderPayments(){
   // منذ تاريخ التحاق كل طالب في الصف/المجموعة المختارة وحتى الآن
   // ══════════════════════════════════════════════════════════
   if(sf==='overdue'){
-    let candidates=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+    let candidates=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
     if(qf){
       candidates=candidates.filter(s=>{
         const nm=(s.fname+' '+s.lname).toLowerCase();
@@ -6966,13 +7466,14 @@ function renderPayments(){
   };
 
   const _chkMonth=mf||(()=>{const n=new Date();return localMonth();})();
-  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
+  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; if(isStuFinExcluded(s.id))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
   // ── سجل واحد فقط لكل طالب (آخر دفعة بحسب تاريخ الإنشاء) ──
   const seenStu=new Map();
   rawList.forEach(p=>{ const ex=seenStu.get(p.studentId); if(!ex||(p.createdAt||'')>(ex.createdAt||''))seenStu.set(p.studentId,p); });
   const list=[...seenStu.values()];
   const listedIds=new Set(list.map(p=>p.studentId));
   const unlistedUnpaid=DB.students.filter(s=>{
+    if(isStuFinExcluded(s.id))return false;
     const paidInMonth=DB.payments.some(p=>p.studentId===s.id&&p.month===_chkMonth&&p.status==='paid');
     if(paidInMonth)return false;
     if(cf&&s.classId!==cf)return false;
@@ -7235,17 +7736,41 @@ function _grpDayNums(grpId){
   map.forEach(({keys,num})=>{ if(keys.some(k=>txt.includes(k))) nums.add(num); });
   return (_cache[key] = nums.size ? nums : null);
 }
-function _filterDaysByGrp(days, grpId, sid){
+// ── تحديد المجموعة الفعلية للطالب في تاريخ معيّن، بالرجوع لسجل تحويلاته ──
+// لو الطالب اتحوّل قبل كده من مجموعة لمجموعة، s.groupHistory بتحتفظ بكل فترة
+// قديمة (المجموعة + من تاريخ/لتاريخ). أي يوم قبل تاريخ التحويل بيُحسب على أيام
+// المجموعة القديمة، وأي يوم من تاريخ التحويل فصاعداً بيُحسب على أيام المجموعة
+// الحالية — من غير ما نلمس سجلات الحضور الفعلية في DB.attendance إطلاقاً.
+function _grpIdOnDate(s, date){
+  if(!s) return null;
+  const hist = s.groupHistory;
+  if(hist && hist.length){
+    for(const h of hist){ if(date>=h.from && date<h.to) return h.groupId; }
+    if(date<hist[0].from) return hist[0].groupId;
+  }
+  return s.groupId; // المجموعة الحالية (من تاريخ آخر تحويل حتى الآن)
+}
+function _filterDaysByGrp(days, grpIdOrStudent, sid){
   // sid اختياري: لو مُمرَّر، تُضاف أي أيام له فيها سجل حضور فعلي (حاضر/غائب/
   // متأخر/استثنائي) حتى لو خارج الجدول الأسبوعي الرسمي للمجموعة — قبل كده كان
   // بيتحسب بس لو الحالة "exceptional" بالظبط، فكان أي يوم اتسجل فيه حضور فعلي
   // (بحالة "حاضر" عادية مثلاً) خارج أيام المجموعة الرسمية بيختفي تماماً من كل
   // التقارير والكشوفات، مع إنه ظاهر وصحيح في بوابة الطالب (اللي بتعرض السجل
   // الخام من غير أي فلترة على الإطلاق) — وده كان سبب عدم التطابق بينهم.
-  const allowed = _grpDayNums(grpId);
-  if(!allowed && !sid) return days;
+  //
+  // grpIdOrStudent: تقدر تبعتله إما رقم مجموعة ثابت (نمط قديم)، أو كائن الطالب
+  // نفسه s (نمط جديد) عشان يُحسب اليوم على أيام المجموعة اللي كان فيها الطالب
+  // *فعلاً* وقتها لو اتحوّل من مجموعة لمجموعة (بدل ما يتفلتر كل تاريخه القديم
+  // على أيام مجموعته الحالية فقط).
+  const s = (grpIdOrStudent && typeof grpIdOrStudent === 'object') ? grpIdOrStudent : null;
+  if(!s){
+    const allowed = _grpDayNums(grpIdOrStudent);
+    if(!allowed && !sid) return days;
+  }
   return days.filter(d => {
-    // 1) هل اليوم ضمن الجدول الأسبوعي للمجموعة؟
+    const gid = s ? _grpIdOnDate(s, d) : grpIdOrStudent;
+    const allowed = _grpDayNums(gid);
+    // 1) هل اليوم ضمن الجدول الأسبوعي لمجموعته وقتها؟
     if(allowed){
       const parts = d.split('-');
       const dt = new Date(+parts[0], +parts[1]-1, +parts[2]);
@@ -7274,7 +7799,7 @@ function _showStuAttDetails(sid){
 
   // فلترة أيام المجموعة فقط
   const stuDaysRaw=allDays.filter(d=>d>=firstDay);
-  const stuDays = _filterDaysByGrp(stuDaysRaw, s.groupId, sid);
+  const stuDays = _filterDaysByGrp(stuDaysRaw, s, sid);
 
   // معلومة أيام المجموعة للعرض
   const grpObj=DB.groups.find(g=>g.id===s.groupId);
@@ -8916,10 +9441,22 @@ function _storeBarcodeScan(){
   if(matches.length>1){ toast('فيه أكتر من طالب مطابق — اختر من القائمة الظاهرة تحت الخانة','i'); return; }
   toast('لا يوجد طالب مطابق','e');
 }
+// ── هل المنتج مسموح لنوع تعليم الطالب (عام/أزهر)؟ ──
+// المنتج بدون تحديد نوع (types غير موجودة أو فاضية) = متاح للجميع.
+// المنتج المحدد له النوعين معاً = متاح للجميع أيضاً.
+// وإلا لازم نوع تعليم الطالب يطابق أحد الأنواع المحددة للمنتج.
+function productVisibleToStudent(p,s){
+  const types=Array.isArray(p.types)?p.types:[];
+  if(!types.length) return true; // منتج قديم/عام بدون تقييد نوع تعليم
+  const eduMap={general:'public',azhar:'azhar'};
+  const stuType=eduMap[s?.eduSystem]||'';
+  if(!stuType) return true; // الطالب لم يُحدَّد له نوع تعليم — لا نمنعه من رؤية المنتج
+  return types.includes(stuType);
+}
 function openStudentStoreModal(sid){
   const s=stu(sid); if(!s)return;
   _currentStoreStuSid=sid;
-  const availableProducts=DB.products.filter(p=>!p.classId||p.classId===s.classId);
+  const availableProducts=DB.products.filter(p=>(!p.classId||p.classId===s.classId)&&productVisibleToStudent(p,s));
   const purchases=DB.sales.filter(x=>x.studentId===sid);
   const totalSpent=purchases.reduce((a,b)=>a+b.total,0);
   _newItemSelectedPid='';
@@ -9245,6 +9782,25 @@ function renderStore(){
       +`<td style="text-align:center;"><span onclick="toggleSalePaid('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>`
       +`<td style="text-align:center;"><span onclick="toggleSaleReceived('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>`
       +`<td style="font-size:11px;color:var(--text2);">${s.date}</td></tr>`; }).join('')||'<tr><td colspan="7" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
+
+  // ── إحصائية سريعة عن المبيعات المطابقة للفلتر الحالي (منتج/صف/مجموعة...) ──
+  const statsBoxEl=document.getElementById('sales-filter-stats');
+  if(statsBoxEl){
+    if(fProd || fCls || fGrp || fStuQ || fPaid || fReceived){
+      const totQty=filteredSales.reduce((a,b)=>a+b.qty,0);
+      const totRev=filteredSales.reduce((a,b)=>a+b.total,0);
+      const unpaidCount=filteredSales.filter(s=>s.paid===false).length;
+      const prodLabel=fProd?(DB.products.find(p=>p.id===fProd)?.name||''):'';
+      statsBoxEl.style.display='flex';
+      statsBoxEl.innerHTML=`${prodLabel?`<span style="color:var(--text);">${prodLabel}</span><span style="color:var(--border2);">|</span>`:''}`
+        +`<span>📦 ${totQty} وحدة</span><span style="color:var(--border2);">|</span>`
+        +`<span style="color:var(--green);">💰 ${fmtM(totRev)}</span>`
+        +`${unpaidCount?`<span style="color:var(--border2);">|</span><span style="color:var(--amber);">⏳ ${unpaidCount} غير مدفوع</span>`:''}`;
+    } else {
+      statsBoxEl.style.display='none';
+      statsBoxEl.innerHTML='';
+    }
+  }
 }
 function delProductConfirm(id){ const p=DB.products.find(x=>x.id===id); if(!p)return; if(!confirm(`⚠️ تحذير: هل تريد حذف المنتج "${p.name}"؟ لن تختفي المبيعات السابقة ولكن لا يمكن التراجع عن هذا الإجراء.`))return; DB.products=DB.products.filter(x=>x.id!==id); save(); renderStore(); toast('تم حذف المنتج','e'); }
 function editProduct(id){
@@ -10537,7 +11093,7 @@ function switchRep(tab,btn){
     // ── دالة مساعدة: إحصاءات طالب في فترة — مقيّدة بأيام مجموعته ──
     window._stuAttStats = function(sid, days){
       const s = DB.students.find(x=>x.id===sid);
-      const filteredDays = s ? _filterDaysByGrp(days, s.groupId, sid) : days;
+      const filteredDays = s ? _filterDaysByGrp(days, s, sid) : days;
       let present=0, absent=0, late=0, exceptional=0;
       filteredDays.forEach(d=>{
         const st = DB.attendance[d]?.[sid];
@@ -10992,8 +11548,8 @@ function switchRep(tab,btn){
         <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:2.5rem;text-align:center;backdrop-filter:blur(8px);">
           <div style="font-size:20px;font-weight:900;margin-bottom:1.8rem;">🔍 تقرير مفصل للطالب</div>
           <div style="margin-bottom:1.1rem;text-align:right;">
-            <label class="fl" style="font-size:13px;">البحث بالكود</label>
-            <input class="fi" id="rep-dr-code" placeholder="أدخل كود الطالب" style="margin-top:4px;" onkeydown="if(event.key==='Enter') showDetailedReportInline()">
+            <label class="fl" style="font-size:13px;">البحث بالاسم أو الباركود</label>
+            <input class="fi" id="rep-dr-code" placeholder="أدخل اسم الطالب أو الباركود" style="margin-top:4px;" onkeydown="if(event.key==='Enter') showDetailedReportInline()">
           </div>
           <button onclick="showDetailedReportInline()" style="width:100%;padding:12px;border-radius:var(--rs);background:linear-gradient(135deg,var(--accent2),var(--accent));border:none;color:#fff;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:1rem;">بحث</button>
           <div id="rep-dr-result"></div>
@@ -12276,11 +12832,12 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{موعد_آخر_حضور_مسجل\}/g, lastAttDate)
     .replace(/\{مرات_الغياب_المتتالي\}/g,(()=>{
       if(!s) return extra?.count!==undefined?String(extra.count):'0';
-      const allowedDays=_grpDayNums(s.groupId);
       const sortedDays=Object.keys(DB.attendance).sort().reverse().filter(d=>{
-        if(!allowedDays) return true;
         const st=DB.attendance[d]?.[s.id];
         if(st==='exceptional') return true;
+        // مجموعة الطالب وقت هذا اليوم بالتحديد (تدعم النقل بين المجموعات)
+        const allowedDays=_grpDayNums(_grpIdOnDate(s,d));
+        if(!allowedDays) return true;
         const parts=d.split('-');
         const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
         return allowedDays.has(dt.getDay());
@@ -13291,14 +13848,17 @@ function spDownloadCard(){
 function spRenderAttend(){
   if(!spCurrentStu)return;
   const s=spCurrentStu;
-  // نعرض/نحسب فقط الأيام اللي فعلاً من جدول مجموعة الطالب الأسبوعي (أو أيام "استثنائي" المسجّلة عمداً)
-  const allowedDays=_grpDayNums(s.groupId);
+  // نعرض/نحسب فقط الأيام اللي فعلاً من جدول مجموعة الطالب الأسبوعي وقتها (أو أيام "استثنائي" المسجّلة عمداً)
   const attEntries=Object.entries(DB.attendance).filter(([date,rec])=>{
     const st=rec[s.id]; if(!st) return false;
-    if(allowedDays && st!=='exceptional'){
-      const parts=date.split('-');
-      const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
-      if(!allowedDays.has(dt.getDay())) return false;
+    if(st!=='exceptional'){
+      // مجموعة الطالب وقت هذا اليوم بالتحديد (تدعم النقل بين المجموعات)
+      const allowedDays=_grpDayNums(_grpIdOnDate(s,date));
+      if(allowedDays){
+        const parts=date.split('-');
+        const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+        if(!allowedDays.has(dt.getDay())) return false;
+      }
     }
     return true;
   }).sort((a,b)=>b[0].localeCompare(a[0]));
@@ -14402,13 +14962,56 @@ function showDetailedReport(){
   _renderDetailedReportResult(s,'dr-result');
 }
 
-// نسخة التقارير (تقرأ من rep-dr-code وتعرض في rep-dr-result)
+// نسخة التقارير (تقرأ من rep-dr-code وتعرض في rep-dr-result) — بحث بالاسم أو الباركود
 function showDetailedReportInline(){
-  const code=document.getElementById('rep-dr-code')?.value.trim()||'';
-  if(!code){toast('أدخل كود الطالب','e');return;}
-  const s=DB.students.find(x=>(x.barcode||x.id)===code||x.id===code||
-    (x.fname+' '+x.lname).includes(code));
-  if(!s){toast('لم يتم العثور على طالب','e');document.getElementById('rep-dr-result').innerHTML='<div style="color:var(--red);text-align:center;margin-top:1rem;">❌ الكود غير صحيح</div>';return;}
+  const raw=(document.getElementById('rep-dr-code')?.value||'').trim();
+  const el=document.getElementById('rep-dr-result');
+  if(!raw){toast('أدخل اسم الطالب أو الباركود','e');return;}
+  const q=raw.toLowerCase();
+
+  // 1) تطابق تام بالكود/الباركود أولاً
+  let matches=DB.students.filter(x=>(x.barcode||x.id)===raw||x.id===raw);
+
+  // 2) لو مفيش تطابق تام، دوّر بالاسم أو جزء من الباركود
+  if(!matches.length){
+    matches=DB.students.filter(x=>
+      (x.barcode||'').toLowerCase().includes(q)||
+      (x.id||'').toLowerCase().includes(q)||
+      (x.fname+' '+x.lname).toLowerCase().includes(q)
+    );
+  }
+
+  if(!matches.length){
+    toast('لم يتم العثور على طالب','e');
+    if(el)el.innerHTML='<div style="color:var(--red);text-align:center;margin-top:1rem;">❌ لا توجد نتائج مطابقة</div>';
+    return;
+  }
+
+  if(matches.length===1){
+    _renderDetailedReportResult(matches[0],'rep-dr-result');
+    return;
+  }
+
+  // 3) أكتر من نتيجة: اعرض قائمة يختار منها المستخدم
+  if(el){
+    el.innerHTML=`
+      <div style="margin-top:1rem;text-align:right;">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:.6rem;">تم العثور على ${matches.length} طالب — اختر الطالب المطلوب:</div>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto;">
+          ${matches.map(s=>`
+            <button onclick="_selectDetailedReportMatch('${s.id}')" style="text-align:right;padding:10px 12px;border-radius:var(--rs);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--text);cursor:pointer;font-family:'Cairo',sans-serif;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <span style="font-weight:700;">${s.fname} ${s.lname}</span>
+              <span style="font-size:11px;color:var(--text2);">${s.barcode||s.id}</span>
+            </button>`).join('')}
+        </div>
+      </div>`;
+  }
+}
+
+// اختيار طالب من نتائج البحث المتعددة
+function _selectDetailedReportMatch(sid){
+  const s=DB.students.find(x=>x.id===sid);
+  if(!s)return;
   _renderDetailedReportResult(s,'rep-dr-result');
 }
 
@@ -14421,6 +15024,8 @@ function _renderDetailedReportResult(s, resultId){
   const paid=isPaid(s.id);
   const spPay=(DB.specialPays||[]).find(x=>x.studentId===s.id);
   const effectiveFee=stuEffectiveFee(s);
+  const hasStuPh=!!(s.phone&&fmtPhone(s.phone));
+  const hasParPh=!!(s.parentPhone&&fmtPhone(s.parentPhone));
   const el=document.getElementById(resultId);
   if(!el) return;
   el.innerHTML=`
@@ -14444,18 +15049,56 @@ function _renderDetailedReportResult(s, resultId){
           <span style="font-size:12px;color:var(--text2);">${lbl}:</span>
           <span style="font-size:13px;font-weight:700;">${val}</span>
         </div>`).join('')}
+      ${hasStuPh&&hasParPh?`
+      <div style="background:rgba(37,211,102,.06);border:1px solid rgba(37,211,102,.18);border-radius:10px;padding:.7rem 1rem;">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:.5rem;">اختر الأرقام التي تريد إرسال التقرير إليها:</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;">
+            <input type="checkbox" id="dr-send-student" checked style="width:16px;height:16px;accent-color:#25d366;">
+            <span>رقم الطالب <span style="color:var(--text2);direction:ltr;display:inline-block;">(${s.phone})</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;">
+            <input type="checkbox" id="dr-send-parent" checked style="width:16px;height:16px;accent-color:#25d366;">
+            <span>رقم ولي الأمر <span style="color:var(--text2);direction:ltr;display:inline-block;">(${s.parentPhone})</span></span>
+          </label>
+        </div>
+      </div>`:''}
       <button onclick="sendDetailedReportWA('${s.id}')" style="width:100%;padding:12px;border-radius:var(--rs);background:linear-gradient(135deg,rgba(37,211,102,.18),rgba(37,211,102,.08));border:1px solid rgba(37,211,102,.4);color:#25d366;font-family:'Cairo',sans-serif;font-size:14px;font-weight:800;cursor:pointer;margin-top:.8rem;letter-spacing:.3px;">📱 إرسال واتساب كامل</button>
     </div>`;
 }
 
 function sendDetailedReportWA(sid){
   const s=stu(sid); if(!s){toast('طالب غير موجود','e');return;}
-  const ph=fmtPhone(s.parentPhone||s.phone||'');
-  if(!ph){toast('لا يوجد رقم هاتف لهذا الطالب','e');return;}
   const bc=s.barcode||s.id;
   const pin=s.pin||'';
   const portalBase='https://eslamzaky-312.github.io/teacher-app/portal.html';
   const directLink=portalBase+'#auto:'+encodeURIComponent(bc)+':'+encodeURIComponent(pin);
+  const stuChk=document.getElementById('dr-send-student');
+  const parChk=document.getElementById('dr-send-parent');
+
+  // لو الخيارين ظاهرين (تشيك بوكس) نبني القائمة حسب الاختيار
+  if(stuChk||parChk){
+    const recipients=[];
+    if(stuChk&&stuChk.checked){
+      const ph=fmtPhone(s.phone||'');
+      if(ph)recipients.push({name:s.fname+' '+s.lname+' (الطالب)',ph,msg:directLink});
+    }
+    if(parChk&&parChk.checked){
+      const ph=fmtPhone(s.parentPhone||'');
+      if(ph)recipients.push({name:s.fname+' '+s.lname+' (ولي الأمر)',ph,msg:directLink});
+    }
+    if(!recipients.length){toast('اختر رقماً واحداً على الأقل للإرسال','e');return;}
+    if(recipients.length===1){
+      window.open(`https://wa.me/${recipients[0].ph}?text=${encodeURIComponent(directLink)}`,'_blank');
+    } else {
+      showWAList(recipients);
+    }
+    return;
+  }
+
+  // السلوك الافتراضي لو مفيش رقمين متاحين معاً (تشيك بوكس مش ظاهر): يرسل لأول رقم متاح
+  const ph=fmtPhone(s.parentPhone||s.phone||'');
+  if(!ph){toast('لا يوجد رقم هاتف لهذا الطالب','e');return;}
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(directLink)}`,'_blank');
 }
 
@@ -15198,20 +15841,22 @@ function _absWACheck(){
     // }
 
     // ────────────────────────────────────────────
-    // مرحلة 2: تنبيه واتساب عند الدقيقة 40
+    // مرحلة 2: تنبيه واتساب عند الدقيقة 40 — تم إلغاؤها بناءً على طلب المستخدم
+    // (الإشعار التلقائي لغياب الحصة اللي كان بيظهر بعد فترة من بداية الحصة).
+    // السطور دي متسيبة معطّلة (مش محذوفة) للرجوع لها بسهولة لو احتجت تفعيلها تاني مستقبلاً.
     // ────────────────────────────────────────────
-    if(elapsed >= AUTO_WA_MIN && !_absWAFiredWA[waKey]){
-      if(document.getElementById('abs-wa-alert-modal')?.classList.contains('open')) continue;
-      _absWAFiredWA[waKey] = true;
-
-      const att      = DB.attendance[today] || {};
-      const grpStudents = DB.students.filter(s => s.groupId === grp.id);
-      const absents  = grpStudents.filter(s => att[s.id] === 'absent' || !att[s.id]);
-
-      if(!absents.length) continue;
-      _absWAShowAlert(grp, absents, today, elapsed);
-      break;
-    }
+    // if(elapsed >= AUTO_WA_MIN && !_absWAFiredWA[waKey]){
+    //   if(document.getElementById('abs-wa-alert-modal')?.classList.contains('open')) continue;
+    //   _absWAFiredWA[waKey] = true;
+    //
+    //   const att      = DB.attendance[today] || {};
+    //   const grpStudents = DB.students.filter(s => s.groupId === grp.id);
+    //   const absents  = grpStudents.filter(s => att[s.id] === 'absent' || !att[s.id]);
+    //
+    //   if(!absents.length) continue;
+    //   _absWAShowAlert(grp, absents, today, elapsed);
+    //   break;
+    // }
   }
   // تحديث العداد التنازلي في كل فحص
   _updateCountdownBar();
