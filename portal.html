@@ -189,7 +189,7 @@ tbody tr:last-child td{border-bottom:none;}
       <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px;">💰 الرسوم الشهرية</div>
       <div class="tbl-wrap"><table><thead><tr><th>الشهر</th><th>المبلغ</th><th>التاريخ</th><th>الحالة</th></tr></thead><tbody id="pays-tbody"></tbody></table></div>
       <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin:16px 0 8px;display:flex;align-items:center;gap:6px;">🛒 مشتريات المتجر</div>
-      <div class="tbl-wrap"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th></tr></thead><tbody id="pays-store-tbody"></tbody></table></div>
+      <div class="tbl-wrap"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th><th>الحالة</th></tr></thead><tbody id="pays-store-tbody"></tbody></table></div>
     </div>
 
     <!-- ── السلوك والتقييم ── -->
@@ -740,6 +740,7 @@ function renderAtt(s){
     if(st==='present'||st==='exceptional') present++;
     else if(st==='absent') absent++;
     else if(st==='late') late++;
+    else if(st==='excused') excused++;
   });
 
   const total = present+absent+late;
@@ -749,6 +750,7 @@ function renderAtt(s){
   document.getElementById('att-pct').style.color     = pct>=80?'var(--green)':pct>=60?'var(--amber)':'var(--red)';
   document.getElementById('att-present').textContent = present;
   document.getElementById('att-absent').textContent  = absent;
+  document.getElementById('att-excused').textContent = excused;
   document.getElementById('att-bar').style.cssText   = `width:${pct}%;background:${pct>=80?'#22c97a':pct>=60?'#f5a623':'#ff4d6d'}`;
 
   const tbody = document.getElementById('att-tbody');
@@ -806,31 +808,52 @@ function renderPays(s){
   // لحجم البيانات المنقولة. بنقرأ من الشكلين لضمان التوافق مع أي بيانات
   // قديمة لسه متخزنة بالشكل القديم.
   const pays = (s.payments || (schoolData?.payments||[]).filter(p=>p.studentId===s.id));
-  const totalPays = pays.filter(p=>p.status==='paid').reduce((a,b)=>a+b.amount,0);
+  // نفس منطق التطبيق الرئيسي: الإيراد الفعلي = المسدد بالكامل + الجزئي (مش المسدد فقط)
+  const totalPays = pays.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+(+b.amount||0),0);
   const sl={paid:'✅ مسدد',unpaid:'⏳ غير مسدد',partial:'🔶 جزئي'};
   const sc={paid:'badge-green',unpaid:'badge-red',partial:'badge-amber'};
+  // قيمة الاشتراك الفعلية للطالب (لحساب "الباقي" في حالة السداد الجزئي)
+  const grpForFee = grpInfo(s.groupId);
+  const effectiveFee = grpForFee?.fee || s.fee || schoolData?.settings?.fee || 0;
   document.getElementById('pays-tbody').innerHTML = pays.length
-    ? [...pays].sort((a,b)=>(b.month||'').localeCompare(a.month||'')).map(p=>`
+    ? [...pays].sort((a,b)=>(b.month||'').localeCompare(a.month||'')).map(p=>{
+        let remainingHtml = '';
+        if(p.status==='partial' && effectiveFee){
+          const monthTotal = pays.filter(x=>x.month===p.month).reduce((a,b)=>a+(+b.amount||0),0);
+          const remaining  = Math.max(0, effectiveFee-monthTotal);
+          if(remaining>0) remainingHtml = `<div style="font-size:10px;color:var(--text3);margin-top:3px;">متبقي ${remaining.toLocaleString()} ج</div>`;
+        }
+        return `
         <tr>
           <td style="font-weight:700;">${p.month||'—'}</td>
           <td style="color:var(--green);font-weight:800;">${(p.amount||0).toLocaleString()} ج</td>
           <td style="font-size:11px;color:var(--text2);">${p.date||'—'}</td>
-          <td><span class="badge ${sc[p.status]||'badge-blue'}">${sl[p.status]||p.status}</span></td>
-        </tr>`).join('')
+          <td><span class="badge ${sc[p.status]||'badge-blue'}">${sl[p.status]||p.status}</span>${remainingHtml}</td>
+        </tr>`;
+      }).join('')
     : '<tr><td colspan="4"><div class="empty"><div class="empty-ic">💰</div><div>لا توجد رسوم مسجلة</div></div></td></tr>';
 
   // ── مشتريات المتجر ──
   const sales = (schoolData?.sales||[]).filter(x=>x.studentId===s.id);
   const totalStore = sales.reduce((a,b)=>a+(+b.total||0),0);
   document.getElementById('pays-store-tbody').innerHTML = sales.length
-    ? [...sales].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(x=>`
+    ? [...sales].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(x=>{
+        // الحقلين paid و received أُضيفا حديثًا للمتجر — نعتبر أي سجل قديم بدونهما "تم" افتراضيًا
+        const isPaid     = x.paid!==false;
+        const isReceived = x.received!==false;
+        const statusHtml = (isPaid && isReceived)
+          ? '<span class="badge badge-green">✅ مكتمل</span>'
+          : `<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">${!isPaid?'<span class="badge badge-red" style="font-size:10px;">⏳ غير مدفوع</span>':''}${!isReceived?'<span class="badge badge-amber" style="font-size:10px;">📦 لم يُستلم</span>':''}</div>`;
+        return `
         <tr>
           <td style="font-weight:700;">${x.productName||'—'}</td>
           <td style="text-align:center;">${x.qty||1}</td>
           <td style="color:var(--accent);font-weight:800;">${(+x.total||0).toLocaleString()} ج</td>
           <td style="font-size:11px;color:var(--text2);">${x.date||'—'}</td>
-        </tr>`).join('')
-    : '<tr><td colspan="4"><div class="empty"><div class="empty-ic">🛒</div><div>لا توجد مشتريات مسجلة</div></div></td></tr>';
+          <td>${statusHtml}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5"><div class="empty"><div class="empty-ic">🛒</div><div>لا توجد مشتريات مسجلة</div></div></td></tr>';
 
   // ── KPIs ──
   document.getElementById('pays-total').textContent       = totalPays.toLocaleString()+' ج';
