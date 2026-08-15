@@ -1177,7 +1177,7 @@ async function _loadFromFirebase(){
       </div>
       <div id="sales-filter-stats" style="display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:700;color:var(--text2);background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:5px 10px;"></div>
       <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
-    </div><table><thead><tr><th>المنتج</th><th>الطالب</th><th>الكمية</th><th>الإيراد</th><th>الدفع</th><th>الاستلام</th><th>التاريخ</th></tr></thead><tbody id="sales-tbody"></tbody></table></div>
+    </div><table><thead><tr><th>المنتج</th><th>الطالب</th><th>الكمية</th><th>الإيراد</th><th>الدفع</th><th>الاستلام</th><th>التاريخ</th><th>حذف</th></tr></thead><tbody id="sales-tbody"></tbody></table></div>
   </div>
 </div>
 
@@ -2163,7 +2163,7 @@ async function _loadFromFirebase(){
   </div>
 </div>
 
-<div class="modal-ov" id="wa-list-modal">
+<div class="modal-ov" id="wa-list-modal" style="z-index:1200;">
   <div class="modal modal-lg"><div class="mtt">📱 قائمة إرسال واتساب <button class="mc-btn" onclick="closeModal('wa-list-modal')">✕</button></div><div id="wa-list-body"></div></div>
 </div>
 
@@ -2411,6 +2411,12 @@ async function _loadFromFirebase(){
     <div class="fg">
       <label class="fl">اسم المجموعة / نص توضيحي</label>
       <input class="fi" id="grp-name" placeholder="بنات_1ع — مجموعة أ">
+    </div>
+
+    <!-- رابط مجموعة واتساب -->
+    <div class="fg">
+      <label class="fl">💬 رابط مجموعة واتساب</label>
+      <input class="fi" id="grp-wa-link" placeholder="https://chat.whatsapp.com/xxxxxxxxxxxxx" style="direction:ltr;text-align:right;">
     </div>
 
     <!-- أيام الأسبوع -->
@@ -2817,6 +2823,12 @@ async function _loadFromFirebase(){
       <input class="fi" id="edit-grp-name">
     </div>
 
+    <!-- رابط مجموعة واتساب -->
+    <div class="fg">
+      <label class="fl">💬 رابط مجموعة واتساب</label>
+      <input class="fi" id="edit-grp-wa-link" placeholder="https://chat.whatsapp.com/xxxxxxxxxxxxx" style="direction:ltr;text-align:right;">
+    </div>
+
     <!-- أيام الأسبوع -->
     <div class="fg">
       <label class="fl">📅 أيام المجموعة</label>
@@ -2857,6 +2869,7 @@ async function _loadFromFirebase(){
     <div class="fa">
       <button class="btn btn-primary" onclick="printGroupStudentsPDF()">📑 طباعة PDF</button>
       <button class="btn" style="background:linear-gradient(135deg,#f5a623,#e8890a);color:#fff;font-weight:700;" onclick="printGroupCerts()">🏅 طباعة شهادات المجموعة</button>
+      <button class="btn btn-wa" onclick="_currentGroupForPDF&&sendGrpInviteWABulk(_currentGroupForPDF.id)">🔗 إرسال رابط الجروب للجميع</button>
     </div>
   </div>
 </div>
@@ -3168,7 +3181,8 @@ function _defaultDB(){
       beh:     'مرحباً {اسم_ولي_الأمر}،\nبخصوص {الطالب} {اسم_الطالب} — {المجموعة}:\n{السلوك}\n\nبتاريخ: {اليوم}\n📚 {اسم_المعلم}',
       late:    'مرحباً {اسم_ولي_الأمر}،\nnود إعلامكم بتأخر {اسم_الطالب} عن حصة {المجموعة} بتاريخ {اليوم}.\n\n📚 {اسم_المعلم} — {رقم_المعلم}',
       repAbsent:'مرحباً {اسم_ولي_الأمر}،\nnود إعلامكم بأن {اسم_الطالب} {فعل_الغياب} عن {مرات_الغياب_المتتالي} حصص متتالية في {المجموعة}.\nنسبة الحضور: {نسبة_الحضور}\nنرجو التواصل معنا.\n\n📱 {رقم_المعلم}',
-      comp:    ''
+      comp:    '',
+      grpInvite:'مرحباً {اسم_ولي_الأمر}،\nتم تسجيل {اسم_الطالب} في مجموعة {المجموعة} مع {اسم_المعلم}.\nانضم/ي لمجموعة واتساب الخاصة بالمجموعة من هنا:\n{رابط_مجموعة_واتساب}\n\n📱 {رقم_المعلم}'
     },
     subjects:[],
     classes:[],groups:[],students:[],attendance:{},grades:[],exams:[],examSessions:[],
@@ -3834,7 +3848,10 @@ function renderDashboard(){
   const todayPresentOnly=todayStudents.filter(s=>att[s.id]==='present').length;
   const todayLate=todayStudents.filter(s=>att[s.id]==='late').length;
   const todayAttended=todayStudents.filter(s=>att[s.id]==='present'||att[s.id]==='late'||att[s.id]==='exceptional').length;
-  const unpaid=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)), unpaidN=unpaid.length;
+  const unpaid=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
+  // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
+  const unpaidForTotal=_dedupeSiblingsForTotals(unpaid);
+  const unpaidN=unpaidForTotal.length;
   const allScores=DB.grades.map(g=>Math.round(g.score/g.outOf*100));
   const avg=allScores.length?Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length):0;
   const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
@@ -3843,7 +3860,7 @@ function renderDashboard(){
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${todayTotal?Math.round(todayAttended/todayTotal*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${todayAttended} حاضر من ${todayTotal}${todayLate?` (منهم ${todayLate} متأخر)`:''}</div></div>
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${DB.grades.length} درجة مسجلة</div></div>
-    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaid.reduce((a,s)=>a+stuEffectiveFee(s),0))} متأخر</div></div>`;
+    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaidForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))} متأخر</div></div>`;
 
   // ── أحدث الطلاب: آخر 6 طلاب تمت إضافتهم فعلاً (آخر عناصر مُضافة للمصفوفة)، مش أول 6 بترتيب التخزين ──
   document.getElementById('dash-stu-tb').innerHTML=DB.students.slice(-6).reverse().map(s=>`
@@ -3961,9 +3978,12 @@ function renderStudents(){
       <td style="text-align:center;">
         <div style="display:flex;gap:5px;justify-content:center;flex-wrap:nowrap;">
           <button title="واتساب" style="width:30px;height:30px;border-radius:8px;background:#25d36622;border:1px solid #25d36644;color:#25d366;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="sendStuWA('${s.id}')">📱</button><button title="تيليجرام" style="width:30px;height:30px;border-radius:8px;background:#0088cc22;border:1px solid #0088cc44;color:#0088cc;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="sendStuTG('${s.id}')">✈️</button>
+          <button title="إرسال رابط مجموعة واتساب" style="width:30px;height:30px;border-radius:8px;background:#25d36622;border:1px solid #25d36644;color:#25d366;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="sendGrpInviteWA('${s.id}')">🔗</button>
           <button title="بطاقة الطالب" style="width:30px;height:30px;border-radius:8px;background:rgba(168,85,247,.15);border:1px solid rgba(168,85,247,.3);color:var(--purple);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="showIDCard('${s.id}')">🪪</button>
           <button title="تعديل" style="width:30px;height:30px;border-radius:8px;background:rgba(79,124,255,.15);border:1px solid rgba(79,124,255,.3);color:var(--accent);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="openEditStudent('${s.id}')">✏️</button>
-          <button title="حذف" style="width:30px;height:30px;border-radius:8px;background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="delStudent('${s.id}')">🗑</button>
+          ${document.body.dataset.role==='supervisor'
+            ?`<button disabled title="حذف — غير مسموح للمشرف" style="width:30px;height:30px;border-radius:8px;background:rgba(120,120,120,.07);border:1px solid rgba(120,120,120,.15);color:var(--text3);font-size:14px;cursor:not-allowed;opacity:.4;display:flex;align-items:center;justify-content:center;">🗑</button>`
+            :`<button title="حذف" style="width:30px;height:30px;border-radius:8px;background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="delStudent('${s.id}')">🗑</button>`}
         </div>
       </td>
     </tr>`;
@@ -4709,6 +4729,7 @@ function genPin(targetId){
 }
 
 function delStudent(id){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف الطلاب','e'); return; }
   if(!confirm('حذف الطالب؟'))return;
   const s=stu(id); DB.trash.push({type:'student',data:{...s},deletedAt:new Date().toLocaleString('ar-EG')});
   DB.students=DB.students.filter(x=>x.id!==id); save(); renderStudents(); toast('تم الحذف — يمكن الاستعادة من سلة المحذوفات','e');
@@ -5092,6 +5113,7 @@ function renderClasses(filterClsId){
         <td style="padding:10px 12px;color:var(--text2);">${payPeriod}</td>
         <td style="padding:10px 12px;">
           <div style="display:flex;gap:5px;">
+            <button style="width:28px;height:28px;border-radius:7px;background:rgba(37,211,102,.12);border:1px solid rgba(37,211,102,.25);color:#25d366;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="event.stopPropagation();showGroupStudents('${g.id}')" title="عرض طلاب المجموعة">👥</button>
             <button style="height:28px;padding:0 9px;border-radius:7px;background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.3);color:#f5a623;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;" onclick="event.stopPropagation();openImportGroupModal('${g.id}')" title="استيراد طلاب">📥 استيراد</button>
             <button style="width:28px;height:28px;border-radius:7px;background:rgba(79,124,255,.12);border:1px solid rgba(79,124,255,.25);color:var(--accent);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="event.stopPropagation();openEditGrp('${g.id}')" title="تعديل">✏️</button>
             <button style="width:28px;height:28px;border-radius:7px;background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="event.stopPropagation();delGrp('${g.id}')" title="حذف">🗑</button>
@@ -5205,7 +5227,7 @@ function openAddGrpForCls(cid){
   const hidCls = document.getElementById('grp-cls-sel');
   if(hidCls) hidCls.value = cid;
   // صفّر الحقول
-  ['grp-name','grp-time-from','grp-time-to','grp-max','grp-fee'].forEach(id=>{
+  ['grp-name','grp-wa-link','grp-time-from','grp-time-to','grp-max','grp-fee'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
   const pp=document.getElementById('grp-pay-period');
@@ -5217,12 +5239,14 @@ function openAddGrpForCls(cid){
 
 // Edit Class
 function openEditCls(id){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بتعديل الصفوف','e'); return; }
   const c = DB.classes.find(x => x.id === id); if(!c) return;
   document.getElementById('edit-cls-id').value = id;
   document.getElementById('edit-cls-name').value = c.name;
   openModal('edit-class-modal');
 }
 function saveEditCls(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بتعديل الصفوف','e'); return; }
   const id = document.getElementById('edit-cls-id').value;
   const c = DB.classes.find(x => x.id === id); if(!c) return;
   const newName = document.getElementById('edit-cls-name').value.trim();
@@ -5233,9 +5257,11 @@ function saveEditCls(){
 
 // Edit Group
 function openEditGrp(id){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بتعديل المجموعات','e'); return; }
   const g = DB.groups.find(x => x.id === id); if(!g) return;
   document.getElementById('edit-grp-id').value   = id;
   document.getElementById('edit-grp-name').value  = g.name        || '';
+  document.getElementById('edit-grp-wa-link').value = g.waLink    || '';
   // day-picker مع الأيام المحفوظة
   renderDayPicker('edit-grp-days-picker','edit-grp-days', g.days||'');
   // وقت البداية والنهاية
@@ -5249,11 +5275,13 @@ function openEditGrp(id){
 }
 
 function saveEditGrp(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بتعديل المجموعات','e'); return; }
   const id = document.getElementById('edit-grp-id').value;
   const g  = DB.groups.find(x => x.id === id); if(!g) return;
   const name = document.getElementById('edit-grp-name').value.trim();
   if(!name){toast('أدخل اسم المجموعة','e');return;}
   g.name = name;
+  g.waLink = document.getElementById('edit-grp-wa-link').value.trim();
   // مزامنة الأيام من الـ picker ثم اقرأ الـ hidden
   syncDayHidden('edit-grp-days','edit-grp-days-picker');
   g.days = document.getElementById('edit-grp-days').value.trim();
@@ -5290,7 +5318,7 @@ function showGroupStudents(gid){
       <td><div class="pw"><div class="pb"><div class="pf" style="width:${ap}%;background:${grCol(ap)}"></div></div><span class="pl" style="color:${grCol(ap)}">${ap}%</span></div></td>
       <td>${avg!==null?`<span class="badge ${grBadge(avg)}">${avg}%</span>`:'—'}</td>
       <td><span class="badge ${isPaid(s.id)?'bg-g':'bg-r'}">${isPaid(s.id)?'✅':'⏳'}</span></td>
-      <td style="display:flex;gap:3px;justify-content:center;"><button class="btn btn-wa btn-xs" onclick="sendStuWA('${s.id}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG('${s.id}')">✈️</button></td>
+      <td style="display:flex;gap:3px;justify-content:center;"><button class="btn btn-wa btn-xs" onclick="sendStuWA('${s.id}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendStuTG('${s.id}')">✈️</button><button class="btn btn-wa btn-xs" title="إرسال رابط مجموعة واتساب" onclick="sendGrpInviteWA('${s.id}')">🔗</button></td>
     </tr>`; }).join('')}
     </tbody></td>`:'<div class="empty"><div>لا يوجد طلاب في هذه المجموعة</div></div>'}`;
   openModal('group-students-modal');
@@ -5321,7 +5349,7 @@ function addCls(){
   document.getElementById('cls-name').value='';
   renderClasses(); toast('✅ تم إنشاء الصف «'+n+'»');
 }
-function delCls(id){ if(!confirm('حذف الصف وكل مجموعاته؟'))return; DB.classes=DB.classes.filter(c=>c.id!==id); DB.groups=DB.groups.filter(g=>g.classId!==id); save(); if(_filterClsId===id)_filterClsId=null; renderClasses(); }
+function delCls(id){ if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف الصفوف','e'); return; } if(!confirm('حذف الصف وكل مجموعاته؟'))return; DB.classes=DB.classes.filter(c=>c.id!==id); DB.groups=DB.groups.filter(g=>g.classId!==id); save(); if(_filterClsId===id)_filterClsId=null; renderClasses(); }
 function addGrp(){
   const n = document.getElementById('grp-name').value.trim();
   if(!n){toast('أدخل اسم المجموعة','e');return;}
@@ -5335,6 +5363,7 @@ function addGrp(){
   DB.groups.push({
     id:nid('g'),
     name:n,
+    waLink:document.getElementById('grp-wa-link').value.trim(),
     classId:cid,
     days,
     time: tf?(tf+(tt?' — '+tt:'')):'',
@@ -5348,7 +5377,7 @@ function addGrp(){
   _filterClsId = cid;
   renderClasses(); toast('✅ تم إضافة المجموعة');
 }
-function delGrp(id){ if(!confirm('حذف المجموعة؟'))return; DB.groups=DB.groups.filter(g=>g.id!==id); save(); renderClasses(); }
+function delGrp(id){ if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف المجموعات','e'); return; } if(!confirm('حذف المجموعة؟'))return; DB.groups=DB.groups.filter(g=>g.id!==id); save(); renderClasses(); }
 function delAllOrphanGroups(){
   const validClsIds=new Set(DB.classes.map(c=>c.id));
   const orphanGrps=DB.groups.filter(g=>!validClsIds.has(g.classId));
@@ -5641,6 +5670,12 @@ function attFilterGroup(){
 function renderAttGrid(){
   const date=document.getElementById('att-date')?.value, gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
   if(!date)return;
+  if(_isPastAttDateBlockedForSupervisor(date)){
+    document.getElementById('att-date').value=localDate();
+    document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--text3);"><div style="font-size:40px;margin-bottom:.75rem;">🔒</div><div style="font-size:13px;">غير مسموح للمشرف بعرض أو تعديل حضور تواريخ سابقة — تم إرجاع التاريخ لليوم الحالي</div></div>`;
+    updateAttCounts([]);
+    return;
+  }
   const saved=DB.attendance[date]||{}; attState={...saved};
   // Only show grid if a group or class is selected
   if(!gf&&!cf){ document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--text3);"><div style="font-size:40px;margin-bottom:.75rem;">📷</div><div style="font-size:13px;">اختر صفاً أو مجموعةً لعرض الطلاب، أو امسح الباركود مباشرة</div></div>`; updateAttCounts([]); return; }
@@ -5667,6 +5702,7 @@ function renderAttGrid(){
 }
 function closeAttendance(){
   const date=document.getElementById('att-date')?.value||localDate();
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   const gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
   if(!students.length){toast('اختر مجموعة أولاً','e');return;}
@@ -5681,7 +5717,13 @@ function closeAttendance(){
   toast(`🔒 تم إغلاق الحضور — ${absentCount} طالب سُجِّل غيابه`,'i');
 }
 function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',excused:'🙋 مستأذن',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',unknown:'— غير محدد'}[st]||''; }
+// ── المشرف يقدر يسجّل/يعدّل حضور اليوم بس — ممنوع يفتح أو يعدّل تواريخ سابقة خالص ──
+function _isPastAttDateBlockedForSupervisor(date){
+  return document.body.dataset.role==='supervisor' && date && date!==localDate();
+}
 function setAtt(sid,status){
+  const _chkDate=document.getElementById('att-date')?.value;
+  if(_isPastAttDateBlockedForSupervisor(_chkDate)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   attState[sid]=status;
   const date=document.getElementById('att-date')?.value;
   if(date){
@@ -5717,6 +5759,7 @@ function updateAttCounts(students){
 // ── تسجيل حضور جماعي فوري لكل طلاب المجموعة/الصف المختار دفعة واحدة — يمكن تعديل أي طالب فردياً بعدها ──
 function bulkMarkGroupPresent(){
   const date=document.getElementById('att-date')?.value; if(!date){toast('اختر التاريخ أولاً','e');return;}
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   const gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
   if(!students.length){toast('اختر صفاً أو مجموعة أولاً','e');return;}
@@ -5786,6 +5829,7 @@ function renderTodayLog(){
 
 function deleteAttEntry(sid){
   const date=(document.getElementById('att-date')&&document.getElementById('att-date').value)||localDate();
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   if(!DB.attendance[date]) return;
   delete DB.attendance[date][sid];
   if(typeof attState!=='undefined' && attState) delete attState[sid];
@@ -7383,10 +7427,12 @@ function renderPayments(){
   const paid=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
   // ── الطلاب المستبعدين (غياب أكتر من 3 حصص) لا يُحتسبون ضمن غير المسددين ولا المتأخرات ──
   const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
+  // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
+  const unpaidStForTotal=_dedupeSiblingsForTotals(unpaidSt);
   document.getElementById('pay-metrics').innerHTML=`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
-    <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidSt.length}</div><div class="ml">غير مسددين</div></div>
-    ${document.body.dataset.role!=='supervisor'?`<div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidSt.reduce((a,s)=>a+stuEffectiveFee(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>`:''}
+    <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidStForTotal.length}</div><div class="ml">غير مسددين</div></div>
+    ${document.body.dataset.role!=='supervisor'?`<div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>`:''}
     <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${DB.payments.length}</div><div class="ml">إجمالي الدفعات</div></div>`;
 
   // ── شرط العرض: يجب وجود بحث أو صف/مجموعة أو حالة ──
@@ -8747,6 +8793,22 @@ function _getSiblingNames(sid){
 }
 
 /**
+ * تصفية قائمة طلاب بحيث تُحسب كل مجموعة إخوة "كشخص واحد بقيمة واحدة" في الإجماليات —
+ * أول طالب فقط من كل مجموعة إخوة يُحتسب (عدداً وقيمةً)، والباقي يُستبعد من الإجمالي
+ * حتى لا يتكرر نفس المبلغ المشترك عدة مرات. الطلاب من غير إخوة يُحسبون عادي كل واحد لوحده.
+ */
+function _dedupeSiblingsForTotals(students){
+  const seenGroups = new Set();
+  return students.filter(s=>{
+    const gid = _getSiblingGroupId(s.id);
+    if(!gid) return true; // مفيش إخوة — يُحسب عادي
+    if(seenGroups.has(gid)) return false; // أخ سابق في نفس المجموعة اتحسب بالفعل
+    seenGroups.add(gid);
+    return true;
+  });
+}
+
+/**
  * بعد تسجيل دفعة للطالب sid، سجّل نفس الدفعة تلقائياً
  * لكل إخوته إذا لم يكن قد سدّد شهر month مسبقاً.
  */
@@ -9298,6 +9360,8 @@ function renderRevenue(){
   const rangeRev  = filteredPaid.reduce((a,b)=>a+b.amount,0) + filteredSales.reduce((a,b)=>a+b.total,0);
   const rangeExp  = filteredExp.reduce((a,b)=>a+b.amount,0);
   const rangeNet  = rangeRev - rangeExp;
+  // الإخوة تُحسب كشخص واحد في "عدد الطلاب" — مش كل أخ بعدّه لوحده
+  const rangePaidStudents=_dedupeSiblingsForTotals([...new Set(filteredPaid.map(p=>p.studentId))].map(id=>stu(id)).filter(Boolean));
 
   // ── الـ KPIs: إذا كانت هناك فترة محددة أظهرها، وإلا الأرقام الافتراضية ──
   const hasFilter=fromD||toD;
@@ -9307,7 +9371,7 @@ function renderRevenue(){
     <div class="mc ${rangeNet>=0?'mc-g':'mc-r'}"><div class="mi">💵</div><div class="mv">${fmtM(rangeNet)}</div><div class="ml">صافي الفترة</div></div>
     <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${filteredPaid.length}</div><div class="ml">عدد الدفعات</div></div>
     <div class="mc mc-t"><div class="mi">🛒</div><div class="mv">${fmtM(filteredSales.reduce((a,b)=>a+b.total,0))}</div><div class="ml">إيراد المتجر</div></div>
-    <div class="mc mc-p"><div class="mi">👥</div><div class="mv">${new Set(filteredPaid.map(p=>p.studentId)).size}</div><div class="ml">عدد الطلاب</div></div>` : `
+    <div class="mc mc-p"><div class="mi">👥</div><div class="mv">${rangePaidStudents.length}</div><div class="ml">عدد الطلاب</div></div>` : `
     <div class="mc mc-g"><div class="mi">📅</div><div class="mv">${fmtM(todRev)}</div><div class="ml">إيرادات اليوم</div></div>
     <div class="mc mc-b"><div class="mi">📆</div><div class="mv">${fmtM(tmRev)}</div><div class="ml">الشهر الحالي</div></div>
     <div class="mc mc-p"><div class="mi">📊</div><div class="mv">${fmtM(lmRev)}</div><div class="ml">الشهر الماضي</div></div>
@@ -9542,7 +9606,7 @@ function openStudentStoreModal(sid){
     <div class="sec-title"><span>🧾</span> الأصناف المشتراة (${purchases.length})</div>
     ${purchases.length ? `
     <table style="margin-bottom:.75rem;">
-      <thead><tr><th>المنتج</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th><th>الدفع</th><th>الاستلام</th></tr></thead>
+      <thead><tr><th>المنتج</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th><th>الدفع</th><th>الاستلام</th><th>حذف</th></tr></thead>
       <tbody>
         ${purchases.slice().reverse().map(x=>{
           const p=DB.products.find(pp=>pp.id===x.productId);
@@ -9555,6 +9619,7 @@ function openStudentStoreModal(sid){
             <td style="font-size:11px;color:var(--text2);">${x.date}</td>
             <td style="text-align:center;"><span onclick="toggleSalePaid('${x.id}')" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>
             <td style="text-align:center;"><span onclick="toggleSaleReceived('${x.id}')" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>
+            <td style="text-align:center;"><button onclick="deleteSale('${x.id}')" title="حذف عملية الشراء" style="width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">🗑️</button></td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -9802,7 +9867,8 @@ function renderStore(){
     return `<tr><td>${p?.icon||'📦'} ${s.productName}</td><td style="font-size:11px;color:var(--text2);">${stuLabel}</td><td>${s.qty}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td>`
       +`<td style="text-align:center;"><span onclick="toggleSalePaid('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>`
       +`<td style="text-align:center;"><span onclick="toggleSaleReceived('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>`
-      +`<td style="font-size:11px;color:var(--text2);">${s.date}</td></tr>`; }).join('')||'<tr><td colspan="7" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
+      +`<td style="font-size:11px;color:var(--text2);">${s.date}</td>`
+      +`<td style="text-align:center;"><button onclick="deleteSale('${s.id}')" title="حذف عملية الشراء" style="width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">🗑️</button></td></tr>`; }).join('')||'<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
 
   // ── إحصائية سريعة عن المبيعات المطابقة للفلتر الحالي (منتج/صف/مجموعة...) ──
   const statsBoxEl=document.getElementById('sales-filter-stats');
@@ -9823,7 +9889,7 @@ function renderStore(){
     }
   }
 }
-function delProductConfirm(id){ const p=DB.products.find(x=>x.id===id); if(!p)return; if(!confirm(`⚠️ تحذير: هل تريد حذف المنتج "${p.name}"؟ لن تختفي المبيعات السابقة ولكن لا يمكن التراجع عن هذا الإجراء.`))return; DB.products=DB.products.filter(x=>x.id!==id); save(); renderStore(); toast('تم حذف المنتج','e'); }
+function delProductConfirm(id){ if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف منتجات المتجر','e'); return; } const p=DB.products.find(x=>x.id===id); if(!p)return; if(!confirm(`⚠️ تحذير: هل تريد حذف المنتج "${p.name}"؟ لن تختفي المبيعات السابقة ولكن لا يمكن التراجع عن هذا الإجراء.`))return; DB.products=DB.products.filter(x=>x.id!==id); save(); renderStore(); toast('تم حذف المنتج','e'); }
 function editProduct(id){
   const p=DB.products.find(x=>x.id===id); if(!p) return;
   openModal('add-product-modal');
@@ -10095,6 +10161,18 @@ function toggleSalePaid(saleId){
   if(document.getElementById('sales-tbody')) renderStore();
   if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
   toast(s.paid?'💰 تم تسجيل الدفع':'↩️ تم إلغاء تسجيل الدفع');
+}
+// ── حذف عملية شراء (صنف تم شراؤه) — مع رسالة تحذيرية قبل الحذف نهائياً ──
+function deleteSale(saleId){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف عمليات الشراء','e'); return; }
+  const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
+  const stuLabel=s.studentId?stuN(s.studentId):(s.studentName||'عميل عام');
+  if(!confirm(`⚠️ تحذير: هل تريد حذف عملية الشراء التالية؟\n\n${s.productName} × ${s.qty} — ${fmtM(s.total)}\nالطالب: ${stuLabel}\nالتاريخ: ${s.date}\n\nلا يمكن التراجع عن هذا الإجراء.`)) return;
+  DB.sales=DB.sales.filter(x=>x.id!==saleId);
+  save();
+  if(document.getElementById('sales-tbody')) renderStore();
+  if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
+  toast('🗑️ تم حذف عملية الشراء','e');
 }
 
 // ================================================================
@@ -11483,7 +11561,8 @@ function switchRep(tab,btn){
     const today=localDate(), att=DB.attendance[today]||{};
     const total=DB.students.length;
     const present=Object.values(att).filter(v=>v==='present').length;
-    const unpaidN=DB.students.filter(s=>!isPaid(s.id)).length;
+    // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ — مش كل أخ بعدّه لوحده
+    const unpaidN=_dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id))).length;
     const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
     const totalExp=DB.expenses.reduce((a,b)=>a+b.amount,0);
     const declining=DB.students.filter(s=>{ const gs=DB.grades.filter(g=>g.studentId===s.id).slice(-3); if(gs.length<2)return false; return gs[gs.length-1].score<gs[0].score; });
@@ -12329,8 +12408,8 @@ function exportExcel(){
     { 'البيان': 'إجمالي الطلاب',    'القيمة': DB.students.length },
     { 'البيان': 'عدد الذكور',        'القيمة': DB.students.filter(s=>s.gender!=='female').length },
     { 'البيان': 'عدد الإناث',        'القيمة': DB.students.filter(s=>s.gender==='female').length },
-    { 'البيان': 'الطلاب المسددون',   'القيمة': DB.students.filter(s=>isPaid(s.id)).length },
-    { 'البيان': 'الطلاب غير المسددين','القيمة': DB.students.filter(s=>!isPaid(s.id)).length },
+    { 'البيان': 'الطلاب المسددون',   'القيمة': _dedupeSiblingsForTotals(DB.students.filter(s=>isPaid(s.id))).length },
+    { 'البيان': 'الطلاب غير المسددين','القيمة': _dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id))).length },
     { 'البيان': 'إجمالي الإيرادات',  'القيمة': DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0)+' جنيه' },
     { 'البيان': 'تاريخ التصدير',     'القيمة': new Date().toLocaleDateString('ar-EG') },
     { 'البيان': 'اسم المدرس',        'القيمة': DB.settings.name || '—' },
@@ -12816,6 +12895,8 @@ function applyWAVars(tmpl, s, extra){
     .replace(/\{المجموعة\}/g,           grp?grp.name:'')
     .replace(/\{group\}/g,               grp?grp.name:'')
     .replace(/\{موعد_المجموعة\}/g,      grpTime)
+    .replace(/\{رابط_مجموعة_واتساب\}/g, grp?(grp.waLink||''):'')
+    .replace(/\{رابط_الجروب\}/g,        grp?(grp.waLink||''):'')
     // ── المعلم ──
     .replace(/\{اسم_المعلم\}/g,         DB.settings.name||'المدرس')
     .replace(/\{teacher\}/g,             DB.settings.name||'المدرس')
@@ -12986,6 +13067,32 @@ function sendStuWA(sid, ctx){
   }
   const msg=applyWAVars(tmpl,s,extra);
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
+}
+
+// ── إرسال رابط مجموعة واتساب لطالب واحد مع بياناته ──
+function sendGrpInviteWA(sid){
+  const s=stu(sid); if(!s)return;
+  const g=DB.groups.find(x=>x.id===s.groupId);
+  if(!g||!g.waLink){toast('لا يوجد رابط مجموعة واتساب محفوظ لهذه المجموعة','e');return;}
+  const ph=fmtPhone(s.parentPhone||s.phone||'');
+  if(!ph){toast('لا يوجد رقم هاتف لهذا الطالب','e');return;}
+  const tmpl=DB.waTmpl.grpInvite||'مرحباً {اسم_ولي_الأمر}،\nرابط مجموعة واتساب الخاصة بـ{اسم_الطالب} في {المجموعة}:\n{رابط_مجموعة_واتساب}';
+  const msg=applyWAVars(tmpl,s,{});
+  window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
+}
+
+// ── إرسال رابط مجموعة واتساب لكل طلاب مجموعة (قائمة تفاعلية) ──
+function sendGrpInviteWABulk(gid){
+  const g=DB.groups.find(x=>x.id===gid); if(!g)return;
+  if(!g.waLink){toast('أدخل رابط مجموعة واتساب أولاً من تعديل المجموعة','e');return;}
+  const tmpl=DB.waTmpl.grpInvite||'مرحباً {اسم_ولي_الأمر}،\nرابط مجموعة واتساب الخاصة بـ{اسم_الطالب} في {المجموعة}:\n{رابط_مجموعة_واتساب}';
+  const students=DB.students.filter(s=>s.groupId===gid);
+  const list=students.map(s=>{
+    const ph=fmtPhone(s.parentPhone||s.phone||'');
+    if(!ph)return null;
+    return {name:s.fname+' '+s.lname, ph, msg:applyWAVars(tmpl,s,{})};
+  }).filter(Boolean);
+  showWAList(list);
 }
 
 // ================================================================
@@ -14614,6 +14721,7 @@ document.addEventListener('click',function(e){
 });
 
 function openSpecialPayModal(type){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   _closeSpDropdown();
   // حفظ النوع في المودال
   const modal=document.getElementById('add-special-pay-modal');
@@ -14730,6 +14838,7 @@ function _spSelectFromSearch(sid){
   document.getElementById('sp-amount').select();
 }
 function addSpecialPay(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   const code=document.getElementById('sp-code').value.trim();
   const amountRaw=document.getElementById('sp-amount').value;
   const amount=amountRaw===''?null:+amountRaw;
@@ -14767,6 +14876,7 @@ function addSpecialPay(){
 let _sibStudents = []; // الطلاب المضافون مؤقتاً في المودال
 
 function openSiblingsModal(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   _closeSpDropdown();
   _sibStudents = [];
   // مسح الحقول
@@ -14907,6 +15017,7 @@ function _sibUpdateAmountPreview(){
 }
 
 function saveSiblingsGroup(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   const amtRaw = document.getElementById('sib-amount')?.value;
   const amount = amtRaw===''||amtRaw==null ? null : +amtRaw;
   if(amount===null || isNaN(amount) || amount<0){
@@ -14949,6 +15060,7 @@ function saveSiblingsGroup(){
 }
 
 function delSpecialPay(idx){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   if(!confirm('حذف هذه الحالة الخاصة؟'))return;
   DB.specialPays.splice(idx,1);
   save(); renderSpecialPays(); toast('تم الحذف','e');
@@ -15493,6 +15605,9 @@ function _applyRolePermissions(role){
       if(el) el.style.display='none';
     });
     document.body.dataset.role='supervisor';
+    // ── قفل تاريخ الحضور على اليوم الحالي فقط ──
+    const _attDateEl=document.getElementById('att-date');
+    if(_attDateEl) _attDateEl.value=localDate();
   } else {
     document.body.dataset.role='admin';
     // إعادة إظهار عناصر الشريط عند تسجيل دخول المدير
@@ -15526,6 +15641,37 @@ function _applyRolePermissions(role){
     styleEl.textContent=`
       /* ── إخفاء تبويب التقارير المالية ── */
       body[data-role="supervisor"] button[onclick*="switchRep('financial"]{ display:none!important; }
+
+      /* ── حالات الدفع الخاصة: عرض فقط للمشرف — إخفاء زر الإضافة وأزرار الحذف، مع إبقاء التبويب والجدول ظاهرين ── */
+      body[data-role="supervisor"] #sp-add-btn,
+      body[data-role="supervisor"] #specialpays-inline-body button[onclick*="delSpecialPay("]{
+        display:none!important;
+      }
+
+      /* ── منع المشرف من: حذف منتجات المتجر أو عمليات الشراء ── */
+      body[data-role="supervisor"] button[onclick*="delProductConfirm("],
+      body[data-role="supervisor"] button[onclick*="deleteSale("]{
+        pointer-events:none!important;
+        opacity:.35!important;
+        cursor:not-allowed!important;
+      }
+
+      /* ── المشرف: عرض الصفوف والمجموعات فقط — بدون تعديل أو حذف ── */
+      body[data-role="supervisor"] button[onclick*="delCls("],
+      body[data-role="supervisor"] button[onclick*="openEditCls("],
+      body[data-role="supervisor"] button[onclick*="delGrp("],
+      body[data-role="supervisor"] button[onclick*="openEditGrp("]{
+        display:none!important;
+      }
+
+      /* ── منع المشرف من فتح أو تعديل تواريخ حضور سابقة — يبقى مقفول على اليوم الحالي فقط ── */
+      body[data-role="supervisor"] #att-date{
+        pointer-events:none!important;
+        opacity:.6!important;
+        background:var(--glass)!important;
+        cursor:not-allowed!important;
+        user-select:none!important;
+      }
 
       /* ── تجميد جميع حقول المبالغ والرسوم ── */
       body[data-role="supervisor"] #inv-amt,
