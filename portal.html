@@ -139,7 +139,7 @@ tbody tr:last-child td{border-bottom:none;}
       <button class="tab-btn" onclick="switchTab('beh',this)">🌟 السلوك والتقييم</button>
       <button class="tab-btn" onclick="switchTab('grades',this)">📝 الدرجات</button>
       <button class="tab-btn" onclick="switchTab('files',this)">📁 الملفات</button>
-      <button class="tab-btn" onclick="switchTab('mcq',this)">📋 MCQ</button>
+      <button class="tab-btn" onclick="switchTab('mcq',this)">📋 امتحانات إلكترونية</button>
     </div>
 
     <!-- ── بيانات الطالب ── -->
@@ -186,6 +186,7 @@ tbody tr:last-child td{border-bottom:none;}
         <div class="kpi"><div class="kpi-val" id="pays-store-total" style="color:var(--accent);">—</div><div class="kpi-lbl">إجمالي المشتريات</div></div>
         <div class="kpi"><div class="kpi-val" id="pays-grand-total" style="color:#f5a623;">—</div><div class="kpi-lbl">الإجمالي الكلي</div></div>
       </div>
+      <div id="pays-special-status"></div>
       <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;gap:6px;">💰 الرسوم الشهرية</div>
       <div class="tbl-wrap"><table><thead><tr><th>الشهر</th><th>المبلغ</th><th>التاريخ</th><th>الحالة</th></tr></thead><tbody id="pays-tbody"></tbody></table></div>
       <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin:16px 0 8px;display:flex;align-items:center;gap:6px;">🛒 مشتريات المتجر</div>
@@ -204,7 +205,7 @@ tbody tr:last-child td{border-bottom:none;}
     <!-- ── الملفات ── -->
     <div class="tab-content" id="tab-files"><div id="files-list"></div></div>
 
-    <!-- ── MCQ ── -->
+    <!-- ── امتحانات إلكترونية ── -->
     <div class="tab-content" id="tab-mcq">
       <!-- امتحانات لم تُؤدَّ بعد -->
       <div style="font-size:12px;font-weight:800;color:var(--amber);margin-bottom:10px;display:flex;align-items:center;gap:6px;">
@@ -460,7 +461,7 @@ function renderFiles(s){
     +stuFilesHtml;
 }
 
-// ══ MCQ ══
+// ══ امتحانات إلكترونية ══
 let _mcqExam=null, _mcqAnswers=[], _mcqIdx=0, _mcqTimer=null, _mcqSecs=0, _mcqQuestions=[];
 
 // ── نفس منطق اختيار/خلط الأسئلة المستخدم في برنامج الإدارة، عشان تجربة الطالب تكون متطابقة ──
@@ -711,6 +712,23 @@ function _endMcqExam(){
   renderMcq(currentStu);
 }
 
+// ── تحويل وقت مخزّن بنظام 24 ساعة (HH:MM) إلى نظام 12 ساعة (ص/م) للعرض ──
+// يدعم أيضاً نطاق وقت بالشكل "HH:MM-HH:MM" أو "HH:MM—HH:MM"
+function _fmt12h(t){
+  if(!t) return t;
+  const one = raw=>{
+    const m = (raw||'').trim().match(/^(\d{1,2}):(\d{2})$/);
+    if(!m) return raw;
+    let h = parseInt(m[1],10);
+    const mins = m[2];
+    const period = h>=12 ? 'م' : 'ص';
+    h = h % 12; if(h===0) h = 12;
+    return h+':'+mins+' '+period;
+  };
+  const parts = (t+'').split(/\s*[-—–]\s*/);
+  return parts.map(one).join(' - ');
+}
+
 function renderAtt(s){
   const att = schoolData?.attendance || {};
   const grp = grpInfo(s.groupId);
@@ -779,8 +797,9 @@ function renderAtt(s){
     // تنسيق التاريخ للعربية
     let dateStr = r.date;
     try{ dateStr = new Date(r.date).toLocaleDateString('ar-EG',{weekday:'short',year:'numeric',month:'short',day:'numeric'}); }catch(e){}
-    // الوقت
-    const timeStr = r.time || (grp?.timeFrom ? grp.timeFrom+(grp.timeTo?'-'+grp.timeTo:'') : '—');
+    // الوقت (بنظام 12 ساعة)
+    const timeStrRaw = r.time || (grp?.timeFrom ? grp.timeFrom+(grp.timeTo?'-'+grp.timeTo:'') : '—');
+    const timeStr = timeStrRaw==='—' ? timeStrRaw : _fmt12h(timeStrRaw);
     return '<tr style="transition:background .15s;" onmouseover="this.style.background=\'rgba(255,255,255,.03)\'" onmouseout="this.style.background=\'\'">'
       +'<td style="color:var(--text3);font-size:11px;">'+(i+1)+'</td>'
       +'<td style="font-weight:700;">'+ dateStr+'</td>'
@@ -802,6 +821,28 @@ function renderGrades(s){
 }
 
 function renderPays(s){
+  // ── حالات الدفع الخاصة (معفى / مخفض / أخوة) — نفس منطق وتصنيف تطبيق الإدارة ──
+  const specialPays = (schoolData?.specialPays||[]).filter(sp=>sp.studentId===s.id);
+  const spEl = document.getElementById('pays-special-status');
+  if(spEl){
+    if(specialPays.length){
+      const typeMap = {
+        exemption:{icon:'🟢',label:'إعفاء', bg:'rgba(34,201,122,.12)', border:'rgba(34,201,122,.3)', color:'var(--green)'},
+        discount: {icon:'🟡',label:'تخفيض', bg:'rgba(245,166,35,.12)', border:'rgba(245,166,35,.3)', color:'var(--amber)'},
+        siblings: {icon:'🔵',label:'إخوة',  bg:'rgba(79,124,255,.12)', border:'rgba(79,124,255,.3)', color:'var(--accent)'},
+      };
+      spEl.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;">'
+        + specialPays.map(sp=>{
+            const t = typeMap[sp.type] || {icon:'💎',label:'حالة خاصة',bg:'rgba(255,255,255,.06)',border:'rgba(255,255,255,.12)',color:'var(--text2)'};
+            const amt = (+sp.amount||0).toLocaleString();
+            return `<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:800;background:${t.bg};border:1px solid ${t.border};color:${t.color};">${t.icon} ${t.label} — ${amt} ج</span>`;
+          }).join('')
+        + '</div>';
+    } else {
+      spEl.innerHTML = '';
+    }
+  }
+
   // ── الرسوم الشهرية ──
   // ملحوظة: المدفوعات بقت متخزنة جوه بيانات الطالب نفسه (s.payments) بدل
   // مصفوفة منفصلة على مستوى القاعدة كلها (schoolData.payments) — توفيراً
@@ -939,7 +980,7 @@ db.ref('schoolData').on('value', snap => {
   }
   if(data.__syncedAt){
     const d = new Date(data.__syncedAt);
-    document.getElementById('last-sync').textContent = d.toLocaleString('ar-EG');
+    document.getElementById('last-sync').textContent = d.toLocaleString('ar-EG',{hour12:true});
   }
   if(currentStu){
     const updated = data.students?.find(s => s.id === currentStu.id);
