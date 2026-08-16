@@ -728,7 +728,13 @@ async function _loadFromFirebase(){
           <div class="fg"><label class="fl">الصف</label><select class="fs" id="beh-cls" onchange="filterBehStudents()"><option value="">كل الصفوف</option></select></div>
           <div class="fg"><label class="fl">المجموعة</label><select class="fs" id="beh-grp" onchange="filterBehStudents()"><option value="">كل المجموعات</option></select></div>
         </div>
-        <div class="fg"><label class="fl">الطالب</label><select class="fs" id="beh-st"></select></div>
+        <div class="fg" style="position:relative;">
+          <label class="fl">الطالب</label>
+          <input class="fi" id="beh-st-search" placeholder="🔍 ابحث بالاسم أو الكود..." autocomplete="off"
+                 oninput="behStSearchInput()" onfocus="behStSearchInput()" onblur="setTimeout(()=>document.getElementById('beh-st-dd').style.display='none',150)">
+          <input type="hidden" id="beh-st">
+          <div id="beh-st-dd" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:50;max-height:260px;overflow-y:auto;background:var(--bg3,#181c2e);border:1px solid var(--border,#333);border-radius:10px;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,.55);"></div>
+        </div>
         <div class="fg"><label class="fl">✅ السلوكيات الإيجابية</label><div style="display:flex;flex-wrap:wrap;gap:5px;" id="beh-pos"></div></div>
         <div class="fg"><label class="fl">⛔ السلوكيات السلبية</label><div style="display:flex;flex-wrap:wrap;gap:5px;" id="beh-neg"></div></div>
         <div class="fg"><label class="fl">ملاحظة إضافية</label><textarea class="fta" id="beh-note" rows="2" placeholder="اكتب ملاحظة..."></textarea></div>
@@ -5182,6 +5188,7 @@ function renderDayPicker(containerId, hiddenId, selectedDays){
     return `<button type="button"
       onclick="toggleDayBtn(this,'${hiddenId}')"
       data-day="${day}"
+      data-on="${on?'1':'0'}"
       style="
         padding:6px 13px;border-radius:20px;font-size:12px;font-weight:700;
         cursor:pointer;border:2px solid ${on?'var(--accent)':'var(--border2)'};
@@ -5194,8 +5201,7 @@ function renderDayPicker(containerId, hiddenId, selectedDays){
 }
 
 function toggleDayBtn(btn, hiddenId){
-  const on = btn.style.borderColor.includes('var(--accent)') ||
-             btn.getAttribute('data-on')==='1';
+  const on = btn.getAttribute('data-on')==='1';
   if(!on){
     btn.style.borderColor='var(--accent)';
     btn.style.background='rgba(79,124,255,.18)';
@@ -5497,6 +5503,7 @@ function renderBehPage(){
   document.getElementById('beh-neg').innerHTML=BEH_NEG.map(b=>`<button class="beh-btn neg" onclick="togBeh(this,'${b}')" style="cursor:pointer;">${b}</button>`).join('');
   selBeh=[]; renderBehLog();
 }
+let _behStFiltered=[];
 function filterBehStudents(){
   const cid=document.getElementById('beh-cls')?.value||'';
   const gid=document.getElementById('beh-grp')?.value||'';
@@ -5506,13 +5513,36 @@ function filterBehStudents(){
     grpSel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cid||g.classId===cid).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
     grpSel.value=v;
   }
-  const filtered=DB.students.filter(s=>(!cid||s.classId===cid)&&(!gid||s.groupId===gid));
-  document.getElementById('beh-st').innerHTML=filtered.map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join('')||'<option value="">لا يوجد طلاب</option>';
+  _behStFiltered=DB.students.filter(s=>(!cid||s.classId===cid)&&(!gid||s.groupId===gid));
+  const hSel=document.getElementById('beh-st'); if(hSel) hSel.value='';
+  const sInp=document.getElementById('beh-st-search'); if(sInp) sInp.value='';
+  const dd=document.getElementById('beh-st-dd'); if(dd) dd.style.display='none';
+}
+function behStSearchInput(){
+  const q=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
+  const list=_behStFiltered.filter(s=>{
+    const nm=(s.fname+' '+s.lname).toLowerCase();
+    const code=(s.barcode||s.id||'').toLowerCase();
+    return !q || nm.includes(q) || code.includes(q);
+  }).slice(0,60);
+  const dd=document.getElementById('beh-st-dd');
+  dd.innerHTML=list.length?list.map(s=>`<div style="padding:8px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.05);display:flex;justify-content:space-between;gap:8px;" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background=''" onmousedown="behStSelect('${s.id}')">
+      <span style="font-weight:700;">${s.fname} ${s.lname}</span>
+      <span style="color:var(--text2);font-family:monospace;font-size:11px;">${s.barcode||s.id}</span>
+    </div>`).join(''):'<div style="padding:10px;color:var(--text2);font-size:12px;text-align:center;">لا يوجد نتائج</div>';
+  dd.style.display='block';
+}
+function behStSelect(sid){
+  const s=DB.students.find(x=>x.id===sid); if(!s)return;
+  document.getElementById('beh-st').value=sid;
+  document.getElementById('beh-st-search').value=`${s.fname} ${s.lname}`;
+  document.getElementById('beh-st-dd').style.display='none';
 }
 function togBeh(btn,beh){ if(selBeh.includes(beh)){selBeh=selBeh.filter(x=>x!==beh);btn.classList.remove('sel');}else{selBeh.push(beh);btn.classList.add('sel');} }
 function saveBeh(sendWA){
   const sid=document.getElementById('beh-st').value;
   const note=document.getElementById('beh-note').value.trim();
+  if(!sid){toast('اختر الطالب أولاً','e');return;}
   if(!selBeh.length&&!note){toast('اختر سلوكاً على الأقل','e');return;}
   const entry={id:nid('bh'),studentId:sid,behaviors:[...selBeh],note,date:localDate(),time:new Date().toLocaleTimeString('ar-EG')};
   DB.behaviors.push(entry);
