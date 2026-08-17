@@ -865,6 +865,7 @@ async function _loadFromFirebase(){
         <select class="fs" style="width:130px" id="att-cls" onchange="attFilterGroup()"><option value="">كل الصفوف</option></select>
         <select class="fs" style="width:140px" id="att-grp" onchange="renderAttGrid();_updateCountdownBar();"><option value="">كل المجموعات</option></select>
         <button class="btn btn-success btn-sm" onclick="bulkMarkGroupPresent()" title="تسجيل حضور كل طلاب المجموعة دفعة واحدة، مع إمكانية تعديل أي طالب بعدها">👥 حضور جماعي</button>
+        <button class="btn btn-secondary btn-sm" onclick="openAttViewModal()">👁️ عرض</button>
         <button class="btn btn-danger btn-sm" onclick="closeAttendance()" title="تطبيق الغياب على من لم يسجل">🔒 إغلاق الحضور</button>
         <button class="btn btn-wa btn-sm" onclick="openAbsenceNotifyModal()">📱 إشعار الغياب</button><button class="btn btn-tg btn-sm" onclick="sendDefaultAbsenceTG()">✈️ تيليجرام الغياب</button>
         <div id="auto-close-countdown" style="display:none;align-items:center;gap:6px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:var(--red);">
@@ -1028,6 +1029,7 @@ async function _loadFromFirebase(){
           <input class="fi" type="month" id="pay-month-f" style="width:145px;" oninput="_debouncedRenderPayments()" title="تصفية حسب الشهر">
           <input class="fi" id="pay-inv-code" placeholder="🔑 التأكد من الفاتورة..." style="width:200px;" oninput="_verifyInvCode(this.value.trim())" onpaste="setTimeout(()=>_verifyInvCode(document.getElementById('pay-inv-code').value.trim()),50)" onchange="_verifyInvCode(this.value.trim())" onkeydown="if(event.key==='Enter')_showInvDetails(this.value.trim())" title="ابحث بكود الفاتورة — اضغط Enter لعرض التفاصيل">
           <button class="btn btn-wa btn-sm" onclick="sendPayWABulkSequential()">📱 تذكير واتساب (للجميع)</button><button class="btn btn-tg btn-sm" onclick="sendPayTGBulk()">✈️ تذكير تيليجرام (للجميع)</button>
+          <button class="btn btn-secondary btn-sm" onclick="openPayExportModal('view')">👁️ عرض</button>
           <div style="position:relative;display:inline-block;" id="pay-export-dropdown-wrap">
             <button class="btn btn-secondary btn-sm" onclick="togglePayExportDropdown()" id="pay-export-btn" style="gap:6px;">
               📤 تصدير
@@ -2323,6 +2325,16 @@ async function _loadFromFirebase(){
       </div>
     </div>
 
+    <!-- المنتجات -->
+    <div style="background:var(--glass);border-radius:var(--rs);padding:.75rem;margin-bottom:1rem;">
+      <div style="font-size:11.5px;font-weight:800;color:var(--text2);margin-bottom:.5rem;">🛍️ المنتجات المطلوب تصديرها (اختياري)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:.6rem;">
+        <select class="fs" id="pay-export-product-add" style="flex:1;min-width:160px;"><option value="">اختر منتجاً...</option></select>
+        <button class="btn btn-secondary btn-sm" onclick="payExportAddProduct()">➕ إضافة منتج</button>
+      </div>
+      <div id="pay-export-products-chips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
+
     <!-- الصف / المجموعة -->
     <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;">
       <select class="fs" id="pex-cls" style="flex:1;min-width:140px;" onchange="_filterPexGrp()"><option value="">كل الصفوف</option></select>
@@ -2332,6 +2344,51 @@ async function _loadFromFirebase(){
     <div style="display:flex;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem;">
       <button class="btn btn-secondary" onclick="closeModal('pay-export-modal')" style="flex:1;">إلغاء</button>
       <button class="btn btn-primary" onclick="runPayExport()" style="flex:2;" id="pay-export-run-btn">📊 تصدير Excel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Payments View (Preview) Modal -->
+<div class="modal-ov" id="pay-view-modal">
+  <div class="modal modal-xl">
+    <div class="mtt">👁️ عرض بيانات المدفوعات <button class="mc-btn" onclick="closeModal('pay-view-modal')">✕</button></div>
+    <div id="pay-view-meta" style="font-size:11.5px;color:var(--text2);display:flex;flex-wrap:wrap;gap:12px;margin-bottom:.7rem;"></div>
+    <div id="pay-view-body" style="max-height:65vh;overflow:auto;border:1px solid var(--border);border-radius:var(--rs);"></div>
+    <div style="display:flex;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem;">
+      <button class="btn btn-secondary" onclick="closeModal('pay-view-modal')" style="flex:1;">إغلاق</button>
+      <button class="btn btn-primary" onclick="closeModal('pay-view-modal');openPayExportModal('excel');" style="flex:2;">📊 تصدير نفس البيانات</button>
+    </div>
+  </div>
+</div>
+
+<!-- Attendance View (Colored Grid) Modal -->
+<div class="modal-ov" id="att-view-modal">
+  <div class="modal modal-xl">
+    <div class="mtt">👁️ عرض الحضور <button class="mc-btn" onclick="closeModal('att-view-modal')">✕</button></div>
+
+    <!-- فلاتر العرض -->
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:.8rem;background:var(--glass);border-radius:var(--rs);padding:.7rem;">
+      <div><label class="fl">من تاريخ</label><input class="fi" type="date" id="avw-from" style="width:150px;"></div>
+      <div><label class="fl">إلى تاريخ</label><input class="fi" type="date" id="avw-to" style="width:150px;"></div>
+      <div><label class="fl">الصف</label><select class="fs" id="avw-cls" style="width:150px;" onchange="_filterAttViewGrp()"><option value="">كل الصفوف</option></select></div>
+      <div><label class="fl">المجموعة</label><select class="fs" id="avw-grp" style="width:150px;"><option value="">كل المجموعات</option></select></div>
+      <button class="btn btn-primary btn-sm" onclick="renderAttViewGrid()">👁️ عرض</button>
+    </div>
+
+    <!-- مفتاح الألوان -->
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:.8rem;font-size:11.5px;font-weight:700;">
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--green);display:inline-block;"></span> حضور</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--red);display:inline-block;"></span> غياب</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:#7c5cff;display:inline-block;"></span> استئذان</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--amber);display:inline-block;"></span> تأخير</span>
+      <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:#3a3f52;display:inline-block;"></span> استبعاد (لا يوجد حصة/سجل)</span>
+    </div>
+
+    <div id="avw-meta" style="font-size:11.5px;color:var(--text2);margin-bottom:.6rem;"></div>
+    <div id="avw-body" style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:var(--rs);"></div>
+
+    <div style="display:flex;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem;">
+      <button class="btn btn-secondary" onclick="closeModal('att-view-modal')" style="flex:1;">إغلاق</button>
     </div>
   </div>
 </div>
@@ -4290,6 +4347,7 @@ const PAY_EXPORT_COLS = [
 
 let _payExportMode = 'excel'; // 'excel' | 'pdf'
 let _payExportMonths = []; // ['2026-08', ...] — بترتيب الإضافة فعلياً (مش مُرتّبة أبجدياً/زمنياً)
+let _payExportProducts = []; // [productId, ...] — منتجات المتجر المطلوب عرض حالة الاستلام/الدفع بتاعتها
 
 function togglePayExportDropdown(){
   const dd=document.getElementById('pay-export-dropdown');
@@ -4312,10 +4370,11 @@ function _filterPexGrp(){
 function openPayExportModal(mode){
   _payExportMode = mode;
   const isExcel = mode === 'excel';
+  const isView  = mode === 'view';
   document.getElementById('pay-export-title').innerHTML =
-    (isExcel ? '📊 اختيار بيانات تصدير المدفوعات — Excel' : '🖨️ اختيار بيانات تصدير المدفوعات — PDF') +
+    (isView ? '👁️ اختيار بيانات العرض' : isExcel ? '📊 اختيار بيانات تصدير المدفوعات — Excel' : '🖨️ اختيار بيانات تصدير المدفوعات — PDF') +
     ' <button class="mc-btn" onclick="closeModal(\'pay-export-modal\')">✕</button>';
-  document.getElementById('pay-export-run-btn').textContent = isExcel ? '📊 تصدير Excel' : '🖨️ تصدير PDF';
+  document.getElementById('pay-export-run-btn').textContent = isView ? '👁️ عرض البيانات' : isExcel ? '📊 تصدير Excel' : '🖨️ تصدير PDF';
 
   // بناء خانات الأعمدة (مجمّعة)
   const groups = [...new Set(PAY_EXPORT_COLS.map(c=>c.group))];
@@ -4344,6 +4403,12 @@ function openPayExportModal(mode){
   const mAddEl=document.getElementById('pay-export-month-add'); if(mAddEl) mAddEl.value=defMonth;
   const yAddEl=document.getElementById('pay-export-year-add'); if(yAddEl) yAddEl.value=new Date().getFullYear();
   _renderPayExportMonthChips();
+
+  // المنتجات — تبدأ فاضية (اختياري)
+  _payExportProducts = [];
+  const prodAddEl=document.getElementById('pay-export-product-add');
+  if(prodAddEl) prodAddEl.innerHTML='<option value="">اختر منتجاً...</option>'+DB.products.map(p=>`<option value="${p.id}">${p.icon||'📦'} ${p.name}</option>`).join('');
+  _renderPayExportProductChips();
 
   openModal('pay-export-modal');
 }
@@ -4394,6 +4459,41 @@ function payExportRemoveMonth(m){
   _renderPayExportMonthChips();
 }
 
+// ── إدارة منتجات التصدير (حالة الاستلام/الدفع لكل منتج مختار) ──
+function _renderPayExportProductChips(){
+  const box=document.getElementById('pay-export-products-chips');
+  if(!box) return;
+  if(!_payExportProducts.length){
+    box.innerHTML='<span style="font-size:11.5px;color:var(--text3);">لم تُضف أي منتجات — أضف منتجاً لعرض حالة الاستلام/الدفع الخاصة به لكل طالب (اختياري)</span>';
+    return;
+  }
+  box.innerHTML=_payExportProducts.map(pid=>{
+    const p=DB.products.find(x=>x.id===pid);
+    if(!p) return '';
+    return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:16px;background:rgba(168,85,247,.12);border:1px solid rgba(168,85,247,.3);color:#a855f7;font-size:11.5px;font-weight:700;">
+      ${p.icon||'📦'} ${p.name}
+      <span onclick="payExportRemoveProduct('${pid}')" style="cursor:pointer;font-weight:900;opacity:.75;">✕</span>
+    </span>`;
+  }).join('');
+}
+function payExportAddProduct(){
+  const v=document.getElementById('pay-export-product-add')?.value;
+  if(!v){ toast('اختر منتجاً أولاً','e'); return; }
+  if(!_payExportProducts.includes(v)) _payExportProducts.push(v);
+  _renderPayExportProductChips();
+}
+function payExportRemoveProduct(pid){
+  _payExportProducts=_payExportProducts.filter(x=>x!==pid);
+  _renderPayExportProductChips();
+}
+// حالة طالب معيّن تجاه منتج معيّن: null = لم يشترِه إطلاقاً، وإلا true/false حسب اكتمال الاستلام/الدفع في كل عمليات الشراء المسجّلة له
+function _pexProductStatus(sid, pid){
+  const sales=(DB.sales||[]).filter(x=>x.studentId===sid && x.productId===pid);
+  if(!sales.length) return {received:null, paid:null};
+  return { received: sales.every(x=>x.received!==false), paid: sales.every(x=>x.paid!==false) };
+}
+function _pexProductMark(v){ return v===null ? '—' : (v ? '✔' : '☐'); }
+
 // ── تجميع صفوف التصدير: صف واحد لكل طالب (حسب فلاتر الصف/المجموعة والحالة الخاصة) ──
 // طالب بيتضاف لو عنده على الأقل شهر واحد من الشهور المختارة بحالة سداد ضمن الحالات المختارة
 function getPayExportRows(months, statusSet, spSet, clsF, grpF){
@@ -4424,7 +4524,7 @@ function _pexMonthMark(sid, m){
 }
 const _PEX_SP_TEXT = {exemption:'معفي', discount:'تخفيض', siblings:'إخوة', none:'—'};
 
-function getExportPaymentRow(row, selectedIds, idx, months){
+function getExportPaymentRow(row, selectedIds, idx, months, products){
   const {s,sp} = row;
   const map = {
     num:       idx + 1,
@@ -4445,6 +4545,13 @@ function getExportPaymentRow(row, selectedIds, idx, months){
   });
   // أعمدة الشهور متجاورة بترتيب اختيارها، كل عمود بعلامة الحالة بتاعته
   months.forEach(m => { rowOut[monthLabelAr(m)] = _pexMonthMark(s.id, m); });
+  // أعمدة المنتجات — عمودين لكل منتج: الاستلام والدفع
+  (products||[]).forEach(pid => {
+    const p=DB.products.find(x=>x.id===pid); if(!p) return;
+    const st=_pexProductStatus(s.id, pid);
+    rowOut[`${p.icon||'📦'} ${p.name} - الاستلام`] = _pexProductMark(st.received);
+    rowOut[`${p.icon||'📦'} ${p.name} - الدفع`]    = _pexProductMark(st.paid);
+  });
   return rowOut;
 }
 
@@ -4468,19 +4575,60 @@ function runPayExport(){
 
   closeModal('pay-export-modal');
   const months = _payExportMonths.slice(); // بترتيب اختيارها فعلياً
+  const products = _payExportProducts.slice(); // بترتيب اختيارها فعلياً
   const rows = getPayExportRows(months, statusSet, spSet, clsF, grpF);
   if(!rows.length){ toast('لا توجد بيانات تطابق الفلاتر المختارة','e'); return; }
-  if(_payExportMode === 'excel') doPayExcelExport(rows, selectedIds, months);
-  else doPayPdfExport(rows, selectedIds, months, clsF, grpF);
+  if(_payExportMode === 'excel') doPayExcelExport(rows, selectedIds, months, products);
+  else if(_payExportMode === 'view') doPayViewExport(rows, selectedIds, months, products, clsF, grpF);
+  else doPayPdfExport(rows, selectedIds, months, clsF, grpF, products);
 }
 
-function doPayExcelExport(rows, selectedIds, months){
-  const outRows = rows.map((r,i) => getExportPaymentRow(r, selectedIds, i, months));
+// ── عرض نفس بيانات التصدير جوه البرنامج (بدون تحميل ملف) ──
+function doPayViewExport(rows, selectedIds, months, products, clsF, grpF){
+  products = products||[];
+  const cols = PAY_EXPORT_COLS.filter(c=>selectedIds.includes(c.id));
+  const prodCols = products.map(pid=>DB.products.find(x=>x.id===pid)).filter(Boolean);
+  const clsLabel=clsF?(DB.classes.find(c=>c.id===clsF)?.name||'كل الصفوف'):'كل الصفوف';
+  const grpLabel=grpF?(DB.groups.find(g=>g.id===grpF)?.name||'كل المجموعات'):'كل المجموعات';
+  const monthsLabel=months.map(monthLabelAr).join(' ، ');
+
+  document.getElementById('pay-view-meta').innerHTML=`
+    <span>🏫 الصف: <b>${clsLabel}</b></span>
+    <span>👥 المجموعة: <b>${grpLabel}</b></span>
+    <span>📅 الشهور: <b>${monthsLabel}</b></span>
+    <span>👤 عدد الطلاب: <b>${rows.length}</b></span>`;
+
+  const thead = '<th style="width:1%;white-space:nowrap;">#</th>' +
+    cols.filter(c=>c.id!=='num').map(c=>`<th>${c.label}</th>`).join('') +
+    months.map(m=>`<th style="text-align:center;">${monthLabelAr(m)}</th>`).join('') +
+    prodCols.map(p=>`<th style="text-align:center;">${p.icon||'📦'} ${p.name}<br><span style="font-size:8.5px;opacity:.75;">استلام</span></th><th style="text-align:center;">${p.icon||'📦'} ${p.name}<br><span style="font-size:8.5px;opacity:.75;">دفع</span></th>`).join('');
+
+  const tbody = rows.map((r,i)=>{
+    const row = getExportPaymentRow(r, selectedIds, i, months, products);
+    return '<tr>'
+      + `<td style="color:var(--text2);">${i+1}</td>`
+      + cols.filter(c=>c.id!=='num').map(c=>`<td>${row[c.label]??'—'}</td>`).join('')
+      + months.map(m=>`<td style="text-align:center;font-weight:800;">${row[monthLabelAr(m)]}</td>`).join('')
+      + prodCols.map(p=>`<td style="text-align:center;font-weight:800;">${row[`${p.icon||'📦'} ${p.name} - الاستلام`]}</td><td style="text-align:center;font-weight:800;">${row[`${p.icon||'📦'} ${p.name} - الدفع`]}</td>`).join('')
+      + '</tr>';
+  }).join('');
+
+  document.getElementById('pay-view-body').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+    <thead><tr style="position:sticky;top:0;background:var(--bg3);z-index:2;">${thead}</tr></thead>
+    <tbody>${tbody||`<tr><td colspan="${cols.length+months.length+prodCols.length*2+1}" style="text-align:center;padding:2rem;color:var(--text2);">لا توجد بيانات</td></tr>`}</tbody>
+  </table>`;
+
+  openModal('pay-view-modal');
+}
+
+function doPayExcelExport(rows, selectedIds, months, products){
+  products = products||[];
+  const outRows = rows.map((r,i) => getExportPaymentRow(r, selectedIds, i, months, products));
   const ws = XLSX.utils.json_to_sheet(outRows);
   const colW = selectedIds.map(id => {
     const col = PAY_EXPORT_COLS.find(c=>c.id===id);
     return {wch: Math.max(col.label.length * 2, 12)};
-  }).concat(months.map(()=>({wch:12})));
+  }).concat(months.map(()=>({wch:12}))).concat(products.flatMap(()=>[{wch:14},{wch:14}]));
   ws['!cols'] = colW;
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'المدفوعات');
@@ -4511,11 +4659,13 @@ function doPayExcelExport(rows, selectedIds, months){
   toast('📊 تم تصدير ' + rows.length + ' طالب بنجاح');
 }
 
-function doPayPdfExport(rows, selectedIds, months, clsF, grpF){
+function doPayPdfExport(rows, selectedIds, months, clsF, grpF, products){
+  products = products||[];
   const clsLabel=clsF?(DB.classes.find(c=>c.id===clsF)?.name||'كل الصفوف'):'كل الصفوف';
   const grpLabel=grpF?(DB.groups.find(g=>g.id===grpF)?.name||'كل المجموعات'):'كل المجموعات';
   const monthsLabel=months.map(monthLabelAr).join(' ، ');
   const cols = PAY_EXPORT_COLS.filter(c=>selectedIds.includes(c.id));
+  const prodCols = products.map(pid=>DB.products.find(x=>x.id===pid)).filter(Boolean);
   const logoSrc = DB.settings.logo;
   const logoHtml = logoSrc
     ? `<img src="${logoSrc}" style="height:44px;object-fit:contain;border-radius:8px;">`
@@ -4526,12 +4676,14 @@ function doPayPdfExport(rows, selectedIds, months, clsF, grpF){
     if(p&&(p.status==='paid'||p.status==='partial')) totalCollected+=p.amount;
   }));
 
-  const thead = cols.map(c=>`<th>${c.label}</th>`).join('') + months.map(m=>`<th class="pex-m">${monthLabelAr(m)}</th>`).join('');
+  const thead = cols.map(c=>`<th>${c.label}</th>`).join('') + months.map(m=>`<th class="pex-m">${monthLabelAr(m)}</th>`).join('')
+    + prodCols.map(p=>`<th class="pex-m">${p.icon||'📦'} ${p.name}<br><span style="font-size:8.5px;opacity:.85;">استلام</span></th><th class="pex-m">${p.icon||'📦'} ${p.name}<br><span style="font-size:8.5px;opacity:.85;">دفع</span></th>`).join('');
   const tbody = rows.map((r,i)=>{
-    const row = getExportPaymentRow(r, selectedIds, i, months);
+    const row = getExportPaymentRow(r, selectedIds, i, months, products);
     return '<tr>'
       + cols.map(c=>`<td>${row[c.label]??'—'}</td>`).join('')
       + months.map(m=>`<td class="pex-m">${row[monthLabelAr(m)]}</td>`).join('')
+      + prodCols.map(p=>`<td class="pex-m">${row[`${p.icon||'📦'} ${p.name} - الاستلام`]}</td><td class="pex-m">${row[`${p.icon||'📦'} ${p.name} - الدفع`]}</td>`).join('')
       + '</tr>';
   }).join('');
 
@@ -5747,6 +5899,121 @@ function closeAttendance(){
   toast(`🔒 تم إغلاق الحضور — ${absentCount} طالب سُجِّل غيابه`,'i');
 }
 function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',excused:'🙋 مستأذن',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',unknown:'— غير محدد'}[st]||''; }
+
+// ══════════════════════════════════════════════
+// 👁️ عرض الحضور — شبكة أيام × طلاب بصناديق ملوّنة
+// ══════════════════════════════════════════════
+function openAttViewModal(){
+  const clsSel=document.getElementById('avw-cls');
+  clsSel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  // ابدأ بنفس فلتر صفحة الحضور الحالي (لو موجود)
+  clsSel.value=document.getElementById('att-cls')?.value||'';
+  _filterAttViewGrp();
+  const grpSel=document.getElementById('avw-grp');
+  if(grpSel) grpSel.value=document.getElementById('att-grp')?.value||'';
+  // نطاق افتراضي: آخر 14 يوم لحد النهارده
+  const today=localDate();
+  const toEl=document.getElementById('avw-to'); if(toEl) toEl.value=today;
+  const fromEl=document.getElementById('avw-from');
+  if(fromEl){
+    const d=new Date(today); d.setDate(d.getDate()-13);
+    fromEl.value=d.toISOString().slice(0,10);
+  }
+  openModal('att-view-modal');
+  renderAttViewGrid();
+}
+function _filterAttViewGrp(){
+  const cid=document.getElementById('avw-cls')?.value||'';
+  const grpSel=document.getElementById('avw-grp');
+  if(!grpSel) return;
+  const v=grpSel.value;
+  grpSel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cid||g.classId===cid).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  grpSel.value=v||'';
+}
+// ── قائمة التواريخ بين تاريخين (شاملة الطرفين)، ترتيب تصاعدي ──
+function _dateRangeList(from, to){
+  const out=[];
+  let d=new Date(from), end=new Date(to);
+  if(isNaN(d)||isNaN(end)||d>end) return out;
+  while(d<=end){ out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  return out;
+}
+const _AVW_DAY_SHORT=['أحد','إثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'];
+// ── حالة يوم معيّن لطالب معيّن: من سجل الحضور الفعلي، أو "استبعاد" لو مفيش سجل / اليوم مش من أيام مجموعته ──
+function _avwCellStatus(s, date){
+  const rec=DB.attendance[date] && DB.attendance[date][s.id];
+  if(rec) return rec==='exceptional' ? 'present' : rec;
+  const allowedDays=_grpDayNums(_grpIdOnDate(s,date));
+  if(allowedDays){
+    const parts=date.split('-');
+    const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+    if(!allowedDays.has(dt.getDay())) return 'excluded'; // مش يوم حصة أصلاً
+  }
+  return 'excluded'; // يوم حصة لكن مفيش سجل — بيتعامل معاه برضه كاستبعاد بصريًا
+}
+function _avwBox(status){
+  const map={
+    present:{bg:'var(--green)',fg:'#fff',label:'ح'},
+    absent: {bg:'var(--red)',fg:'#fff',label:'غ'},
+    excused:{bg:'#7c5cff',fg:'#fff',label:'إ'},
+    late:   {bg:'var(--amber)',fg:'#1a1f2e',label:'ت'},
+    excluded:{bg:'#3a3f52',fg:'rgba(255,255,255,.55)',label:'د'},
+  };
+  const m=map[status]||map.excluded;
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;font-weight:800;font-size:12.5px;background:${m.bg};color:${m.fg};">${m.label}</span>`;
+}
+function renderAttViewGrid(){
+  const from=document.getElementById('avw-from')?.value, to=document.getElementById('avw-to')?.value;
+  const cf=document.getElementById('avw-cls')?.value||'', gf=document.getElementById('avw-grp')?.value||'';
+  const body=document.getElementById('avw-body');
+  if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; return; }
+  let dates=_dateRangeList(from,to);
+  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
+  if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+
+  // ── اقتصار الأعمدة على أيام الحصص الفعلية بس (لصف/مجموعة واحدة محددة، أو اتحاد أيام كل المجموعات المعروضة) ──
+  let relevantDays=null; // null = كل الأيام (fallback لو مفيش أيام معرّفة)
+  if(gf){
+    relevantDays=_grpDayNums(gf);
+  } else {
+    const grpIds=[...new Set(students.map(s=>s.groupId).filter(Boolean))];
+    const union=new Set();
+    let anyDefined=false;
+    grpIds.forEach(gid=>{ const d=_grpDayNums(gid); if(d){ anyDefined=true; d.forEach(n=>union.add(n)); } });
+    if(anyDefined) relevantDays=union;
+  }
+  if(relevantDays && relevantDays.size){
+    dates=dates.filter(d=>{
+      const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+      return relevantDays.has(dt.getDay());
+    });
+  }
+
+  document.getElementById('avw-meta').innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
+  if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
+  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
+
+  const thStyle='color:#fff;font-weight:800;font-size:11px;white-space:nowrap;background:#1c2140;text-align:center;padding:6px 4px;';
+  const thead = `<th style="${thStyle}position:sticky;right:0;background:var(--bg3);z-index:3;text-align:right;padding:6px 10px;">الطالب</th>`
+    + dates.map(d=>{
+        const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+        return `<th style="${thStyle}">${_AVW_DAY_SHORT[dt.getDay()]}<br><span style="font-size:9.5px;opacity:.8;">${parts[2]}/${parts[1]}</span></th>`;
+      }).join('');
+
+  const tbody = students.map(s=>{
+    const cells=dates.map(d=>`<td style="text-align:center;padding:4px 3px;">${_avwBox(_avwCellStatus(s,d))}</td>`).join('');
+    return `<tr>
+      <td style="position:sticky;right:0;background:var(--bg2);z-index:1;white-space:nowrap;font-weight:700;padding:6px 10px;border-left:1px solid var(--border);">${s.fname} ${s.lname}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<table style="border-collapse:collapse;font-size:12px;">
+    <thead><tr style="position:sticky;top:0;z-index:2;">${thead}</tr></thead>
+    <tbody>${tbody}</tbody>
+  </table>`;
+}
 // ── المشرف يقدر يسجّل/يعدّل حضور اليوم بس — ممنوع يفتح أو يعدّل تواريخ سابقة خالص ──
 function _isPastAttDateBlockedForSupervisor(date){
   return document.body.dataset.role==='supervisor' && date && date!==localDate();
@@ -14733,10 +15000,13 @@ function renderSpecialPays(){
       <td>${typeBadge}</td>
       <td style="font-weight:800;font-size:14px;color:var(--green);">${fmtM(sp.amount)}</td>
       <td style="font-size:11px;color:var(--text2);">${sp.date||'—'}</td>
-      <td><button style="width:28px;height:28px;border-radius:7px;background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:13px;cursor:pointer;" onclick="delSpecialPay(${i})" title="حذف">🗑</button></td>
+      <td><div style="display:flex;gap:5px;justify-content:center;">
+        <button style="width:28px;height:28px;border-radius:7px;background:rgba(79,124,255,.12);border:1px solid rgba(79,124,255,.3);color:var(--accent);font-size:13px;cursor:pointer;" onclick="editSpecialPay(${i})" title="تعديل">✏️</button>
+        <button style="width:28px;height:28px;border-radius:7px;background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:13px;cursor:pointer;" onclick="delSpecialPay(${i})" title="حذف">🗑</button>
+      </div></td>
     </tr>`;
   }).join('');
-  container.innerHTML=`<table><thead><tr><th>الطالب</th><th>الكود</th><th>النوع</th><th>المبلغ الخاص</th><th>التاريخ</th><th style="text-align:center;">حذف</th></tr></thead><tbody>${rows}</tbody></table>`;
+  container.innerHTML=`<table><thead><tr><th>الطالب</th><th>الكود</th><th>النوع</th><th>المبلغ الخاص</th><th>التاريخ</th><th style="text-align:center;">إجراءات</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function toggleSpDropdown(){
@@ -14847,22 +15117,19 @@ function _spSelectFromSearch(sid){
   // ── إخفاء نتائج البحث + تعبئة حقل البحث ──
   document.getElementById('sp-search').value=s.fname+' '+s.lname;
   document.getElementById('sp-search-result').style.display='none';
-  // ── كود الطالب ──
+  // ── اختر الصف والمجموعة أولاً (بيعملوا فلترة كاسكيدنج بتصفّر كود/طالب مختارين مسبقاً) ──
+  const clsSel=document.getElementById('sp-cls-sel');
+  if(clsSel){ clsSel.value=s.classId||''; filterSpGrp(); }
+  const grpSel=document.getElementById('sp-grp-sel');
+  if(grpSel){ grpSel.value=s.groupId||''; filterSpStudent(); }
+  // ── اختر الطالب في القائمة المنسدلة (بعد إعادة توليدها في الخطوة اللي فاتت) ──
+  const stuSel=document.getElementById('sp-stu-sel');
+  if(stuSel) stuSel.value=sid;
+  // ── كود الطالب والمبلغ — لازم تتحطّ بعد الفلترة عشان محدش يصفّرهم ──
   document.getElementById('sp-code').value=s.barcode||s.id;
   _spShowCodeBadge(s.barcode||s.id);
   const existSp=DB.specialPays?.find(x=>x.studentId===s.id);
   document.getElementById('sp-amount').value=existSp?existSp.amount:(stuEffectiveFee(s)||'');
-  // ── اختر الصف تلقائياً ──
-  const clsSel=document.getElementById('sp-cls-sel');
-  if(clsSel){ clsSel.value=s.classId||''; filterSpGrp(); }
-  // ── اختر المجموعة تلقائياً ──
-  const grpSel=document.getElementById('sp-grp-sel');
-  if(grpSel){ grpSel.value=s.groupId||''; filterSpStudent(); }
-  // ── اختر الطالب في القائمة المنسدلة ──
-  setTimeout(()=>{
-    const stuSel=document.getElementById('sp-stu-sel');
-    if(stuSel) stuSel.value=sid;
-  },50);
   // ── انتقل إلى حقل المبلغ ──
   document.getElementById('sp-amount').focus();
   document.getElementById('sp-amount').select();
@@ -14899,6 +15166,13 @@ function addSpecialPay(){
   toast('✅ تم تفعيل الحالة الخاصة'+typeStr+' — سيُطبَّق السعر فوراً عند إضافة الدفعة');
 }
 
+
+function editSpecialPay(idx){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
+  const sp=DB.specialPays?.[idx]; if(!sp){ toast('لم يتم العثور على السجل','e'); return; }
+  openSpecialPayModal(sp.type);
+  _spSelectFromSearch(sp.studentId);
+}
 
 // ══════════════════════════════════════════════
 // SIBLINGS GROUP — مجموعة الإخوة
