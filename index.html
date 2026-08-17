@@ -674,6 +674,7 @@ async function _loadFromFirebase(){
   <!-- Export row + counter -->
   <div style="display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;margin-bottom:.85rem;">
     <div style="font-size:12.5px;font-weight:700;color:var(--text2);flex:1;">إجمالي الطلاب: <span id="stu-count" style="color:var(--accent);font-size:14px;font-weight:800;">0</span><span id="stu-excluded-note" style="margin-right:8px;color:var(--red);font-size:11px;font-weight:700;"></span></div>
+    <button class="btn btn-secondary btn-sm" onclick="openPayViewDirect()" style="gap:5px;">👁️ عرض</button>
     <button class="btn btn-secondary btn-sm" onclick="printAllCardsPVC()" style="gap:5px;">📄 تصدير الكروت PDF</button>
     <button class="btn btn-secondary btn-sm" onclick="openExportModal('pdf')" style="gap:5px;">تصدير الطلاب PDF</button>
     <button class="btn btn-success btn-sm" onclick="openExportModal('excel')" style="gap:5px;">تصدير Excel</button>
@@ -1029,7 +1030,7 @@ async function _loadFromFirebase(){
           <input class="fi" type="month" id="pay-month-f" style="width:145px;" oninput="_debouncedRenderPayments()" title="تصفية حسب الشهر">
           <input class="fi" id="pay-inv-code" placeholder="🔑 التأكد من الفاتورة..." style="width:200px;" oninput="_verifyInvCode(this.value.trim())" onpaste="setTimeout(()=>_verifyInvCode(document.getElementById('pay-inv-code').value.trim()),50)" onchange="_verifyInvCode(this.value.trim())" onkeydown="if(event.key==='Enter')_showInvDetails(this.value.trim())" title="ابحث بكود الفاتورة — اضغط Enter لعرض التفاصيل">
           <button class="btn btn-wa btn-sm" onclick="sendPayWABulkSequential()">📱 تذكير واتساب (للجميع)</button><button class="btn btn-tg btn-sm" onclick="sendPayTGBulk()">✈️ تذكير تيليجرام (للجميع)</button>
-          <button class="btn btn-secondary btn-sm" onclick="openPayExportModal('view')">👁️ عرض</button>
+          <button class="btn btn-secondary btn-sm" onclick="openPayViewDirect()">👁️ عرض</button>
           <div style="position:relative;display:inline-block;" id="pay-export-dropdown-wrap">
             <button class="btn btn-secondary btn-sm" onclick="togglePayExportDropdown()" id="pay-export-btn" style="gap:6px;">
               📤 تصدير
@@ -2350,16 +2351,56 @@ async function _loadFromFirebase(){
 
 <!-- Payments View (Preview) Modal -->
 <div class="modal-ov" id="pay-view-modal">
-  <div class="modal modal-xl">
-    <div class="mtt">👁️ عرض بيانات المدفوعات <button class="mc-btn" onclick="closeModal('pay-view-modal')">✕</button></div>
-    <div id="pay-view-meta" style="font-size:11.5px;color:var(--text2);display:flex;flex-wrap:wrap;gap:12px;margin-bottom:.7rem;"></div>
-    <div id="pay-view-body" style="max-height:65vh;overflow:auto;border:1px solid var(--border);border-radius:var(--rs);"></div>
+  <div class="modal modal-xl" id="pvw-modal-inner">
+    <div class="mtt">👁️ عرض بيانات الطلاب <button class="mc-btn" onclick="closeModal('pay-view-modal')">✕</button></div>
+    <div class="tabs" id="pvw-tabs">
+      <button class="tab-btn active" id="pvw-tab-attendance" onclick="switchPvwTab('attendance')">📅 الحضور</button>
+      <button class="tab-btn" id="pvw-tab-finance" onclick="switchPvwTab('finance')">💰 الماليات</button>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.8rem;">
+      <select class="fs" id="pvw-cls" style="flex:1;min-width:140px;" onchange="_filterPvwGrp();renderPvwActive();"><option value="">كل الصفوف</option></select>
+      <select class="fs" id="pvw-grp" style="flex:1;min-width:140px;" onchange="renderPvwActive();"><option value="">كل المجموعات</option></select>
+    </div>
+
+    <!-- منطقة قابلة للتمرير وحدها — الرأس والتبويبات والفلاتر فوق ثابتين دايماً -->
+    <div id="pvw-scroll-area">
+      <!-- تبويب الحضور -->
+      <div id="pvw-att-wrap">
+        <div id="pvw-att-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:.8rem;">
+          <div><label class="fl">من تاريخ</label><input class="fi" type="date" id="pvw-att-from" style="width:150px;" onchange="renderPvwAttGrid()"></div>
+          <div><label class="fl">إلى تاريخ</label><input class="fi" type="date" id="pvw-att-to" style="width:150px;" onchange="renderPvwAttGrid()"></div>
+        </div>
+        <div id="pvw-att-legend" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:.8rem;font-size:11.5px;font-weight:700;">
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--green);display:inline-block;"></span> حضور</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--red);display:inline-block;"></span> غياب</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:#7c5cff;display:inline-block;"></span> استئذان</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--amber);display:inline-block;"></span> تأخير</span>
+          <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:#3a3f52;display:inline-block;"></span> استبعاد</span>
+        </div>
+        <div id="pvw-att-meta" style="font-size:11.5px;color:var(--text2);margin-bottom:.6rem;"></div>
+        <div id="pvw-att-body" style="border:1px solid var(--border);border-radius:var(--rs);"></div>
+      </div>
+
+      <!-- تبويب الماليات -->
+      <div id="pay-view-meta" style="font-size:11.5px;color:var(--text2);display:flex;flex-wrap:wrap;gap:12px;margin-bottom:.7rem;"></div>
+      <div id="pay-view-body" style="border:1px solid var(--border);border-radius:var(--rs);"></div>
+    </div>
+
     <div style="display:flex;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem;">
       <button class="btn btn-secondary" onclick="closeModal('pay-view-modal')" style="flex:1;">إغلاق</button>
-      <button class="btn btn-primary" onclick="closeModal('pay-view-modal');openPayExportModal('excel');" style="flex:2;">📊 تصدير نفس البيانات</button>
+      <button class="btn btn-primary" id="pvw-export-btn" onclick="closeModal('pay-view-modal');openPayExportModal('excel');" style="flex:2;">📊 تصدير نفس البيانات</button>
     </div>
   </div>
 </div>
+<style>
+/* تثبيت رأس مودال "عرض بيانات الطلاب" (العنوان + التبويبات + فلاتر الصف/المجموعة) بارتفاع مودال ثابت،
+   بحيث التمرير يحصل جوه المنطقة الداخلية بس ومكان الشاشة مايتحركش عند التبديل بين تبويب الحضور والماليات */
+#pay-view-modal #pvw-modal-inner{display:flex;flex-direction:column;max-height:88vh;}
+#pay-view-modal #pvw-modal-inner > *{flex:0 0 auto;}
+#pay-view-modal #pvw-scroll-area{flex:1 1 auto;overflow:auto;min-height:0;}
+</style>
+
+
 
 <!-- Attendance View (Colored Grid) Modal -->
 <div class="modal-ov" id="att-view-modal">
@@ -4584,6 +4625,230 @@ function runPayExport(){
 }
 
 // ── عرض نفس بيانات التصدير جوه البرنامج (بدون تحميل ملف) ──
+// ── صندوق حالة ملوّن مضغوط (لون + علامة ✔/✘ فقط بدون كتابة) — تصميم عصري موحّد الحجم ──
+function _pexStatusBox(icon, color){
+  const styles = {
+    green: 'background:var(--green);color:#fff;',
+    red:   'background:var(--red);color:#fff;',
+    amber: 'background:var(--amber);color:#1a1f2e;',
+    blue:  'background:var(--accent);color:#fff;',
+    gray:  'background:#3a3f52;color:rgba(255,255,255,.5);',
+  };
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;font-weight:800;font-size:15px;line-height:1;box-shadow:0 2px 5px rgba(0,0,0,.25);${styles[color]||styles.gray}">${icon}</span>`;
+}
+
+// ══════════════════════════════════════════════
+// 👁️ عرض مباشر لبيانات المدفوعات (من زرار "عرض" في صفحتي الطلاب/المدفوعات)
+// بدون المرور بنافذة اختيار الأعمدة — كل شيء تلقائي، مع فلاتر صف/مجموعة حيّة داخل نفس الشاشة
+// ══════════════════════════════════════════════
+let _pvwActiveTab='attendance';
+function openPayViewDirect(){
+  const clsSel=document.getElementById('pvw-cls');
+  clsSel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  clsSel.value='';
+  _filterPvwGrp();
+  // نطاق افتراضي لتبويب الحضور: آخر 14 يوم لحد النهارده
+  const today=localDate();
+  const toEl=document.getElementById('pvw-att-to'); if(toEl) toEl.value=today;
+  const fromEl=document.getElementById('pvw-att-from');
+  if(fromEl){ const d=new Date(today); d.setDate(d.getDate()-13); fromEl.value=d.toISOString().slice(0,10); }
+  _pvwActiveTab='attendance';
+  _pvwSetTabUI();
+  openModal('pay-view-modal');
+  renderPvwActive();
+}
+function _filterPvwGrp(){
+  const cid=document.getElementById('pvw-cls')?.value||'';
+  const grpSel=document.getElementById('pvw-grp');
+  if(!grpSel) return;
+  const v=grpSel.value;
+  grpSel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cid||g.classId===cid).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  grpSel.value=v||'';
+}
+// ── تبديل تبويب (الحضور / الماليات) داخل مودال عرض بيانات الطلاب مع الحفاظ على موضع الطالب المعروض ──
+function _pvwSetTabUI(){
+  const isAtt=_pvwActiveTab==='attendance';
+  document.getElementById('pvw-tab-attendance')?.classList.toggle('active', isAtt);
+  document.getElementById('pvw-tab-finance')?.classList.toggle('active', !isAtt);
+  const attWrap=document.getElementById('pvw-att-wrap'); if(attWrap) attWrap.style.display=isAtt?'block':'none';
+  const payMeta=document.getElementById('pay-view-meta'); if(payMeta) payMeta.style.display=isAtt?'none':'flex';
+  const payBody=document.getElementById('pay-view-body'); if(payBody) payBody.style.display=isAtt?'none':'block';
+  const expBtn=document.getElementById('pvw-export-btn'); if(expBtn) expBtn.style.display=isAtt?'none':'flex';
+}
+function renderPvwActive(){
+  if(_pvwActiveTab==='attendance') renderPvwAttGrid(); else renderPayViewDirect();
+}
+// كل التمرير الفعلي بيحصل جوه #pvw-scroll-area (الرأس والفلاتر ثابتين خارجها) — بنحسب موضع الصف
+// بالنسبة لجدول التبويب النشط بس (عشان الجدول التاني المختفي مايأثرش على الحساب)
+function _pvwActiveTableWrap(){
+  return document.getElementById(_pvwActiveTab==='attendance' ? 'pvw-att-body' : 'pay-view-body');
+}
+function _pvwCurrentRowIndex(){
+  const scrollArea=document.getElementById('pvw-scroll-area');
+  const tableWrap=_pvwActiveTableWrap();
+  if(!scrollArea||!tableWrap) return 0;
+  const rows=[...tableWrap.querySelectorAll('tbody tr[data-sid]')];
+  if(!rows.length) return 0;
+  const headH=tableWrap.querySelector('thead')?.getBoundingClientRect().height||0;
+  const contTop=scrollArea.getBoundingClientRect().top+headH;
+  for(let i=0;i<rows.length;i++){ if(rows[i].getBoundingClientRect().bottom>=contTop) return i; }
+  return rows.length-1;
+}
+function _pvwScrollToIndex(idx){
+  const scrollArea=document.getElementById('pvw-scroll-area');
+  const tableWrap=_pvwActiveTableWrap();
+  if(!scrollArea||!tableWrap) return;
+  const rows=[...tableWrap.querySelectorAll('tbody tr[data-sid]')];
+  if(!rows.length) return;
+  const row=rows[Math.min(idx, rows.length-1)];
+  const headH=tableWrap.querySelector('thead')?.getBoundingClientRect().height||0;
+  const contRect=scrollArea.getBoundingClientRect();
+  const rowRect=row.getBoundingClientRect();
+  scrollArea.scrollTop = Math.max(0, scrollArea.scrollTop + (rowRect.top - contRect.top) - headH);
+}
+function switchPvwTab(tab){
+  if(_pvwActiveTab===tab) return;
+  const idx=_pvwCurrentRowIndex();
+  _pvwActiveTab=tab;
+  _pvwSetTabUI();
+  renderPvwActive();
+  requestAnimationFrame(()=>_pvwScrollToIndex(idx));
+}
+// ── تبويب الحضور: شبكة أيام ملونة لنفس الصف/المجموعة المختارين فوق ──
+function renderPvwAttGrid(){
+  const from=document.getElementById('pvw-att-from')?.value, to=document.getElementById('pvw-att-to')?.value;
+  const cf=document.getElementById('pvw-cls')?.value||'', gf=document.getElementById('pvw-grp')?.value||'';
+  const body=document.getElementById('pvw-att-body');
+  if(!body) return;
+  if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; return; }
+  let dates=_dateRangeList(from,to);
+  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
+  if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+
+  let relevantDays=null;
+  if(gf){
+    relevantDays=_grpDayNums(gf);
+  } else {
+    const grpIds=[...new Set(students.map(s=>s.groupId).filter(Boolean))];
+    const union=new Set();
+    let anyDefined=false;
+    grpIds.forEach(gid=>{ const d=_grpDayNums(gid); if(d){ anyDefined=true; d.forEach(n=>union.add(n)); } });
+    if(anyDefined) relevantDays=union;
+  }
+  if(relevantDays && relevantDays.size){
+    dates=dates.filter(d=>{
+      const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+      return relevantDays.has(dt.getDay());
+    });
+  }
+
+  const metaEl=document.getElementById('pvw-att-meta');
+  if(metaEl) metaEl.innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
+  if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
+  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
+
+  const thStyle='color:#fff;font-weight:800;font-size:11px;white-space:nowrap;background:#1c2140;text-align:center;padding:6px 4px;';
+  const nameColW='150px';
+  const thead = `<th style="${thStyle}position:sticky;right:0;background:var(--bg3);z-index:3;text-align:right;padding:6px 10px;width:${nameColW};min-width:${nameColW};max-width:${nameColW};">الطالب</th>`
+    + dates.map(d=>{
+        const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+        return `<th style="${thStyle}">${_AVW_DAY_SHORT[dt.getDay()]}<br><span style="font-size:9.5px;opacity:.8;">${parts[2]}/${parts[1]}</span></th>`;
+      }).join('');
+
+  const tbody = students.map(s=>{
+    const cells=dates.map(d=>`<td style="text-align:center;padding:4px 3px;">${_avwBox(_avwCellStatus(s,d))}</td>`).join('');
+    return `<tr data-sid="${s.id}">
+      <td title="${s.fname} ${s.lname}" style="position:sticky;right:0;background:var(--bg2);z-index:1;white-space:nowrap;font-weight:700;padding:6px 10px;border-left:1px solid var(--border);width:${nameColW};min-width:${nameColW};max-width:${nameColW};overflow:hidden;text-overflow:ellipsis;">${s.fname} ${s.lname}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<table style="border-collapse:collapse;font-size:12px;">
+    <thead><tr style="position:sticky;top:0;z-index:2;">${thead}</tr></thead>
+    <tbody>${tbody}</tbody>
+  </table>`;
+}
+function renderPayViewDirect(){
+  const cf=document.getElementById('pvw-cls')?.value||'';
+  const gf=document.getElementById('pvw-grp')?.value||'';
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf))
+    .sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  const rows=students.map(s=>({s, sp:(DB.specialPays||[]).find(x=>x.studentId===s.id)}));
+  // الشهور: كل الشهور اللي ليها سجلات مدفوعات + الشهر الحالي، مرتبة تصاعدياً (الأقدم أولاً)
+  const monthSet=new Set((DB.payments||[]).map(p=>p.month));
+  monthSet.add(localMonth());
+  const monthsAsc=[...monthSet].sort();
+  // المنتجات: بترتيب إضافتها في البرنامج (الأقدم أولاً) — وبعد فلترة الصف: لو محدد صف معيّن، تتفلتر المنتجات
+  // بحيث تظهر بس منتجات نفس الصف (product.classId) + المنتجات العامة (بدون صف مخصص)؛ لو "كل الصفوف" تفضل كل المنتجات ظاهرة
+  const productsAsc=DB.products.filter(p=>!cf||!p.classId||p.classId===cf).map(p=>p.id);
+  // نعكس الترتيب عشان الأحدث يطلع أول عمود (جنب اسم الطالب) والأقدم يطلع آخر عمود ناحية اليسار
+  const months=monthsAsc.slice().reverse();
+  const products=productsAsc.slice().reverse();
+  // عمود الاسم بس (تم إخفاء أعمدة الصف/المجموعة/الحالة الخاصة هنا لأنها متاحة بالفعل كفلاتر فوق الجدول)
+  const selectedIds=['fullname'];
+  doPayViewExportDirect(rows, selectedIds, months, products, cf, gf);
+}
+// نسخة مخصّصة من عرض الجدول: بدون عمود ترقيم، وتثبيت عمود اسم الطالب فقط على اليمين
+function doPayViewExportDirect(rows, selectedIds, months, products, clsF, grpF){
+  products = products||[];
+  const cols = PAY_EXPORT_COLS.filter(c=>selectedIds.includes(c.id));
+  const nameCol = cols.find(c=>c.id==='fullname');
+  const restCols = cols.filter(c=>c.id!=='fullname');
+  const prodCols = products.map(pid=>DB.products.find(x=>x.id===pid)).filter(Boolean);
+  const clsLabel=clsF?(DB.classes.find(c=>c.id===clsF)?.name||'كل الصفوف'):'كل الصفوف';
+  const grpLabel=grpF?(DB.groups.find(g=>g.id===grpF)?.name||'كل المجموعات'):'كل المجموعات';
+  const monthsLabel=months.slice().reverse().map(monthLabelAr).join(' ، ');
+
+  document.getElementById('pay-view-meta').innerHTML=`
+    <span>🏫 الصف: <b>${clsLabel}</b></span>
+    <span>👥 المجموعة: <b>${grpLabel}</b></span>
+    <span>📅 الشهور: <b>${monthsLabel}</b></span>
+    <span>👤 عدد الطلاب: <b>${rows.length}</b></span>`;
+
+  const thStyle='color:#fff;font-weight:800;font-size:12px;text-transform:none;letter-spacing:0;white-space:nowrap;background:#1c2140;';
+  const thStyleCenter=thStyle+'text-align:center;';
+  const nameColW='150px';
+  const thNameStyle=thStyle+`position:sticky;right:0;z-index:4;text-align:right;padding:6px 10px;width:${nameColW};min-width:${nameColW};max-width:${nameColW};font-size:11px;`;
+
+  const thead = `<th style="${thNameStyle}">${nameCol?nameCol.label:'اسم الطالب'}</th>` +
+    restCols.map(c=>`<th style="${thStyle}">${c.label}</th>`).join('') +
+    months.map(m=>`<th style="${thStyleCenter}">${monthLabelAr(m)}</th>`).join('') +
+    prodCols.map(p=>`<th style="${thStyleCenter}">${p.icon||'📦'} ${p.name}<br><span style="font-size:9.5px;opacity:.85;">استلام</span></th><th style="${thStyleCenter}">${p.icon||'📦'} ${p.name}<br><span style="font-size:9.5px;opacity:.85;">دفع</span></th>`).join('');
+
+  const tbody = rows.map((r,i)=>{
+    const row = getExportPaymentRow(r, selectedIds, i, months, products);
+    const monthCells = months.map(m=>{
+      const p=DB.payments.find(x=>x.studentId===r.s.id && x.month===m);
+      const status=p?p.status:'unpaid';
+      const isExempt = r.sp && r.sp.type==='exemption';
+      const box = status==='paid' ? _pexStatusBox('✔','green')
+                : status==='partial' ? _pexStatusBox('~','amber')
+                : isExempt ? _pexStatusBox('','blue')
+                : _pexStatusBox('✘','red');
+      return `<td style="text-align:center;">${box}</td>`;
+    }).join('');
+    const prodCells = prodCols.map(p=>{
+      const st=_pexProductStatus(r.s.id, p.id);
+      const recvBox = st.received===null ? _pexStatusBox('—','gray') : st.received ? _pexStatusBox('✔','green') : _pexStatusBox('✘','red');
+      const paidBox = st.paid===null ? _pexStatusBox('—','gray') : st.paid ? _pexStatusBox('✔','green') : _pexStatusBox('✘','red');
+      return `<td style="text-align:center;">${recvBox}</td><td style="text-align:center;">${paidBox}</td>`;
+    }).join('');
+    const nameVal = row[nameCol?nameCol.label:'اسم الطالب']??'—';
+    return `<tr data-sid="${r.s.id}">`
+      + `<td title="${nameVal}" style="position:sticky;right:0;z-index:1;background:var(--bg2);white-space:nowrap;font-weight:700;font-size:12px;padding:6px 10px;border-left:1px solid var(--border);width:${nameColW};min-width:${nameColW};max-width:${nameColW};overflow:hidden;text-overflow:ellipsis;">${nameVal}</td>`
+      + restCols.map(c=>`<td style="font-weight:600;">${row[c.label]??'—'}</td>`).join('')
+      + monthCells
+      + prodCells
+      + '</tr>';
+  }).join('');
+
+  document.getElementById('pay-view-body').innerHTML = `<table style="border-collapse:collapse;font-size:12.5px;">
+    <thead><tr style="position:sticky;top:0;z-index:3;">${thead}</tr></thead>
+    <tbody>${tbody||`<tr><td colspan="${cols.length+months.length+prodCols.length*2}" style="text-align:center;padding:2rem;color:var(--text2);">لا توجد بيانات</td></tr>`}</tbody>
+  </table>`;
+}
+
 function doPayViewExport(rows, selectedIds, months, products, clsF, grpF){
   products = products||[];
   const cols = PAY_EXPORT_COLS.filter(c=>selectedIds.includes(c.id));
@@ -4598,23 +4863,45 @@ function doPayViewExport(rows, selectedIds, months, products, clsF, grpF){
     <span>📅 الشهور: <b>${monthsLabel}</b></span>
     <span>👤 عدد الطلاب: <b>${rows.length}</b></span>`;
 
-  const thead = '<th style="width:1%;white-space:nowrap;">#</th>' +
-    cols.filter(c=>c.id!=='num').map(c=>`<th>${c.label}</th>`).join('') +
-    months.map(m=>`<th style="text-align:center;">${monthLabelAr(m)}</th>`).join('') +
-    prodCols.map(p=>`<th style="text-align:center;">${p.icon||'📦'} ${p.name}<br><span style="font-size:8.5px;opacity:.75;">استلام</span></th><th style="text-align:center;">${p.icon||'📦'} ${p.name}<br><span style="font-size:8.5px;opacity:.75;">دفع</span></th>`).join('');
+  const thStyle='color:#fff;font-weight:800;font-size:12px;text-transform:none;letter-spacing:0;white-space:nowrap;background:#1c2140;';
+  const thStyleCenter=thStyle+'text-align:center;';
+  // خانة اسم الطالب: نفس أبعاد (عرض/طول) خانة الاسم في صفحة الحضور بالظبط
+  const thNameCellStyle=thStyle+'padding:6px 10px;font-size:11px;';
+  const tdNameCellStyle='font-weight:700;font-size:12px;padding:6px 10px;';
+
+  const thead = `<th style="${thStyle}width:1%;">#</th>` +
+    cols.filter(c=>c.id!=='num').map(c=>`<th style="${c.id==='fullname'?thNameCellStyle:thStyle}">${c.label}</th>`).join('') +
+    months.map(m=>`<th style="${thStyleCenter}">${monthLabelAr(m)}</th>`).join('') +
+    prodCols.map(p=>`<th style="${thStyleCenter}">${p.icon||'📦'} ${p.name}<br><span style="font-size:9.5px;opacity:.85;">استلام</span></th><th style="${thStyleCenter}">${p.icon||'📦'} ${p.name}<br><span style="font-size:9.5px;opacity:.85;">دفع</span></th>`).join('');
 
   const tbody = rows.map((r,i)=>{
     const row = getExportPaymentRow(r, selectedIds, i, months, products);
+    const monthCells = months.map(m=>{
+      const p=DB.payments.find(x=>x.studentId===r.s.id && x.month===m);
+      const status=p?p.status:'unpaid';
+      const isExempt = r.sp && r.sp.type==='exemption';
+      const box = status==='paid' ? _pexStatusBox('✔','green')
+                : status==='partial' ? _pexStatusBox('~','amber')
+                : isExempt ? _pexStatusBox('','blue')
+                : _pexStatusBox('✘','red');
+      return `<td style="text-align:center;">${box}</td>`;
+    }).join('');
+    const prodCells = prodCols.map(p=>{
+      const st=_pexProductStatus(r.s.id, p.id);
+      const recvBox = st.received===null ? _pexStatusBox('—','gray') : st.received ? _pexStatusBox('✔','green') : _pexStatusBox('✘','red');
+      const paidBox = st.paid===null ? _pexStatusBox('—','gray') : st.paid ? _pexStatusBox('✔','green') : _pexStatusBox('✘','red');
+      return `<td style="text-align:center;">${recvBox}</td><td style="text-align:center;">${paidBox}</td>`;
+    }).join('');
     return '<tr>'
-      + `<td style="color:var(--text2);">${i+1}</td>`
-      + cols.filter(c=>c.id!=='num').map(c=>`<td>${row[c.label]??'—'}</td>`).join('')
-      + months.map(m=>`<td style="text-align:center;font-weight:800;">${row[monthLabelAr(m)]}</td>`).join('')
-      + prodCols.map(p=>`<td style="text-align:center;font-weight:800;">${row[`${p.icon||'📦'} ${p.name} - الاستلام`]}</td><td style="text-align:center;font-weight:800;">${row[`${p.icon||'📦'} ${p.name} - الدفع`]}</td>`).join('')
+      + `<td style="color:var(--text2);font-weight:700;">${i+1}</td>`
+      + cols.filter(c=>c.id!=='num').map(c=>`<td style="${c.id==='fullname'?tdNameCellStyle:'font-weight:600;'}">${row[c.label]??'—'}</td>`).join('')
+      + monthCells
+      + prodCells
       + '</tr>';
   }).join('');
 
   document.getElementById('pay-view-body').innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-    <thead><tr style="position:sticky;top:0;background:var(--bg3);z-index:2;">${thead}</tr></thead>
+    <thead><tr style="position:sticky;top:0;z-index:2;">${thead}</tr></thead>
     <tbody>${tbody||`<tr><td colspan="${cols.length+months.length+prodCols.length*2+1}" style="text-align:center;padding:2rem;color:var(--text2);">لا توجد بيانات</td></tr>`}</tbody>
   </table>`;
 
@@ -5995,7 +6282,8 @@ function renderAttViewGrid(){
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
 
   const thStyle='color:#fff;font-weight:800;font-size:11px;white-space:nowrap;background:#1c2140;text-align:center;padding:6px 4px;';
-  const thead = `<th style="${thStyle}position:sticky;right:0;background:var(--bg3);z-index:3;text-align:right;padding:6px 10px;">الطالب</th>`
+  const nameColW='150px';
+  const thead = `<th style="${thStyle}position:sticky;right:0;background:var(--bg3);z-index:3;text-align:right;padding:6px 10px;width:${nameColW};min-width:${nameColW};max-width:${nameColW};">الطالب</th>`
     + dates.map(d=>{
         const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
         return `<th style="${thStyle}">${_AVW_DAY_SHORT[dt.getDay()]}<br><span style="font-size:9.5px;opacity:.8;">${parts[2]}/${parts[1]}</span></th>`;
@@ -6004,7 +6292,7 @@ function renderAttViewGrid(){
   const tbody = students.map(s=>{
     const cells=dates.map(d=>`<td style="text-align:center;padding:4px 3px;">${_avwBox(_avwCellStatus(s,d))}</td>`).join('');
     return `<tr>
-      <td style="position:sticky;right:0;background:var(--bg2);z-index:1;white-space:nowrap;font-weight:700;padding:6px 10px;border-left:1px solid var(--border);">${s.fname} ${s.lname}</td>
+      <td title="${s.fname} ${s.lname}" style="position:sticky;right:0;background:var(--bg2);z-index:1;white-space:nowrap;font-weight:700;padding:6px 10px;border-left:1px solid var(--border);width:${nameColW};min-width:${nameColW};max-width:${nameColW};overflow:hidden;text-overflow:ellipsis;">${s.fname} ${s.lname}</td>
       ${cells}
     </tr>`;
   }).join('');
