@@ -4742,6 +4742,8 @@ function renderPvwAttGrid(){
       return relevantDays.has(dt.getDay());
     });
   }
+  // الأحدث يظهر بجوار عمود الاسم (يمين) والأقدم في أقصى اليسار
+  dates=dates.slice().reverse();
 
   const metaEl=document.getElementById('pvw-att-meta');
   if(metaEl) metaEl.innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
@@ -6276,6 +6278,8 @@ function renderAttViewGrid(){
       return relevantDays.has(dt.getDay());
     });
   }
+  // الأحدث يظهر بجوار عمود الاسم (يمين) والأقدم في أقصى اليسار
+  dates=dates.slice().reverse();
 
   document.getElementById('avw-meta').innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
   if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
