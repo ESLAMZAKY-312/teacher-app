@@ -666,7 +666,7 @@ async function _loadFromFirebase(){
       <option value="newest">أحدث تسجيلاً</option>
       <option value="gender">الجنس (ذكور ثم إناث)</option>
     </select>
-    <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;" title="الطلاب اللي غابوا أكتر من 3 حصص بيتم استبعادهم تلقائياً من القوائم والحسابات المالية دون حذفهم">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;" title="الطلاب اللي غابوا 3 أيام متتالية بيتم استبعادهم تلقائياً من القوائم والحسابات المالية دون حذفهم">
       <input type="checkbox" id="st-show-excluded" onchange="renderStudents()" style="cursor:pointer;">
       إظهار المستبعدين (غياب متكرر)
     </label>
@@ -2163,7 +2163,7 @@ async function _loadFromFirebase(){
     <!-- تفاصيل التعارض -->
     <div id="wgm-conflicts" style="display:flex;flex-direction:column;gap:7px;margin-bottom:1rem;"></div>
 
-    <div style="font-size:11.5px;color:var(--text2);text-align:center;margin-bottom:1rem;">هل تريد تسجيل حضوره على أيّ حال؟</div>
+    <div id="wgm-question" style="font-size:11.5px;color:var(--text2);text-align:center;margin-bottom:1rem;">هل تريد تسجيل حضوره على أيّ حال؟</div>
 
     <div class="fa" style="gap:.6rem;">
       <button class="btn btn-danger" style="flex:1;font-size:13px;" onclick="wgmDecide(false)">❌ رفض</button>
@@ -3586,9 +3586,40 @@ function stuAbsentCount(sid){
   Object.values(DB.attendance).forEach(day=>{ if(day[sid]==='absent') c++; });
   return (_cache[key]=c);
 }
-// ── طالب "مستبعد" بسبب تكرار الغياب: غاب أكتر من 3 حصص — يُستبعد من قوائم الطلاب والحسابات المالية دون حذفه ──
+// ── متتالية الغياب الحالية لطالب معين: عدد أيام الغياب المتتالية (بدون أي حضور بينها) حتى آخر
+// يوم مسجّل في جدول مجموعته، + تاريخ آخر غياب في هذه المتتالية (يُستخدم لترتيب المستبعدين) ──
+function _stuAbsenceStreakInfo(sid){
+  const key='sasi_'+sid;
+  if(_cache[key]!=null) return _cache[key];
+  const s=stu(sid);
+  const dateKeys=Object.keys(DB.attendance).sort();
+  let streak=0, lastDate=null;
+  for(let i=0;i<dateKeys.length;i++){
+    const d=dateKeys[i];
+    const v=DB.attendance[d][sid];
+    if(v===undefined) continue;
+    if(s){
+      const allowedDays=_grpDayNums(_grpIdOnDate(s,d));
+      if(allowedDays){
+        const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
+        if(!allowedDays.has(dt.getDay())) continue; // يوم خارج جدول مجموعته وقتها — لا يدخل في حساب المتتالية
+      }
+    }
+    if(v==='absent'){ streak++; lastDate=d; }
+    else { streak=0; lastDate=null; } // أي حضور (عادي/متأخر/استثنائي) بيصفّر متتالية الغياب
+  }
+  return (_cache[key]={streak,lastDate});
+}
+// ── طالب "مستبعد" بسبب تكرار الغياب: غاب 3 أيام متتالية بدون انقطاع — يُستبعد من قوائم
+// الطلاب والحسابات المالية دون حذفه، ويُنقل لنهاية القوائم مرتّباً تنازلياً حسب تاريخ الاستبعاد ──
 function isStuFinExcluded(sid){
-  return stuAbsentCount(sid) > 3;
+  return _stuAbsenceStreakInfo(sid).streak >= 3;
+}
+// ── تاريخ استبعاد الطالب (تاريخ آخر غياب في متتالية الغياب الحالية) — null لو غير مستبعد.
+// يُستخدم لترتيب المستبعدين تنازلياً: الأحدث استبعاداً أولاً، والأقدم استبعاداً في الآخر ──
+function stuExclusionDate(sid){
+  const info=_stuAbsenceStreakInfo(sid);
+  return info.streak>=3 ? info.lastDate : null;
 }
 
 // ── stuAvg مع Cache ──
@@ -3786,7 +3817,7 @@ function closeModal(id){
 function _refocusStudentsSearch(){
   const stuPage=document.getElementById('page-students');
   if(!stuPage || !stuPage.classList.contains('active')) return; // فقط لو تبويب الطلاب هو النشط حالياً
-  setTimeout(()=>{ document.getElementById('st-q')?.focus(); },60);
+  setTimeout(()=>{ document.getElementById('st-q')?.focus({preventScroll:true}); },60);
 }
 // إعادة تبويب المتجر لحالته الأصلية وتركيز خانة الباركود بعد إغلاق نافذة متجر الطالب
 function _resetStoreSearchState(){
@@ -3911,7 +3942,7 @@ function gp(id){
   if(id==='payments') setTimeout(()=>{ document.getElementById('pay-search')?.focus(); },80);
   if(id==='store') setTimeout(()=>{ document.getElementById('store-barcode-search')?.focus(); },80);
   if(id==='attendance') focusBarcodeInput();
-  if(id==='students') setTimeout(()=>{ document.getElementById('st-q')?.focus(); },80);
+  if(id==='students') setTimeout(()=>{ document.getElementById('st-q')?.focus({preventScroll:true}); },80);
 }
 
 // ================================================================
@@ -4035,20 +4066,28 @@ function renderStudents(){
     const cc=!cf||s.classId===cf; const gc=!gf||s.groupId===gf;
     return nm&&cc&&gc;
   });
-  // ── استبعاد الطلاب اللي غابوا أكتر من 3 حصص من القوائم افتراضياً (بدون حذفهم من قاعدة البيانات) ──
+  // ── استبعاد الطلاب اللي غابوا 3 أيام متتالية من القوائم افتراضياً (بدون حذفهم من قاعدة البيانات) ──
   const excludedCount = list.filter(s=>isStuFinExcluded(s.id)).length;
-  if(!showExcluded) list = list.filter(s=>!isStuFinExcluded(s.id));
   const excNoteEl=document.getElementById('stu-excluded-note');
   if(excNoteEl) excNoteEl.textContent = excludedCount ? `(${excludedCount} مستبعد بسبب الغياب المتكرر)` : '';
-  if(sf==='alpha') list=list.slice().sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
-  else if(sf==='alpha_desc') list=list.slice().sort((a,b)=>(b.fname+b.lname).localeCompare(a.fname+a.lname,'ar'));
-  else if(sf==='oldest') list=list.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
-  else if(sf==='newest') list=list.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  else if(sf==='gender') list=list.slice().sort((a,b)=>{
+  let normalList = list.filter(s=>!isStuFinExcluded(s.id));
+  if(sf==='alpha') normalList=normalList.slice().sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  else if(sf==='alpha_desc') normalList=normalList.slice().sort((a,b)=>(b.fname+b.lname).localeCompare(a.fname+a.lname,'ar'));
+  else if(sf==='oldest') normalList=normalList.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  else if(sf==='newest') normalList=normalList.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  else if(sf==='gender') normalList=normalList.slice().sort((a,b)=>{
     const ga=a.gender==='female'?1:0, gb=b.gender==='female'?1:0;
     if(ga!==gb) return ga-gb; // الذكور (0) قبل الإناث (1)
     return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'); // أبجدياً داخل نفس الجنس
   });
+  // ── المستبعدون دايماً في نهاية القائمة، مرتّبين تنازلياً: الأحدث استبعاداً أولاً بينهم، والأقدم استبعاداً في آخر القائمة كلها ──
+  if(showExcluded){
+    const excludedList = list.filter(s=>isStuFinExcluded(s.id))
+      .sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
+    list = normalList.concat(excludedList);
+  } else {
+    list = normalList;
+  }
   // update counter
   const countEl=document.getElementById('stu-count');
   if(countEl) countEl.textContent=list.length+'/'+DB.students.length;
@@ -4064,7 +4103,7 @@ function renderStudents(){
         <div style="width:40px;height:40px;border-radius:50%;background:${s.color}22;border:2px solid ${s.color}55;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:${s.color};">${initials||'?'}</div>
       </td>
       <td>
-        <div style="font-weight:700;font-size:13px;">${s.fname} ${s.lname}${isExc?' <span title="مستبعد — غاب أكتر من 3 حصص" style="font-size:9.5px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>
+        <div style="font-weight:700;font-size:13px;">${s.fname} ${s.lname}${isExc?' <span title="مستبعد — غاب 3 أيام متتالية" style="font-size:9.5px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>
         <div style="font-size:10px;color:var(--text2);margin-top:1px;">📞 ${s.phone||'—'}</div>
       </td>
       <td style="font-size:12px;color:var(--text2);">${s.parentPhone||'—'}</td>
@@ -6712,6 +6751,54 @@ function checkIn(sid, forceAll){
   const s=stu(sid); if(!s) return;
   const today=localDate();
 
+  // ── طالب مستبعد (غاب 3 أيام متتالية) وعاد يمسح الباركود: وقف التسجيل واعرض تحذير
+  // للمعلم — الحضور ميتسجّلش إلا بعد الرجوع للمعلم والضغط على "إلغاء" أو "موافقة" ──
+  if(!forceAll && isStuFinExcluded(sid)){
+    _wgmPending={ sid };
+
+    const iconBg='rgba(255,77,109,.15)', iconBorder='rgba(255,77,109,.4)';
+    const titleColor='var(--red)', iconEmoji='⛔', titleTxt='طالب مستبعد!';
+
+    document.getElementById('wgm-icon').style.cssText=
+      `width:64px;height:64px;border-radius:50%;background:${iconBg};border:2px solid ${iconBorder};`+
+      `display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto .8rem;`;
+    document.getElementById('wgm-icon').textContent=iconEmoji;
+    document.getElementById('wgm-title').style.color=titleColor;
+    document.getElementById('wgm-title').textContent=titleTxt;
+
+    document.getElementById('wgm-avatar').textContent=s.fname[0];
+    document.getElementById('wgm-avatar').style.background=(s.color||'var(--accent)')+'22';
+    document.getElementById('wgm-avatar').style.color=s.color||'var(--accent)';
+    document.getElementById('wgm-name').textContent=s.fname+' '+s.lname;
+
+    document.getElementById('wgm-tags').innerHTML=
+      _tag('📚', clsN(s.classId), '#4f7cff')+
+      _tag('👥', grpN(s.groupId), '#7c5cff');
+
+    const exDate=stuExclusionDate(sid);
+    document.getElementById('wgm-conflicts').innerHTML=`<div style="background:rgba(255,77,109,.07);border:1px solid rgba(255,77,109,.25);border-radius:var(--rs);padding:9px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;">
+        <span style="font-size:16px;flex-shrink:0;">⛔</span>
+        <div><span style="font-weight:700;color:var(--red);">مستبعد بسبب الغياب المتكرر</span><br>
+        غاب 3 أيام متتالية بدون حضور${exDate?' — آخر غياب بتاريخ <b>'+exDate+'</b>':''}</div>
+      </div>`;
+    document.getElementById('wgm-subtitle').textContent=
+      'هذا الطالب مستبعد ولن يتم قبول حضوره إلا بالرجوع إلى المعلم';
+    const qEl=document.getElementById('wgm-question');
+    if(qEl) qEl.textContent='راجع المعلم أولاً — بعد ذلك اضغط "إلغاء" أو "موافقة وتسجيل"';
+
+    const r0=document.getElementById('scan-res');
+    if(r0){
+      r0.style.display='block';
+      r0.style.background='rgba(255,77,109,.1)';
+      r0.style.borderColor='rgba(255,77,109,.3)';
+      r0.style.color='var(--red)';
+      r0.innerHTML=`⛔ <b>${s.fname} ${s.lname}</b> — طالب مستبعد — ينتظر موافقة المعلم`;
+    }
+
+    openModal('wrong-grp-modal');
+    return;
+  }
+
   // ── فحص الوقت فقط، بناءً على ميعاد مجموعة الطالب الأصلية المسجل بها ──
   // (تم إلغاء فحص "المجموعة المعروضة حالياً على الشاشة" بناءً على طلب المستخدم:
   // بمجرد مسح الباركود، يُسجَّل الطالب حاضراً تلقائياً طالما الوقت الحالي يقع
@@ -6787,6 +6874,7 @@ function checkIn(sid, forceAll){
   document.getElementById('wgm-conflicts').innerHTML=conflicts;
   document.getElementById('wgm-subtitle').textContent=
     `وقت المجموعة ${timeCheck.grpTimeFrom}–${timeCheck.grpTimeTo} — الوقت الحالي ${timeCheck.nowStr}`;
+  { const qEl=document.getElementById('wgm-question'); if(qEl) qEl.textContent='هل تريد تسجيل حضوره على أيّ حال؟'; }
 
   // scan-res بلون تحذيري
   const r=document.getElementById('scan-res');
@@ -8014,7 +8102,7 @@ function renderPayments(){
   const csel=document.getElementById('pay-cls-f'); if(csel){ const v=csel.value; csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); csel.value=v; }
   const gsel=document.getElementById('pay-grp-f'); if(gsel){ const v=gsel.value; gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cf||g.classId===cf).map(g=>`<option value="${g.id}">${g.name}</option>`).join(''); gsel.value=v; }
   const paid=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
-  // ── الطلاب المستبعدين (غياب أكتر من 3 حصص) لا يُحتسبون ضمن غير المسددين ولا المتأخرات ──
+  // ── الطلاب المستبعدين (غياب 3 أيام متتالية) لا يُحتسبون ضمن غير المسددين ولا المتأخرات ──
   const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
   // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
   const unpaidStForTotal=_dedupeSiblingsForTotals(unpaidSt);
