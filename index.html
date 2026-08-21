@@ -3967,12 +3967,13 @@ function toggleTheme(){
 // ================================================================
 function renderDashboard(){
   const today=localDate(), att=DB.attendance[today]||{};
-  const total=DB.students.length;
+  const activeStudents=DB.students.filter(s=>!isStuFinExcluded(s.id));
+  const total=activeStudents.length;
   // ── معدل حضور اليوم: يُحسب فقط من طلاب المجموعات اللي ليها حصة النهاردة ──
   // (مش من إجمالي كل الطلاب) — طالب في مجموعة مالهاش حصة النهاردة أصلاً مش
-  // المفروض يتحسب لا في المقام ولا في البسط.
+  // المفروض يتحسب لا في المقام ولا في البسط. والطلاب المستبعدين لا يُحسبون هنا إطلاقاً.
   const todayDow=new Date().getDay();
-  const todayStudents=DB.students.filter(s=>{
+  const todayStudents=activeStudents.filter(s=>{
     const allowed=_grpDayNums(s.groupId);
     return !allowed || allowed.has(todayDow); // مجموعة من غير أيام محددة = تتحسب دايماً
   });
@@ -3987,18 +3988,19 @@ function renderDashboard(){
   // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
   const unpaidForTotal=_dedupeSiblingsForTotals(unpaid);
   const unpaidN=unpaidForTotal.length;
-  const allScores=DB.grades.map(g=>Math.round(g.score/g.outOf*100));
+  const activeGrades=DB.grades.filter(g=>!isStuFinExcluded(g.studentId));
+  const allScores=activeGrades.map(g=>Math.round(g.score/g.outOf*100));
   const avg=allScores.length?Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length):0;
   const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
 
   document.getElementById('dash-metrics').innerHTML=`
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${todayTotal?Math.round(todayAttended/todayTotal*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${todayAttended} حاضر من ${todayTotal}${todayLate?` (منهم ${todayLate} متأخر)`:''}</div></div>
-    <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${DB.grades.length} درجة مسجلة</div></div>
+    <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${activeGrades.length} درجة مسجلة</div></div>
     <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaidForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))} متأخر</div></div>`;
 
-  // ── أحدث الطلاب: آخر 6 طلاب تمت إضافتهم فعلاً (آخر عناصر مُضافة للمصفوفة)، مش أول 6 بترتيب التخزين ──
-  document.getElementById('dash-stu-tb').innerHTML=DB.students.slice(-6).reverse().map(s=>`
+  // ── أحدث الطلاب: آخر 6 طلاب تمت إضافتهم فعلاً (آخر عناصر مُضافة للمصفوفة)، مش أول 6 بترتيب التخزين — بدون المستبعدين ──
+  document.getElementById('dash-stu-tb').innerHTML=activeStudents.slice(-6).reverse().map(s=>`
     <tr><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td>
     <td style="font-size:11px;color:var(--text2)">${clsN(s.classId)}</td>
     <td><div class="pw" style="min-width:70px"><div class="pb"><div class="pf" style="width:${attPct(s.id)}%;background:${grCol(attPct(s.id))}"></div></div><span class="pl" style="color:${grCol(attPct(s.id))}">${attPct(s.id)}%</span></div></td>
@@ -4768,7 +4770,10 @@ function renderPvwAttGrid(){
   let dates=_dateRangeList(from,to);
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
   if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  const _excS=students.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
+  students.length=0; students.push.apply(students,_normS.concat(_excS));
 
   let relevantDays=null;
   if(gf){
@@ -4790,7 +4795,7 @@ function renderPvwAttGrid(){
   dates=dates.slice().reverse();
 
   const metaEl=document.getElementById('pvw-att-meta');
-  if(metaEl) metaEl.innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
+  if(metaEl) metaEl.innerHTML=`👤 عدد الطلاب: <b>${_normS.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
   if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
 
@@ -4818,8 +4823,9 @@ function renderPvwAttGrid(){
 function renderPayViewDirect(){
   const cf=document.getElementById('pvw-cls')?.value||'';
   const gf=document.getElementById('pvw-grp')?.value||'';
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf))
-    .sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  const _allS=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const students=_allS.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'))
+    .concat(_allS.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||'')));
   const rows=students.map(s=>({s, sp:(DB.specialPays||[]).find(x=>x.studentId===s.id)}));
   // الشهور: كل الشهور اللي ليها سجلات مدفوعات + الشهر الحالي، مرتبة تصاعدياً (الأقدم أولاً)
   const monthSet=new Set((DB.payments||[]).map(p=>p.month));
@@ -4850,7 +4856,7 @@ function doPayViewExportDirect(rows, selectedIds, months, products, clsF, grpF){
     <span>🏫 الصف: <b>${clsLabel}</b></span>
     <span>👥 المجموعة: <b>${grpLabel}</b></span>
     <span>📅 الشهور: <b>${monthsLabel}</b></span>
-    <span>👤 عدد الطلاب: <b>${rows.length}</b></span>`;
+    <span>👤 عدد الطلاب: <b>${rows.filter(r=>!isStuFinExcluded(r.s.id)).length}</b></span>`;
 
   const thStyle='color:#fff;font-weight:800;font-size:12px;text-transform:none;letter-spacing:0;white-space:nowrap;background:#1c2140;';
   const thStyleCenter=thStyle+'text-align:center;';
@@ -4907,7 +4913,7 @@ function doPayViewExport(rows, selectedIds, months, products, clsF, grpF){
     <span>🏫 الصف: <b>${clsLabel}</b></span>
     <span>👥 المجموعة: <b>${grpLabel}</b></span>
     <span>📅 الشهور: <b>${monthsLabel}</b></span>
-    <span>👤 عدد الطلاب: <b>${rows.length}</b></span>`;
+    <span>👤 عدد الطلاب: <b>${rows.filter(r=>!isStuFinExcluded(r.s.id)).length}</b></span>`;
 
   const thStyle='color:#fff;font-weight:800;font-size:12px;text-transform:none;letter-spacing:0;white-space:nowrap;background:#1c2140;';
   const thStyleCenter=thStyle+'text-align:center;';
@@ -6205,15 +6211,21 @@ function renderAttGrid(){
   if(!gf&&!cf){ document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--text3);"><div style="font-size:40px;margin-bottom:.75rem;">📷</div><div style="font-size:13px;">اختر صفاً أو مجموعةً لعرض الطلاب، أو امسح الباركود مباشرة</div></div>`; updateAttCounts([]); return; }
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
   if(!students.length){ document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--text3);">لا يوجد طلاب في هذه المجموعة</div>`; return; }
-  document.getElementById('att-grid').innerHTML=students.map(s=>{
+  // ── المستبعدون (غياب 3 أيام متتالية) يُعرضون في نهاية الشبكة فقط بدون احتساب في الإحصاءات ──
+  const normalStudents=students.filter(s=>!isStuFinExcluded(s.id));
+  const excludedStudents=students.filter(s=>isStuFinExcluded(s.id))
+    .sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
+  const orderedStudents=normalStudents.concat(excludedStudents);
+  document.getElementById('att-grid').innerHTML=orderedStudents.map(s=>{
     const st=attState[s.id]||'unknown';
-    const bc={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'}[st]||'var(--border)';
-    const bg={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'}[st]||'var(--card)';
-    return `<div id="ac-${s.id}" style="background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;">
+    const isExc=isStuFinExcluded(s.id);
+    const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'}[st]||'var(--border)');
+    const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'}[st]||'var(--card)');
+    return `<div id="ac-${s.id}" style="background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;${isExc?'opacity:.6;':''}">
       <div class="av av40" style="margin:0 auto 5px;background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
-      <div style="font-size:11.5px;font-weight:700;">${s.fname} ${s.lname}</div>
+      <div style="font-size:11.5px;font-weight:700;">${s.fname} ${s.lname}${isExc?' <span title="مستبعد — غاب 3 أيام متتالية" style="font-size:9px;font-weight:800;color:var(--red);">⛔</span>':''}</div>
       <div style="font-size:10px;color:var(--text2);margin-top:1px;">${grpN(s.groupId)}</div>
-      <div id="as-${s.id}" style="font-size:10.5px;margin:3px 0 7px;">${attLbl(st)}</div>
+      <div id="as-${s.id}" style="font-size:10.5px;margin:3px 0 7px;">${isExc?'⛔ مستبعد':attLbl(st)}</div>
       <div style="display:flex;gap:3px;justify-content:center;">
         <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${st==='present'?'rgba(34,201,122,.2)':'transparent'};color:${st==='present'?'var(--green)':'var(--text2)'};cursor:pointer;font-size:11px;" onclick="setAtt('${s.id}','present')">✅</button>
         <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${st==='late'?'rgba(245,166,35,.2)':'transparent'};color:${st==='late'?'var(--amber)':'var(--text2)'};cursor:pointer;font-size:11px;" onclick="setAtt('${s.id}','late')">⏰</button>
@@ -6222,13 +6234,13 @@ function renderAttGrid(){
       </div>
     </div>`;
   }).join('');
-  updateAttCounts(students);
+  updateAttCounts(normalStudents);
 }
 function closeAttendance(){
   const date=document.getElementById('att-date')?.value||localDate();
   if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   const gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
   if(!students.length){toast('اختر مجموعة أولاً','e');return;}
   if(!confirm(`سيتم تسجيل الغياب لكل من لم يُسجَّل حضوره في هذه المجموعة (${students.length} طالب). متابعة؟`))return;
   if(!DB.attendance[date])DB.attendance[date]={};
@@ -6312,7 +6324,10 @@ function renderAttViewGrid(){
   let dates=_dateRangeList(from,to);
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
   if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+  const _excS=students.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
+  students.length=0; students.push.apply(students,_normS.concat(_excS));
 
   // ── اقتصار الأعمدة على أيام الحصص الفعلية بس (لصف/مجموعة واحدة محددة، أو اتحاد أيام كل المجموعات المعروضة) ──
   let relevantDays=null; // null = كل الأيام (fallback لو مفيش أيام معرّفة)
@@ -6334,7 +6349,7 @@ function renderAttViewGrid(){
   // الأحدث يظهر بجوار عمود الاسم (يمين) والأقدم في أقصى اليسار
   dates=dates.slice().reverse();
 
-  document.getElementById('avw-meta').innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
+  document.getElementById('avw-meta').innerHTML=`👤 عدد الطلاب: <b>${_normS.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
   if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
 
@@ -6403,7 +6418,7 @@ function bulkMarkGroupPresent(){
   const date=document.getElementById('att-date')?.value; if(!date){toast('اختر التاريخ أولاً','e');return;}
   if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   const gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
   if(!students.length){toast('اختر صفاً أو مجموعة أولاً','e');return;}
   if(!confirm(`سيتم تسجيل حضور جميع طلاب هذه المجموعة (${students.length} طالب) دفعة واحدة.\nتقدر تعدّل أي طالب بعد كده لو محتاج. متابعة؟`))return;
   if(!DB.attendance[date]) DB.attendance[date]={};
@@ -6420,7 +6435,7 @@ function renderTodayLog(){
   // سجل اليوم يعرض اليوم الحالي دائماً — بغض النظر عن التاريخ المختار في حقل att-date
   const date = localDate();
   const log  = DB.attendance[date] || {};
-  const entries = Object.entries(log).filter(([id,v]) => stu(id) && (v==='present'||v==='absent'||v==='late'||v==='exceptional'));
+  const entries = Object.entries(log).filter(([id,v]) => stu(id) && !isStuFinExcluded(id) && (v==='present'||v==='absent'||v==='late'||v==='exceptional'));
 
   // تحديث تسمية التاريخ في رأس القسم
   const dateLabel = document.getElementById('today-log-date-label');
@@ -10049,6 +10064,12 @@ function renderRevenue(){
   const totalExp=DB.expenses.reduce((a,b)=>a+b.amount,0);
   const storeRev=DB.sales.reduce((a,b)=>a+b.total,0);
   const totalRev=paid.reduce((a,b)=>a+b.amount,0)+storeRev;
+  // ── الدخل المتوقع: إجمالي رسوم كل الطلاب (غير المستبعدين) للشهر الحالي، مع اعتبار
+  // حالات الدفع الخاصة (إعفاء/خصم إخوة/مبلغ مخصص) بدل الرسم القياسي — يعكس القيمة الفعلية المتوقع تحصيلها ──
+  const activeForExpected=DB.students.filter(s=>!isStuFinExcluded(s.id));
+  const expectedIncome=activeForExpected.reduce((a,s)=>a+stuEffectiveFee(s),0);
+  const specialPayIds=new Set((DB.specialPays||[]).map(sp=>sp.studentId));
+  const specialTotal=activeForExpected.filter(s=>specialPayIds.has(s.id)).reduce((a,s)=>a+stuEffectiveFee(s),0);
 
   // ── تصفية بحسب الفترة إن وُجدت ──
   const _inRange=(dateStr)=>{
@@ -10078,6 +10099,7 @@ function renderRevenue(){
     <div class="mc mc-p"><div class="mi">👥</div><div class="mv">${rangePaidStudents.length}</div><div class="ml">عدد الطلاب</div></div>` : `
     <div class="mc mc-g"><div class="mi">📅</div><div class="mv">${fmtM(todRev)}</div><div class="ml">إيرادات اليوم</div></div>
     <div class="mc mc-b"><div class="mi">📆</div><div class="mv">${fmtM(tmRev)}</div><div class="ml">الشهر الحالي</div></div>
+    <div class="mc mc-a"><div class="mi">🔮</div><div class="mv">${fmtM(expectedIncome)}</div><div class="ml">الدخل المتوقع (الشهر الحالي)</div><div class="mt2" style="color:var(--purple)">${fmtM(specialTotal)} حالات دفع خاصة</div></div>
     <div class="mc mc-p"><div class="mi">📊</div><div class="mv">${fmtM(lmRev)}</div><div class="ml">الشهر الماضي</div></div>
     <div class="mc mc-r"><div class="mi">📤</div><div class="mv">${fmtM(totalExp)}</div><div class="ml">المصروفات</div></div>
     <div class="mc mc-t"><div class="mi">🛒</div><div class="mv">${fmtM(storeRev)}</div><div class="ml">إيراد المتجر</div></div>
@@ -10088,10 +10110,16 @@ function renderRevenue(){
   if(lbl) lbl.textContent=hasFilter?`${fromD||'البداية'} → ${toD||'اليوم'} (${filteredPaid.length} دفعة)`:'';
 
   // ── سجل الإيرادات ──
-  document.getElementById('rev-list').innerHTML=filteredPaid.slice().reverse().map(p=>{ const s=stu(p.studentId); return `<div style="display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);gap:8px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${stuN(p.studentId)}</div><div style="font-size:10px;color:var(--text2);">${p.month} · ${p.date}</div></div><div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div></div>`; }).join('')||'<div class="empty"><div>لا توجد إيرادات في هذه الفترة</div></div>';
+  // ── سجل الإيرادات: ترتيب تنازلي دائماً حسب التاريخ (الأحدث أولاً) — وليس فقط بترتيب الإضافة ──
+  document.getElementById('rev-list').innerHTML=filteredPaid.slice().reverse()
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+    .map(p=>{ const s=stu(p.studentId); return `<div style="display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);gap:8px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${stuN(p.studentId)}</div><div style="font-size:10px;color:var(--text2);">${p.month} · ${p.date}</div></div><div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div></div>`; }).join('')||'<div class="empty"><div>لا توجد إيرادات في هذه الفترة</div></div>';
 
   // ── المصروفات ──
-  document.getElementById('exp-list').innerHTML=filteredExp.slice().reverse().map(e=>`<div style="display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);gap:8px;"><span style="font-size:20px;">📤</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${e.name}</div><div style="font-size:10px;color:var(--text2);">${e.date}</div></div><div style="font-weight:700;color:var(--red);">-${fmtM(e.amount)}</div><button class="btn btn-danger btn-xs" onclick="DB.expenses=DB.expenses.filter(x=>x.id!=='${e.id}');save();renderRevenue()">🗑</button></div>`).join('')||'<div class="empty"><div>لا توجد مصروفات</div></div>';
+  // ── المصروفات: ترتيب تنازلي دائماً حسب التاريخ (الأحدث أولاً) ──
+  document.getElementById('exp-list').innerHTML=filteredExp.slice().reverse()
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+    .map(e=>`<div style="display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);gap:8px;"><span style="font-size:20px;">📤</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${e.name}</div><div style="font-size:10px;color:var(--text2);">${e.date}</div></div><div style="font-weight:700;color:var(--red);">-${fmtM(e.amount)}</div><button class="btn btn-danger btn-xs" onclick="DB.expenses=DB.expenses.filter(x=>x.id!=='${e.id}');save();renderRevenue()">🗑</button></div>`).join('')||'<div class="empty"><div>لا توجد مصروفات</div></div>';
 }
 function addExpense(){ const n=document.getElementById('exp-name').value.trim(), a=+document.getElementById('exp-amt').value; if(!n||!a){toast('أكمل البيانات','e');return;} DB.expenses.push({id:nid('exp'),name:n,amount:a,date:document.getElementById('exp-date').value}); save(); closeModal('add-expense-modal'); renderRevenue(); toast('✅ تم تسجيل المصروف'); }
 
