@@ -30,9 +30,11 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;font-family:'Cairo',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;}
-::-webkit-scrollbar{width:5px;height:5px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+::-webkit-scrollbar{width:14px;height:14px;}
+::-webkit-scrollbar-track{background:var(--bg3);border-radius:8px;}
+::-webkit-scrollbar-thumb{background:var(--accent);border-radius:8px;border:3px solid var(--bg3);}
+::-webkit-scrollbar-thumb:hover{background:var(--accent2);}
+*{scrollbar-width:auto;scrollbar-color:var(--accent) var(--bg3);}
 /* LAYOUT */
 .app{display:flex;height:100vh;}
 /* SIDEBAR */
@@ -1186,7 +1188,7 @@ async function _loadFromFirebase(){
       </div>
       <div id="sales-filter-stats" style="display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:700;color:var(--text2);background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:5px 10px;"></div>
       <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
-    </div><table><thead><tr><th>المنتج</th><th>الطالب</th><th>الكمية</th><th>الإيراد</th><th>الدفع</th><th>الاستلام</th><th>التاريخ</th><th>حذف</th></tr></thead><tbody id="sales-tbody"></tbody></table></div>
+    </div><div class="scroll-fat" style="overflow:auto;max-height:480px;border:1px solid var(--border);border-radius:var(--rs);"><table style="min-width:760px;"><thead style="position:sticky;top:0;z-index:5;background:var(--bg2);"><tr><th>المنتج</th><th>الطالب</th><th style="text-align:center;width:52px;">الكمية</th><th style="width:80px;">الإيراد</th><th style="text-align:center;width:60px;">الدفع</th><th style="text-align:center;width:70px;">الاستلام</th><th style="width:78px;">التاريخ</th><th style="text-align:center;width:44px;">تعديل</th><th style="text-align:center;width:44px;">حذف</th></tr></thead><tbody id="sales-tbody"></tbody></table></div></div>
   </div>
 </div>
 
@@ -2899,6 +2901,13 @@ async function _loadFromFirebase(){
 <div class="modal-ov" id="student-store-modal">
   <div class="modal modal-lg"><div class="mtt" id="sstore-title">متجر الطالب <button class="mc-btn" onclick="closeModal('student-store-modal')">✕</button></div>
     <div id="sstore-body"></div>
+  </div>
+</div>
+
+<!-- Edit Sale Modal (تعديل عملية شراء من سجل المبيعات) -->
+<div class="modal-ov" id="edit-sale-modal">
+  <div class="modal"><div class="mtt">✏️ تعديل عملية الشراء <button class="mc-btn" onclick="closeModal('edit-sale-modal')">✕</button></div>
+    <div id="edit-sale-body"></div>
   </div>
 </div>
 
@@ -10123,6 +10132,105 @@ function renderRevenue(){
 }
 function addExpense(){ const n=document.getElementById('exp-name').value.trim(), a=+document.getElementById('exp-amt').value; if(!n||!a){toast('أكمل البيانات','e');return;} DB.expenses.push({id:nid('exp'),name:n,amount:a,date:document.getElementById('exp-date').value}); save(); closeModal('add-expense-modal'); renderRevenue(); toast('✅ تم تسجيل المصروف'); }
 
+/** فتح نافذة تعديل عملية شراء من سجل المبيعات: يسمح بتعديل الكمية، الحالة (مدفوع/متبقي)، والاستلام */
+function openEditSaleModal(saleId){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بتعديل عمليات الشراء','e'); return; }
+  const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
+  const p=DB.products.find(x=>x.id===s.productId);
+  const unitPrice=p?.price ?? (s.qty?Math.round((s.total||0)/s.qty):s.total||0);
+  const received=s.received!==false;
+  document.getElementById('edit-sale-body').innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem;background:var(--glass);border-radius:var(--rs);padding:10px 14px;">
+      <span style="font-size:22px;">${p?.icon||'📦'}</span>
+      <div><div style="font-weight:800;font-size:13.5px;">${s.productName}</div><div style="font-size:11px;color:var(--text2);">${s.studentId?stuN(s.studentId):(s.studentName||'عميل عام')} · ${s.date}</div></div>
+    </div>
+    <div class="fr">
+      <div class="fg" style="flex:1;">
+        <label class="fl">الكمية</label>
+        <input type="number" class="fi" id="esale-qty" value="${s.qty}" min="1" oninput="_updateEditSaleTotal(${unitPrice})">
+      </div>
+      <div class="fg" style="flex:1;">
+        <label class="fl">السعر الإجمالي</label>
+        <input type="number" class="fi" id="esale-total" value="${s.total}" min="0" oninput="_syncEditSalePaidMax()">
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">المبلغ المدفوع</label>
+      <input type="number" class="fi" id="esale-paid" value="${saleAmountPaid(s)}" min="0" max="${s.total}">
+      <div id="esale-remaining-note" style="font-size:11px;color:var(--amber);margin-top:4px;"></div>
+    </div>
+    <div class="fg">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;cursor:pointer;">
+        <input type="checkbox" id="esale-received" ${received?'checked':''} style="accent-color:var(--accent);"> تم الاستلام
+      </label>
+    </div>
+    <div class="fa" style="margin-top:1rem;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeModal('edit-sale-modal')">إلغاء</button>
+      <button class="btn btn-success" style="flex:1;" onclick="saveEditedSale('${s.id}')">💾 حفظ التعديلات</button>
+    </div>`;
+  openModal('edit-sale-modal');
+  _updateEditSaleRemainingNote();
+  document.getElementById('esale-paid').addEventListener('input',_updateEditSaleRemainingNote);
+}
+function _updateEditSaleTotal(unitPrice){
+  const qty=Math.max(1,+document.getElementById('esale-qty').value||1);
+  document.getElementById('esale-total').value=qty*unitPrice;
+  _syncEditSalePaidMax();
+}
+function _syncEditSalePaidMax(){
+  const total=+document.getElementById('esale-total').value||0;
+  const paidEl=document.getElementById('esale-paid');
+  paidEl.max=total;
+  if(+paidEl.value>total) paidEl.value=total;
+  _updateEditSaleRemainingNote();
+}
+function _updateEditSaleRemainingNote(){
+  const total=+document.getElementById('esale-total').value||0;
+  const paid=+document.getElementById('esale-paid').value||0;
+  const rem=Math.max(0,total-paid);
+  document.getElementById('esale-remaining-note').textContent=rem>0?`سيُحتسب ${fmtM(rem)} متبقياً على الطالب`:'';
+}
+function saveEditedSale(saleId){
+  const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
+  const qty=Math.max(1,+document.getElementById('esale-qty').value||1);
+  const total=Math.max(0,+document.getElementById('esale-total').value||0);
+  let paid=+document.getElementById('esale-paid').value||0;
+  if(paid<0) paid=0; if(paid>total) paid=total;
+  const received=document.getElementById('esale-received').checked;
+  s.qty=qty; s.total=total; s.paidAmount=paid; s.paid=paid>=total; s.received=received;
+  save();
+  closeModal('edit-sale-modal');
+  if(document.getElementById('sales-tbody')) renderStore();
+  if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
+  const rem=total-paid;
+  toast(rem>0?`✅ تم حفظ التعديلات — الباقي على الطالب: ${fmtM(rem)}`:'✅ تم حفظ التعديلات');
+}
+
+// ── حساب المبلغ المدفوع فعلياً والمتبقي على صنف مُباع (يدعم السداد الجزئي) ──
+/** المبلغ المدفوع فعلياً من قيمة الصنف. لو مفيش paidAmount مسجل (بيانات قديمة) نرجع لحالة paid boolean */
+function saleAmountPaid(s){
+  const total=+s.total||0;
+  if(typeof s.paidAmount==='number') return Math.max(0,Math.min(s.paidAmount,total));
+  return s.paid!==false ? total : 0;
+}
+/** المبلغ المتبقي (غير مسدد) من قيمة الصنف — يُحتسب على حساب الطالب مثل الدفعات الجزئية */
+function saleRemaining(s){ return Math.max(0,(+s.total||0)-saleAmountPaid(s)); }
+/** تعديل المبلغ المدفوع لصنف مُباع مباشرةً من خانة رقمية — أي فرق عن السعر الكامل يُعتبر متبقياً على الطالب */
+function updateSalePaidAmount(saleId,rawVal){
+  const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
+  const total=+s.total||0;
+  let val=parseFloat(rawVal);
+  if(isNaN(val)||val<0) val=0;
+  if(val>total) val=total;
+  s.paidAmount=val;
+  s.paid=val>=total; // توافقي مع الأماكن التي تعتمد على s.paid كـ boolean
+  save();
+  const remaining=total-val;
+  toast(remaining>0?`✅ تم الحفظ — الباقي على الطالب: ${fmtM(remaining)}`:'✅ تم تسجيل السداد بالكامل');
+  if(document.getElementById('sales-tbody')) renderStore();
+  if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
+}
+
 // ── DAILY INVENTORY ──
 function openDailyInventory(){
   const today=localDate();
@@ -10133,10 +10241,12 @@ function openDailyInventory(){
 }
 function renderDailyInventory(){
   const day=document.getElementById('inv-day').value; if(!day)return;
-  const dayPay=DB.payments.filter(p=>p.date===day&&p.status==='paid');
+  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial'));
   const dayExp=DB.expenses.filter(e=>e.date===day);
-  const daySales=DB.sales.filter(s=>s.date===day);
-  const totalIn=dayPay.reduce((a,b)=>a+b.amount,0)+daySales.reduce((a,b)=>a+b.total,0);
+  const daySalesAll=DB.sales.filter(s=>s.date===day);
+  const daySales=daySalesAll.filter(s=>saleAmountPaid(s)>0);
+  const dayUnpaidSales=daySalesAll.filter(s=>saleAmountPaid(s)===0);
+  const totalIn=dayPay.reduce((a,b)=>a+b.amount,0)+daySales.reduce((a,b)=>a+saleAmountPaid(b),0);
   const totalOut=dayExp.reduce((a,b)=>a+b.amount,0);
   const net=totalIn-totalOut;
   document.getElementById('daily-inv-body').innerHTML=`
@@ -10149,10 +10259,15 @@ function renderDailyInventory(){
       <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--green);">💰 الإيرادات</div>
       ${dayPay.length||daySales.length?`
       <table><thead><tr><th>الطالب / المنتج</th><th>المبلغ</th><th>الوقت</th></tr></thead><tbody>
-      ${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}</td><td style="color:var(--green);font-weight:700;">${fmtM(p.amount)}</td><td style="font-size:11px;color:var(--text2);">${p.month}</td>`).join('')}
-      ${daySales.map(s=>`<tr><td>${s.productName}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td><td style="font-size:11px;color:var(--text2);">متجر</td>`).join('')}
+      ${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}${p.status==='partial'?' <span style="color:var(--orange,#e6a23c);font-size:10px;">(دفعة جزئية)</span>':''}</td><td style="color:var(--green);font-weight:700;">${fmtM(p.amount)}</td><td style="font-size:11px;color:var(--text2);">${p.month}</td>`).join('')}
+      ${daySales.map(s=>{const rem=saleRemaining(s);return `<tr><td>${s.productName}${rem>0?' <span style="color:var(--amber);font-size:10px;">(دفعة جزئية)</span>':''}</td><td style="color:var(--green);font-weight:700;">${fmtM(saleAmountPaid(s))}</td><td style="font-size:11px;color:var(--text2);">متجر${rem>0?` · متبقي ${fmtM(rem)}`:''}</td>`;}).join('')}
       </tbody></table>`:
       '<div style="color:var(--text3);padding:.75rem;text-align:center;">لا توجد إيرادات هذا اليوم</div>'}
+      ${dayUnpaidSales.length?`
+      <div style="font-size:11.5px;font-weight:700;margin:10px 0 6px;color:var(--amber);">⏳ مبيعات غير مسددة (غير محتسبة في الإيرادات)</div>
+      <table><thead><tr><th>المنتج</th><th>المبلغ</th><th>الطالب</th></tr></thead><tbody>
+      ${dayUnpaidSales.map(s=>`<tr><td>${s.productName}</td><td style="color:var(--amber);font-weight:700;">${fmtM(s.total)}</td><td style="font-size:11px;color:var(--text2);">${s.studentId?stuN(s.studentId):(s.studentName||'عميل عام')}</td>`).join('')}
+      </tbody></table>`:''}
     </div>
     <div>
       <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--red);">📤 المصروفات</div>
@@ -10166,10 +10281,12 @@ function renderDailyInventory(){
 function printDailyInventoryPDF(){
   const day=document.getElementById('inv-day').value;
   if(!day)return;
-  const dayPay=DB.payments.filter(p=>p.date===day&&p.status==='paid');
+  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial'));
   const dayExp=DB.expenses.filter(e=>e.date===day);
-  const daySales=DB.sales.filter(s=>s.date===day);
-  const totalIn=dayPay.reduce((a,b)=>a+b.amount,0)+daySales.reduce((a,b)=>a+b.total,0);
+  const daySalesAll=DB.sales.filter(s=>s.date===day);
+  const daySales=daySalesAll.filter(s=>saleAmountPaid(s)>0);
+  const dayUnpaidSales=daySalesAll.filter(s=>saleAmountPaid(s)===0);
+  const totalIn=dayPay.reduce((a,b)=>a+b.amount,0)+daySales.reduce((a,b)=>a+saleAmountPaid(b),0);
   const totalOut=dayExp.reduce((a,b)=>a+b.amount,0);
   const net=totalIn-totalOut;
   const w=window.open('','_blank');
@@ -10178,7 +10295,8 @@ function printDailyInventoryPDF(){
   <style>body{font-family:Cairo;padding:20px;}h2{color:#4f7cff;}table{width:100%;border-collapse:collapse;margin:12px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:right;}th{background:#4f7cff;color:#fff;}.total{font-size:16px;font-weight:700;margin-top:16px;}@media print{@page{size:A4;margin:8mm;}}</style></head>
   <body><h2>📅 الجرد اليومي - ${day}</h2>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1rem 0;"><div><strong>إجمالي الإيرادات:</strong> ${fmtM(totalIn)}</div><div><strong>إجمالي المصروفات:</strong> ${fmtM(totalOut)}</div><div><strong>صافي اليوم:</strong> ${fmtM(net)}</div></div>
-  <h3>💰 الإيرادات</h3>${dayPay.length||daySales.length?`<table><thead><tr><th>الطالب / المنتج</th><th>المبلغ</th><th>التفاصيل</th></tr></thead><tbody>${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}</td><td>${fmtM(p.amount)}</td><td>${p.month}</td></tr>`).join('')}${daySales.map(s=>`<tr><td>${s.productName}</td><td>${fmtM(s.total)}</td><td>متجر</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد إيرادات</p>'}
+  <h3>💰 الإيرادات</h3>${dayPay.length||daySales.length?`<table><thead><tr><th>الطالب / المنتج</th><th>المبلغ</th><th>التفاصيل</th></tr></thead><tbody>${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}${p.status==='partial'?' (دفعة جزئية)':''}</td><td>${fmtM(p.amount)}</td><td>${p.month}</td></tr>`).join('')}${daySales.map(s=>{const rem=saleRemaining(s);return `<tr><td>${s.productName}${rem>0?' (دفعة جزئية)':''}</td><td>${fmtM(saleAmountPaid(s))}</td><td>متجر${rem>0?` — متبقي ${fmtM(rem)}`:''}</td></tr>`;}).join('')}</tbody></table>`:'<p>لا توجد إيرادات</p>'}
+  ${dayUnpaidSales.length?`<h3 style="color:#e6a23c;">⏳ مبيعات غير مسددة (غير محتسبة)</h3><table><thead><tr><th>المنتج</th><th>المبلغ</th><th>الطالب</th></tr></thead><tbody>${dayUnpaidSales.map(s=>`<tr><td>${s.productName}</td><td>${fmtM(s.total)}</td><td>${s.studentId?stuN(s.studentId):(s.studentName||'عميل عام')}</td></tr>`).join('')}</tbody></table>`:''}
   <h3>📤 المصروفات</h3>${dayExp.length?`<table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>${dayExp.map(e=>`<tr><td>${e.name}</td><td>${fmtM(e.amount)}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد مصروفات</p>'}
   <script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close();
@@ -10276,6 +10394,7 @@ function openStudentStoreModal(sid){
   const availableProducts=DB.products.filter(p=>(!p.classId||p.classId===s.classId)&&productVisibleToStudent(p,s));
   const purchases=DB.sales.filter(x=>x.studentId===sid);
   const totalSpent=purchases.reduce((a,b)=>a+b.total,0);
+  const totalRemaining=purchases.reduce((a,b)=>a+saleRemaining(b),0);
   _newItemSelectedPid='';
 
   document.getElementById('sstore-title').innerHTML=
@@ -10294,6 +10413,10 @@ function openStudentStoreModal(sid){
         <div style="font-size:16px;font-weight:900;color:var(--green);">${fmtM(totalSpent)}</div>
         <div style="font-size:9.5px;color:var(--text2);margin-top:1px;">إجمالي المشتريات</div>
       </div>
+      ${totalRemaining>0?`<div style="text-align:center;background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.25);border-radius:9px;padding:7px 13px;">
+        <div style="font-size:16px;font-weight:900;color:var(--amber);">${fmtM(totalRemaining)}</div>
+        <div style="font-size:9.5px;color:var(--text2);margin-top:1px;">متبقي على الطالب</div>
+      </div>`:''}
     </div>
 
     <!-- ── قسم الأصناف المتاحة (قائمة منسدلة) ── -->
@@ -10338,18 +10461,26 @@ function openStudentStoreModal(sid){
     <div class="sec-title"><span>🧾</span> الأصناف المشتراة (${purchases.length})</div>
     ${purchases.length ? `
     <table style="margin-bottom:.75rem;">
-      <thead><tr><th>المنتج</th><th>الكمية</th><th>الإجمالي</th><th>التاريخ</th><th>الدفع</th><th>الاستلام</th><th>حذف</th></tr></thead>
+      <thead><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>المدفوع</th><th>التاريخ</th><th>الدفع</th><th>الاستلام</th><th>حذف</th></tr></thead>
       <tbody>
         ${purchases.slice().reverse().map(x=>{
           const p=DB.products.find(pp=>pp.id===x.productId);
           const received = x.received !== false; // توافقي: مبيعات قديمة قبل إضافة الحقل تُعتبر مستلمة
-          const paid = x.paid !== false; // توافقي: مبيعات قديمة قبل إضافة الحقل تُعتبر مدفوعة
+          const amtPaid = saleAmountPaid(x);
+          const rem = saleRemaining(x);
+          const paid = rem<=0; // مسدد بالكامل فقط لو مفيش أي متبقي
           return `<tr>
             <td>${p?.icon||'📦'} ${x.productName}</td>
             <td style="text-align:center;">${x.qty}</td>
-            <td style="color:var(--green);font-weight:700;">${fmtM(x.total)}</td>
+            <td style="font-size:11.5px;color:var(--text2);">${fmtM(x.total)}</td>
+            <td>
+              <input type="number" value="${amtPaid}" min="0" max="${x.total}" step="1"
+                style="width:72px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg2,transparent);color:var(--text);font-weight:700;"
+                onchange="updateSalePaidAmount('${x.id}', this.value)">
+              ${rem>0?`<div style="font-size:9.5px;color:var(--amber);margin-top:2px;">متبقي: ${fmtM(rem)}</div>`:''}
+            </td>
             <td style="font-size:11px;color:var(--text2);">${x.date}</td>
-            <td style="text-align:center;"><span onclick="toggleSalePaid('${x.id}')" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>
+            <td style="text-align:center;"><span onclick="toggleSalePaid('${x.id}')" title="تبديل سريع: مسدد بالكامل / غير مسدد" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':(amtPaid>0?'🔶':'❌')}</span></td>
             <td style="text-align:center;"><span onclick="toggleSaleReceived('${x.id}')" style="cursor:pointer;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>
             <td style="text-align:center;"><button onclick="deleteSale('${x.id}')" title="حذف عملية الشراء" style="width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">🗑️</button></td>
           </tr>`;
@@ -10394,7 +10525,7 @@ function _confirmNewItemSale(sid){
   const p=DB.products.find(x=>x.id===_newItemSelectedPid); if(!p){toast('اختر صنفاً أولاً','e');return;}
   const s=stu(sid); if(!s)return;
   const qty=Math.max(1,+document.getElementById('snewitem-qty').value||1);
-  DB.sales.push({id:nid('sl'),productId:p.id,productName:p.name,qty,total:qty*p.price,studentId:sid,studentName:s.fname+' '+s.lname,date:localDate()});
+  DB.sales.push({id:nid('sl'),productId:p.id,productName:p.name,qty,total:qty*p.price,paidAmount:qty*p.price,paid:true,received:true,studentId:sid,studentName:s.fname+' '+s.lname,date:localDate()});
   save(); renderStore(); _newItemSelectedPid='';
   toast(`✅ تم إضافة ${qty} × ${p.name} — ${fmtM(qty*p.price)}`);
   openStudentStoreModal(sid);
@@ -10596,11 +10727,16 @@ function renderStore(){
     const p=DB.products.find(x=>x.id===s.productId);
     const stuLabel=s.studentId?stuN(s.studentId):'عميل عام';
     const paid=s.paid!==false, received=s.received!==false;
-    return `<tr><td>${p?.icon||'📦'} ${s.productName}</td><td style="font-size:11px;color:var(--text2);">${stuLabel}</td><td>${s.qty}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td>`
-      +`<td style="text-align:center;"><span onclick="toggleSalePaid('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':'❌'}</span></td>`
+    const rem=saleRemaining(s);
+    const isSup=document.body.dataset.role==='supervisor';
+    const btnBase='width:22px;height:22px;border-radius:6px;font-size:11px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;overflow:hidden;flex:none;';
+    const btnState=isSup?'cursor:not-allowed;opacity:.4;filter:grayscale(.6);':'cursor:pointer;';
+    return `<tr><td>${p?.icon||'📦'} ${s.productName}</td><td style="font-size:11px;color:var(--text2);">${stuLabel}${rem>0?` <span title="متبقي ${fmtM(rem)} على الطالب" style="display:inline-block;font-size:9.5px;font-weight:700;color:var(--amber);background:rgba(245,166,35,.15);border-radius:8px;padding:1px 6px;margin-right:4px;">🔶 متبقي ${fmtM(rem)}</span>`:''}</td><td style="text-align:center;">${s.qty}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td>`
+      +`<td style="text-align:center;"><span onclick="toggleSalePaid('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':(rem>0&&rem<s.total?'🔶':'❌')}</span></td>`
       +`<td style="text-align:center;"><span onclick="toggleSaleReceived('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>`
       +`<td style="font-size:11px;color:var(--text2);">${s.date}</td>`
-      +`<td style="text-align:center;"><button onclick="deleteSale('${s.id}')" title="حذف عملية الشراء" style="width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;">🗑️</button></td></tr>`; }).join('')||'<tr><td colspan="8" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
+      +`<td style="text-align:center;"><button ${isSup?'disabled':''} onclick="${isSup?'':`openEditSaleModal('${s.id}')`}" title="${isSup?'غير مسموح للمشرف بالتعديل':'تعديل عملية الشراء'}" style="${btnBase}${btnState}border:1px solid rgba(245,166,35,.35);background:rgba(245,166,35,.09);color:var(--amber);">✏️</button></td>`
+      +`<td style="text-align:center;"><button ${isSup?'disabled':''} onclick="${isSup?'':`deleteSale('${s.id}')`}" title="${isSup?'غير مسموح للمشرف بالحذف':'حذف عملية الشراء'}" style="${btnBase}${btnState}border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);">🗑️</button></td></tr>`; }).join('')||'<tr><td colspan="9" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
 
   // ── إحصائية سريعة عن المبيعات المطابقة للفلتر الحالي (منتج/صف/مجموعة...) ──
   const statsBoxEl=document.getElementById('sales-filter-stats');
@@ -10870,7 +11006,8 @@ function confirmSell(pid){
   const stuName=sid?stuN(sid):'عميل عام';
   const paid=document.getElementById('sell-paid')?.checked ?? true;
   const received=document.getElementById('sell-received')?.checked ?? true;
-  DB.sales.push({id:nid('sl'),productId:pid,productName:p.name,qty,total:qty*p.price,studentId:sid,studentName:stuName,date:localDate(),paid,received});
+  const saleTotal=qty*p.price;
+  DB.sales.push({id:nid('sl'),productId:pid,productName:p.name,qty,total:saleTotal,paidAmount:paid?saleTotal:0,studentId:sid,studentName:stuName,date:localDate(),paid,received});
   save(); closeModal('sell-modal'); renderStore();
   const statusNote=[!paid?'⚠️ لم يتم الدفع':'', !received?'⚠️ لم يتم الاستلام':''].filter(Boolean).join(' — ');
   toast(`✅ تم تسجيل ${qty} × ${p.name} لـ ${stuName} — ${fmtM(qty*p.price)}${statusNote?' — '+statusNote:''}`);
@@ -10889,6 +11026,7 @@ function toggleSaleReceived(saleId){
 function toggleSalePaid(saleId){
   const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
   s.paid=!s.paid;
+  s.paidAmount=s.paid?(+s.total||0):0; // تبديل سريع: مسدد بالكامل أو غير مسدد إطلاقاً (للتعديل الجزئي الدقيق استخدم خانة المبلغ)
   save();
   if(document.getElementById('sales-tbody')) renderStore();
   if(typeof _currentStoreStuSid!=='undefined' && _currentStoreStuSid) openStudentStoreModal(_currentStoreStuSid);
