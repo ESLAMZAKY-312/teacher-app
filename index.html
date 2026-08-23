@@ -2359,6 +2359,12 @@ async function _loadFromFirebase(){
       <button class="tab-btn active" id="pvw-tab-attendance" onclick="switchPvwTab('attendance')">📅 الحضور</button>
       <button class="tab-btn" id="pvw-tab-finance" onclick="switchPvwTab('finance')">💰 الماليات</button>
     </div>
+    <div id="pvw-fin-stats" style="display:none;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:.7rem;"></div>
+    <style>
+      #pvw-fin-stats .mc{padding:.5rem .6rem;}
+      #pvw-fin-stats .mv{font-size:15px;line-height:1.15;}
+      #pvw-fin-stats .ml{font-size:9.5px;margin-top:1px;line-height:1.25;}
+    </style>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.8rem;">
       <select class="fs" id="pvw-cls" style="flex:1;min-width:140px;" onchange="_filterPvwGrp();renderPvwActive();"><option value="">كل الصفوف</option></select>
       <select class="fs" id="pvw-grp" style="flex:1;min-width:140px;" onchange="renderPvwActive();"><option value="">كل المجموعات</option></select>
@@ -4002,7 +4008,7 @@ function renderDashboard(){
   const avg=allScores.length?Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length):0;
   const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
 
-  document.getElementById('dash-metrics').innerHTML=`
+  document.getElementById('dash-metrics').innerHTML=document.body.dataset.role==='supervisor'?'':`
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${todayTotal?Math.round(todayAttended/todayTotal*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${todayAttended} حاضر من ${todayTotal}${todayLate?` (منهم ${todayLate} متأخر)`:''}</div></div>
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${activeGrades.length} درجة مسجلة</div></div>
@@ -4696,8 +4702,55 @@ function _pexStatusBox(icon, color){
 // 👁️ عرض مباشر لبيانات المدفوعات (من زرار "عرض" في صفحتي الطلاب/المدفوعات)
 // بدون المرور بنافذة اختيار الأعمدة — كل شيء تلقائي، مع فلاتر صف/مجموعة حيّة داخل نفس الشاشة
 // ══════════════════════════════════════════════
+// ── جعل نافذة معيّنة عائمة (قابلة للسحب من شريط العنوان) ──
+function makeModalDraggable(modalOvId){
+  const ov=document.getElementById(modalOvId);
+  const modal=ov?.querySelector('.modal');
+  const handle=modal?.querySelector('.mtt');
+  if(!ov||!modal||!handle||handle.dataset.dragBound) return;
+  handle.dataset.dragBound='1';
+  handle.style.cursor='move';
+  handle.style.userSelect='none';
+  handle.title='اسحب من هنا لتحريك النافذة';
+  let dragging=false,startX=0,startY=0,startLeft=0,startTop=0;
+  function onDown(e){
+    if(e.target.closest('.mc-btn')) return; // مايبدأش السحب لو الضغط كان على زرار الإغلاق
+    const pt=e.touches?e.touches[0]:e;
+    dragging=true;
+    const rect=modal.getBoundingClientRect();
+    startX=pt.clientX; startY=pt.clientY; startLeft=rect.left; startTop=rect.top;
+    modal.style.position='fixed'; modal.style.margin='0'; modal.style.left=startLeft+'px'; modal.style.top=startTop+'px';
+    document.addEventListener('mousemove',onMove); document.addEventListener('mouseup',onUp);
+    document.addEventListener('touchmove',onMove,{passive:false}); document.addEventListener('touchend',onUp);
+  }
+  function onMove(e){
+    if(!dragging) return;
+    if(e.cancelable) e.preventDefault();
+    const pt=e.touches?e.touches[0]:e;
+    const dx=pt.clientX-startX, dy=pt.clientY-startY;
+    let newLeft=startLeft+dx, newTop=startTop+dy;
+    newLeft=Math.min(Math.max(newLeft,-modal.offsetWidth+80),window.innerWidth-80);
+    newTop=Math.min(Math.max(newTop,0),window.innerHeight-40);
+    modal.style.left=newLeft+'px'; modal.style.top=newTop+'px';
+  }
+  function onUp(){
+    dragging=false;
+    document.removeEventListener('mousemove',onMove); document.removeEventListener('mouseup',onUp);
+    document.removeEventListener('touchmove',onMove); document.removeEventListener('touchend',onUp);
+  }
+  handle.addEventListener('mousedown',onDown);
+  handle.addEventListener('touchstart',onDown,{passive:true});
+}
+/** إعادة ضبط موضع نافذة عائمة لتتوسط الشاشة من جديد (يُستدعى عند فتح النافذة) */
+function resetDraggableModalPos(modalOvId){
+  const modal=document.getElementById(modalOvId)?.querySelector('.modal');
+  if(!modal) return;
+  modal.style.position=''; modal.style.left=''; modal.style.top=''; modal.style.margin='';
+}
 let _pvwActiveTab='attendance';
 function openPayViewDirect(){
+  resetDraggableModalPos('pay-view-modal');
+  makeModalDraggable('pay-view-modal');
   const clsSel=document.getElementById('pvw-cls');
   clsSel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   clsSel.value='';
@@ -4729,9 +4782,38 @@ function _pvwSetTabUI(){
   const payMeta=document.getElementById('pay-view-meta'); if(payMeta) payMeta.style.display=isAtt?'none':'flex';
   const payBody=document.getElementById('pay-view-body'); if(payBody) payBody.style.display=isAtt?'none':'block';
   const expBtn=document.getElementById('pvw-export-btn'); if(expBtn) expBtn.style.display=isAtt?'none':'flex';
+  const finStats=document.getElementById('pvw-fin-stats'); if(finStats) finStats.style.display=(isAtt||document.body.dataset.role==='supervisor')?'none':'grid';
+}
+// ── إحصائية ماليات سريعة (عدد وقيمة السداد/عدم السداد) للشهر الحالي حسب فلتر الصف/المجموعة الحاليين ──
+function renderPvwFinStats(){
+  const box=document.getElementById('pvw-fin-stats'); if(!box) return;
+  if(document.body.dataset.role==='supervisor'){ box.innerHTML=''; box.style.display='none'; return; }
+  const cf=document.getElementById('pvw-cls')?.value||'';
+  const gf=document.getElementById('pvw-grp')?.value||'';
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
+  const month=localMonth();
+  let paidCount=0, paidAmount=0, partialCount=0, partialAmount=0, dueRemaining=0, unpaidCount=0, unpaidAmount=0;
+  students.forEach(s=>{
+    const sp=(DB.specialPays||[]).find(x=>x.studentId===s.id);
+    if(sp && sp.type==='exemption') return; // المُعفى مايُحتسبش ضمن مسدد/غير مسدد
+    const fee=stuEffectiveFee(s);
+    const p=DB.payments.find(x=>x.studentId===s.id&&x.month===month);
+    const status=p?p.status:'unpaid';
+    if(status==='paid'){ paidCount++; paidAmount+=p.amount; }
+    else if(status==='partial'){ partialCount++; partialAmount+=p.amount; dueRemaining+=Math.max(0,fee-p.amount); }
+    else { unpaidCount++; unpaidAmount+=fee; }
+  });
+  const collected=paidAmount+partialAmount;
+  const due=unpaidAmount+dueRemaining;
+  box.innerHTML=`
+    <div class="mc mc-g"><div class="mv">${paidCount}</div><div class="ml">طالب مسدد بالكامل</div></div>
+    <div class="mc mc-g"><div class="mv">${fmtM(collected)}</div><div class="ml">قيمة المُحصّل${partialCount?` (منها ${partialCount} دفعة جزئية)`:''}</div></div>
+    <div class="mc mc-r"><div class="mv">${unpaidCount+partialCount}</div><div class="ml">طالب عليه متبقي</div></div>
+    <div class="mc mc-r"><div class="mv">${fmtM(due)}</div><div class="ml">قيمة المتبقي (${monthLabelAr(month)})</div></div>`;
 }
 function renderPvwActive(){
   if(_pvwActiveTab==='attendance') renderPvwAttGrid(); else renderPayViewDirect();
+  renderPvwFinStats();
 }
 // كل التمرير الفعلي بيحصل جوه #pvw-scroll-area (الرأس والفلاتر ثابتين خارجها) — بنحسب موضع الصف
 // بالنسبة لجدول التبويب النشط بس (عشان الجدول التاني المختفي مايأثرش على الحساب)
@@ -8157,10 +8239,10 @@ function renderPayments(){
   const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
   // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
   const unpaidStForTotal=_dedupeSiblingsForTotals(unpaidSt);
-  document.getElementById('pay-metrics').innerHTML=`
+  document.getElementById('pay-metrics').innerHTML=document.body.dataset.role==='supervisor'?'':`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
     <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidStForTotal.length}</div><div class="ml">غير مسددين</div></div>
-    ${document.body.dataset.role!=='supervisor'?`<div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>`:''}
+    <div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>
     <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${DB.payments.length}</div><div class="ml">إجمالي الدفعات</div></div>`;
 
   // ── شرط العرض: يجب وجود بحث أو صف/مجموعة أو حالة ──
@@ -12470,7 +12552,7 @@ function switchRep(tab,btn){
           <div style="flex:1;"><div class="rep-hdr-title">📊 الإحصائيات الشاملة</div><div class="rep-hdr-sub">${today}</div></div>
           <button class="rep-print-btn no-print" onclick="window._printRepSection('الإحصائيات الشاملة')">🖨️ طباعة PDF</button>
         </div>
-        <div class="rep-kpi" style="grid-template-columns:repeat(6,1fr);">
+        <div class="rep-kpi" style="grid-template-columns:repeat(6,1fr);${document.body.dataset.role==='supervisor'?'display:none;':''}">
           <div class="rep-kpi-cell"><div class="rep-kpi-val" style="color:var(--accent);">${total}</div><div class="rep-kpi-lbl">إجمالي الطلاب</div></div>
           <div class="rep-kpi-cell"><div class="rep-kpi-val" style="color:var(--green);">${total?Math.round(present/total*100):0}%</div><div class="rep-kpi-lbl">حضور اليوم</div></div>
           <div class="rep-kpi-cell"><div class="rep-kpi-val" style="color:var(--teal);">${globalAvg}%</div><div class="rep-kpi-lbl">متوسط الدرجات</div></div>
