@@ -3561,6 +3561,13 @@ function stuEffectiveFee(s){
   if(special && special.amount!=null) return special.amount;
   return grp(s.groupId)?.fee || s.fee || DB.settings.fee || 0;
 }
+// ── المبلغ المتبقي فعلياً على الطالب لشهر الشهر الحالي: لو عنده دفعة جزئية بتُخصم من الرسوم، وإلا الرسوم كاملة ──
+function stuUnpaidAmount(s){
+  const fee=stuEffectiveFee(s);
+  const p=DB.payments.find(x=>x.studentId===s.id&&x.month===localMonth());
+  if(p && p.status==='partial') return Math.max(0, fee-(p.amount||0));
+  return fee;
+}
 const stu  = id => _getStuMap().get(id);
 const clsN = id => { const c=cls(id); return c?c.name:'—'; };
 const grpN = id => { const g=grp(id); return g?g.name:'—'; };
@@ -3646,6 +3653,10 @@ function stuAvg(sid){
   return (_cache[key]=Math.round(gs.reduce((a,b)=>a+Math.round(b.score/b.outOf*100),0)/gs.length));
 }
 
+// ── هل الطالب مُعفى من السداد؟ (حالة دفع خاصة نوعها "إعفاء") — لا يُحتسب مسدد ولا غير مسدد في أي إحصائية مالية ──
+function isStuExempt(sid){
+  return (DB.specialPays||[]).some(x=>x.studentId===sid&&x.type==='exemption');
+}
 // ── isPaid مع Cache ──
 function isPaid(sid){
   const key='ip_'+sid;
@@ -3999,7 +4010,7 @@ function renderDashboard(){
   const todayPresentOnly=todayStudents.filter(s=>att[s.id]==='present').length;
   const todayLate=todayStudents.filter(s=>att[s.id]==='late').length;
   const todayAttended=todayStudents.filter(s=>att[s.id]==='present'||att[s.id]==='late'||att[s.id]==='exceptional').length;
-  const unpaid=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
+  const unpaid=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id));
   // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
   const unpaidForTotal=_dedupeSiblingsForTotals(unpaid);
   const unpaidN=unpaidForTotal.length;
@@ -4012,7 +4023,7 @@ function renderDashboard(){
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${todayTotal?Math.round(todayAttended/todayTotal*100):0}%</div><div class="ml">معدل الحضور اليوم</div><div class="mt2" style="color:var(--green)">${todayAttended} حاضر من ${todayTotal}${todayLate?` (منهم ${todayLate} متأخر)`:''}</div></div>
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${activeGrades.length} درجة مسجلة</div></div>
-    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaidForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))} متأخر</div></div>`;
+    <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaidForTotal.reduce((a,s)=>a+stuUnpaidAmount(s),0))} متأخر</div></div>`;
 
   // ── أحدث الطلاب: آخر 6 طلاب تمت إضافتهم فعلاً (آخر عناصر مُضافة للمصفوفة)، مش أول 6 بترتيب التخزين — بدون المستبعدين ──
   document.getElementById('dash-stu-tb').innerHTML=activeStudents.slice(-6).reverse().map(s=>`
@@ -4790,12 +4801,13 @@ function renderPvwFinStats(){
   if(document.body.dataset.role==='supervisor'){ box.innerHTML=''; box.style.display='none'; return; }
   const cf=document.getElementById('pvw-cls')?.value||'';
   const gf=document.getElementById('pvw-grp')?.value||'';
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
+  const allStudents=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
+  // توحيد المنطق مع بقية شاشات الإحصائيات (لوحة التحكم / المدفوعات): الإخوة يُحسبوا كوحدة واحدة بقيمة واحدة
+  const students=_dedupeSiblingsForTotals(allStudents);
   const month=localMonth();
   let paidCount=0, paidAmount=0, partialCount=0, partialAmount=0, dueRemaining=0, unpaidCount=0, unpaidAmount=0;
   students.forEach(s=>{
-    const sp=(DB.specialPays||[]).find(x=>x.studentId===s.id);
-    if(sp && sp.type==='exemption') return; // المُعفى مايُحتسبش ضمن مسدد/غير مسدد
+    if(isStuExempt(s.id)) return; // المُعفى مايُحتسبش ضمن مسدد/غير مسدد
     const fee=stuEffectiveFee(s);
     const p=DB.payments.find(x=>x.studentId===s.id&&x.month===month);
     const status=p?p.status:'unpaid';
@@ -8236,13 +8248,13 @@ function renderPayments(){
   const gsel=document.getElementById('pay-grp-f'); if(gsel){ const v=gsel.value; gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cf||g.classId===cf).map(g=>`<option value="${g.id}">${g.name}</option>`).join(''); gsel.value=v; }
   const paid=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
   // ── الطلاب المستبعدين (غياب 3 أيام متتالية) لا يُحتسبون ضمن غير المسددين ولا المتأخرات ──
-  const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id));
+  const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id));
   // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
   const unpaidStForTotal=_dedupeSiblingsForTotals(unpaidSt);
   document.getElementById('pay-metrics').innerHTML=document.body.dataset.role==='supervisor'?'':`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
     <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidStForTotal.length}</div><div class="ml">غير مسددين</div></div>
-    <div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuEffectiveFee(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>
+    <div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuUnpaidAmount(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>
     <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${DB.payments.length}</div><div class="ml">إجمالي الدفعات</div></div>`;
 
   // ── شرط العرض: يجب وجود بحث أو صف/مجموعة أو حالة ──
@@ -12513,8 +12525,8 @@ function switchRep(tab,btn){
     const today=localDate(), att=DB.attendance[today]||{};
     const total=DB.students.length;
     const present=Object.values(att).filter(v=>v==='present').length;
-    // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ — مش كل أخ بعدّه لوحده
-    const unpaidN=_dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id))).length;
+    // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ — مش كل أخ بعدّه لوحده، والمُعفيّون لا يُحتسبون ضمن غير المسددين
+    const unpaidN=_dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id))).length;
     const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
     const totalExp=DB.expenses.reduce((a,b)=>a+b.amount,0);
     const declining=DB.students.filter(s=>{ const gs=DB.grades.filter(g=>g.studentId===s.id).slice(-3); if(gs.length<2)return false; return gs[gs.length-1].score<gs[0].score; });
