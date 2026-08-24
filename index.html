@@ -900,6 +900,7 @@ async function _loadFromFirebase(){
         <button class="btn btn-wa btn-sm" onclick="sendGradesWA()">📱 إرسال واتساب</button><button class="btn btn-tg btn-sm" onclick="sendGradesTG()">✈️ إرسال تيليجرام</button>
       </div>
     </div>
+    <div id="gr-stats-bar" style="display:none;"></div>
     <table><thead><tr><th>#</th><th>الطالب</th><th>الصف</th><th>المجموعة</th><th>الامتحان</th><th>الدرجة</th><th>التقدير</th><th>التاريخ</th><th>ملاحظة</th><th>إجراءات</th></tr></thead><tbody id="gr-tbody"></tbody></table>
   </div>
 </div>
@@ -2368,6 +2369,7 @@ async function _loadFromFirebase(){
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.8rem;">
       <select class="fs" id="pvw-cls" style="flex:1;min-width:140px;" onchange="_filterPvwGrp();renderPvwActive();"><option value="">كل الصفوف</option></select>
       <select class="fs" id="pvw-grp" style="flex:1;min-width:140px;" onchange="renderPvwActive();"><option value="">كل المجموعات</option></select>
+      <input class="fi" id="pvw-stu-search" placeholder="🔍 بحث بالاسم أو الباركود" style="flex:1;min-width:170px;" oninput="renderPvwActive();">
     </div>
 
     <!-- منطقة قابلة للتمرير وحدها — الرأس والتبويبات والفلاتر فوق ثابتين دايماً -->
@@ -4867,13 +4869,15 @@ function switchPvwTab(tab){
 function renderPvwAttGrid(){
   const from=document.getElementById('pvw-att-from')?.value, to=document.getElementById('pvw-att-to')?.value;
   const cf=document.getElementById('pvw-cls')?.value||'', gf=document.getElementById('pvw-grp')?.value||'';
+  const stuq=(document.getElementById('pvw-stu-search')?.value||'').trim().toLowerCase();
+  const matchesStuq=s=>{ if(!stuq) return true; const full=(s.fname+' '+(s.lname||'')).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); return full.includes(stuq)||bc.includes(stuq); };
   const body=document.getElementById('pvw-att-body');
   if(!body) return;
   if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; return; }
   let dates=_dateRangeList(from,to);
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
   if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&matchesStuq(s));
   const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
   const _excS=students.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
   students.length=0; students.push.apply(students,_normS.concat(_excS));
@@ -4926,7 +4930,9 @@ function renderPvwAttGrid(){
 function renderPayViewDirect(){
   const cf=document.getElementById('pvw-cls')?.value||'';
   const gf=document.getElementById('pvw-grp')?.value||'';
-  const _allS=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const stuq=(document.getElementById('pvw-stu-search')?.value||'').trim().toLowerCase();
+  const matchesStuq=s=>{ if(!stuq) return true; const full=(s.fname+' '+(s.lname||'')).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); return full.includes(stuq)||bc.includes(stuq); };
+  const _allS=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&matchesStuq(s));
   const students=_allS.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'))
     .concat(_allS.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||'')));
   const rows=students.map(s=>({s, sp:(DB.specialPays||[]).find(x=>x.studentId===s.id)}));
@@ -7170,6 +7176,7 @@ function renderGrades(){
 
   // ── شرط العرض: يجب اختيار الامتحان (إلا لو في بحث باسم/باركود طالب) ──
   if(!ef && !stuf){
+    const gsb=document.getElementById('gr-stats-bar'); if(gsb){ gsb.style.display='none'; gsb.innerHTML=''; }
     tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:3rem;color:var(--text3);">
       <div style="font-size:40px;margin-bottom:.75rem;">📊</div>
       <div style="font-size:13px;font-weight:600;">اختر <b>الامتحان</b> أو ابحث باسم/باركود طالب لعرض الدرجات<br>
@@ -7219,6 +7226,7 @@ function renderGrades(){
     }
 
     if(!students.length){
+      const gsb2=document.getElementById('gr-stats-bar'); if(gsb2){ gsb2.style.display='none'; gsb2.innerHTML=''; }
       tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">${stuf?'لا يوجد طالب مطابق للبحث في هذه المجموعة':'لا يوجد طلاب في هذه المجموعة'}</td></tr>`;
       return;
     }
@@ -7313,28 +7321,36 @@ function renderGrades(){
       </tr>`;
     }).join('');
 
-    // إحصائية سريعة في نهاية الكشف
+    // إحصائية سريعة أعلى الكشف (أسفل شريط الفلاتر مباشرة)
     const graded = students.filter(s=>DB.grades.find(x=>x.studentId===s.id&&x.examId===ef));
     const ungraded = students.length - graded.length;
     const avg = graded.length
       ? Math.round(graded.reduce((a,s)=>{ const g=DB.grades.find(x=>x.studentId===s.id&&x.examId===ef); return a+(g?g.score/g.outOf*100:0); },0)/graded.length)
       : null;
     const sortLabel = sf==='desc'?'🔽 الأعلى أولاً':sf==='asc'?'🔼 الأقل أولاً':sf==='top10'?'🏆 أوائل 10':'🔤 أبجدي';
-    tbody.innerHTML += `<tr style="background:var(--glass2);border-top:2px solid var(--border2);">
-      <td colspan="5" style="padding:8px 12px;font-size:11px;color:var(--text2);">
-        📊 <b>${students.length}</b> طالب · ✅ <b style="color:var(--green)">${graded.length}</b> مُدخَّل
-        ${ungraded>0?`· ⏳ <b style="color:var(--amber)">${ungraded}</b> لم يُدخَّل بعد`:''}
-        ${avg!==null?`· متوسط: <b style="color:${grCol(avg)}">${avg}%</b>`:''}
-        · <span style="color:var(--accent);font-weight:700;">${sortLabel}</span>
-      </td>
-      <td colspan="5" style="padding:8px 12px;text-align:left;">
-        ${isElecExam
-          ? `<span style="font-size:11px;color:var(--accent);font-weight:700;">🔒 امتحان إلكتروني — الدرجات مقفلة وتُرصد تلقائياً</span>`
-          : `<button class="btn btn-primary btn-sm" onclick="_gradeInlineSaveAll('${ef}',${outOfVal})" style="font-size:11px;">💾 حفظ الكل</button>`}
-      </td>
-    </tr>`;
+    const statsBar=document.getElementById('gr-stats-bar');
+    if(statsBar){
+      statsBar.style.display='flex';
+      statsBar.style.cssText='display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;background:var(--glass2);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 12px;margin-bottom:.9rem;';
+      statsBar.innerHTML=`
+        <div style="font-size:11px;color:var(--text2);">
+          📊 <b>${students.length}</b> طالب · ✅ <b style="color:var(--green)">${graded.length}</b> مُدخَّل
+          ${ungraded>0?`· ⏳ <b style="color:var(--amber)">${ungraded}</b> لم يُدخَّل بعد`:''}
+          ${avg!==null?`· متوسط: <b style="color:${grCol(avg)}">${avg}%</b>`:''}
+          · <span style="color:var(--accent);font-weight:700;">${sortLabel}</span>
+        </div>
+        <div>
+          ${isElecExam
+            ? `<span style="font-size:11px;color:var(--accent);font-weight:700;">🔒 امتحان إلكتروني — الدرجات مقفلة وتُرصد تلقائياً</span>`
+            : `<button class="btn btn-primary btn-sm" onclick="_gradeInlineSaveAll('${ef}',${outOfVal})" style="font-size:11px;">💾 حفظ الكل</button>`}
+        </div>`;
+    }
     return;
   }
+
+  // ── أي وضع تاني (بدون كشف مجموعة كامل): إخفاء شريط الإحصائية ──
+  const statsBarClear=document.getElementById('gr-stats-bar');
+  if(statsBarClear){ statsBarClear.style.display='none'; statsBarClear.innerHTML=''; }
 
   // ── الوضع العادي: عرض الدرجات المسجلة فقط بدون كشف كامل ──
   let list=DB.grades.filter(g=>{
