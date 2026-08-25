@@ -676,6 +676,7 @@ function submitMcq(){
     +'<div style="font-size:28px;font-weight:900;color:'+color+';">'+pct+'%</div>'
     +'<div style="font-size:13px;color:var(--text2);margin-top:6px;">'+score+' / '+outOf+' إجابة صحيحة</div>'
     +'<span class="badge '+cls+'" style="margin-top:12px;font-size:13px;padding:6px 18px;">'+(pct>=85?'ممتاز':pct>=60?'جيد':'يحتاج مراجعة')+'</span>'
+    +'<div id="mcq-save-status" style="margin-top:14px;font-size:11.5px;color:var(--text2);">⏳ جاري حفظ النتيجة...</div>'
     +'</div>';
   document.getElementById('mcq-next-btn').style.display   = 'none';
   document.getElementById('mcq-prev-btn').style.display   = 'none';
@@ -694,17 +695,49 @@ function submitMcq(){
     locked:    true,
     source:    'online_exam'
   };
+  _saveMcqGradeWithRetry(gradeRecord, 0);
+
+  setTimeout(()=>_endMcqExam(), 7000);
+}
+// ── حفظ درجة الامتحان الإلكتروني بأمان: استخدام transaction بدل قراءة-ثم-كتابة،
+//    لأن لو أكتر من طالب سلّم في نفس اللحظة، القراءة-ثم-الكتابة كانت بتخلي آخر واحد يكتب يمسح درجة اللي قبله
+//    (كل واحد بيقرأ نفس المصفوفة القديمة، يضيف درجته محلياً، ويكتبها كاملة — فيبقى آخر كتابة هي اللي تفضل).
+//    الـ transaction بيضمن إن أي تعارض بين طلبين متزامنين يتحل تلقائياً بإعادة المحاولة على آخر نسخة من السيرفر.
+function _saveMcqGradeWithRetry(gradeRecord, attempt){
+  const statusEl = document.getElementById('mcq-save-status');
   try{
     const ref = firebase.database().ref('schoolData/grades');
-    ref.once('value').then(snap=>{
-      const grades = snap.val() || [];
-      const arr = Array.isArray(grades) ? grades : Object.values(grades);
-      arr.push(gradeRecord);
-      ref.set(arr);
+    ref.transaction(currentData=>{
+      const arr = Array.isArray(currentData) ? currentData.slice() : (currentData ? Object.values(currentData) : []);
+      // منع التكرار: لو نفس الطالب ونفس الامتحان اتسجّل قبل كده (مثلاً بسبب إعادة محاولة أو ضغط مزدوج)، ما نضيفوش تاني
+      const already = arr.some(g=>g && g.studentId===gradeRecord.studentId && g.examId===gradeRecord.examId);
+      if(!already) arr.push(gradeRecord);
+      return arr;
+    }, (error, committed)=>{
+      if(statusEl){
+        if(!error && committed){
+          statusEl.textContent = '✅ تم حفظ النتيجة بنجاح';
+          statusEl.style.color = 'var(--green)';
+        } else if(attempt < 3){
+          // إعادة محاولة تلقائية (شبكة بطيئة/تعارض مؤقت)
+          setTimeout(()=>_saveMcqGradeWithRetry(gradeRecord, attempt+1), 1200);
+        } else {
+          statusEl.textContent = '⚠️ تعذّر حفظ النتيجة — تأكد من الاتصال بالإنترنت وأبلغ المعلم بدرجتك احتياطاً';
+          statusEl.style.color = 'var(--red)';
+        }
+      }
     });
-  }catch(e){ console.warn('حفظ النتيجة فشل:', e.message); }
-
-  setTimeout(()=>_endMcqExam(), 4000);
+  }catch(e){
+    console.warn('حفظ النتيجة فشل:', e.message);
+    if(statusEl){
+      if(attempt < 3){
+        setTimeout(()=>_saveMcqGradeWithRetry(gradeRecord, attempt+1), 1200);
+      } else {
+        statusEl.textContent = '⚠️ تعذّر حفظ النتيجة — تأكد من الاتصال بالإنترنت وأبلغ المعلم بدرجتك احتياطاً';
+        statusEl.style.color = 'var(--red)';
+      }
+    }
+  }
 }
 
 function _endMcqExam(){
