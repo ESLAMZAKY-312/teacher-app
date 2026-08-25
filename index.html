@@ -7189,41 +7189,44 @@ function renderGrades(){
   if(ef && realCf && activeGf){
     const outOfVal = exam?.outOf || 100;
     // كل طلاب المجموعة
-    let students = DB.students.filter(s=>s.classId===realCf && s.groupId===activeGf && matchesStuSearch(s));
+    let studentsAll = DB.students.filter(s=>s.classId===realCf && s.groupId===activeGf && matchesStuSearch(s));
 
-    // ── تطبيق الترتيب المختار ──
-    if(sf==='desc'){
-      // الأعلى درجة أولاً — الطلاب بدون درجة في النهاية
-      students.sort((a,b)=>{
-        const ga=DB.grades.find(x=>x.studentId===a.id&&x.examId===ef);
-        const gb=DB.grades.find(x=>x.studentId===b.id&&x.examId===ef);
-        if(!ga&&!gb) return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar');
-        if(!ga) return 1; if(!gb) return -1;
-        return (gb.score/gb.outOf)-(ga.score/ga.outOf);
-      });
-    } else if(sf==='asc'){
-      // الأقل درجة أولاً
-      students.sort((a,b)=>{
-        const ga=DB.grades.find(x=>x.studentId===a.id&&x.examId===ef);
-        const gb=DB.grades.find(x=>x.studentId===b.id&&x.examId===ef);
-        if(!ga&&!gb) return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar');
-        if(!ga) return 1; if(!gb) return -1;
-        return (ga.score/ga.outOf)-(gb.score/gb.outOf);
-      });
-    } else if(sf==='top10'){
-      // أوائل 10 فقط — من لديهم درجة، مرتبين تنازلياً
-      students = students
-        .filter(s=>DB.grades.find(x=>x.studentId===s.id&&x.examId===ef))
-        .sort((a,b)=>{
+    // ── دالة الترتيب المختار (تُطبَّق على المستبعدين والعاديين كل على حدة، والمستبعدون دايماً في النهاية) ──
+    function _applyGradeSort(arr){
+      if(sf==='desc'){
+        arr.sort((a,b)=>{
           const ga=DB.grades.find(x=>x.studentId===a.id&&x.examId===ef);
           const gb=DB.grades.find(x=>x.studentId===b.id&&x.examId===ef);
+          if(!ga&&!gb) return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar');
+          if(!ga) return 1; if(!gb) return -1;
           return (gb.score/gb.outOf)-(ga.score/ga.outOf);
-        })
-        .slice(0,10);
-    } else {
-      // بدون ترتيب محدد — أبجدي
-      students.sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+        });
+      } else if(sf==='asc'){
+        arr.sort((a,b)=>{
+          const ga=DB.grades.find(x=>x.studentId===a.id&&x.examId===ef);
+          const gb=DB.grades.find(x=>x.studentId===b.id&&x.examId===ef);
+          if(!ga&&!gb) return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar');
+          if(!ga) return 1; if(!gb) return -1;
+          return (ga.score/ga.outOf)-(gb.score/gb.outOf);
+        });
+      } else if(sf==='top10'){
+        arr = arr
+          .filter(s=>DB.grades.find(x=>x.studentId===s.id&&x.examId===ef))
+          .sort((a,b)=>{
+            const ga=DB.grades.find(x=>x.studentId===a.id&&x.examId===ef);
+            const gb=DB.grades.find(x=>x.studentId===b.id&&x.examId===ef);
+            return (gb.score/gb.outOf)-(ga.score/ga.outOf);
+          })
+          .slice(0,10);
+      } else {
+        arr.sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
+      }
+      return arr;
     }
+    // ── الطلاب المستبعدون (غياب 3 أيام متتالية) دايماً في نهاية القائمة ──
+    const normalStudents = studentsAll.filter(s=>!isStuFinExcluded(s.id));
+    const excludedStudents = studentsAll.filter(s=>isStuFinExcluded(s.id));
+    let students = _applyGradeSort(normalStudents).concat(_applyGradeSort(excludedStudents));
 
     if(!students.length){
       const gsb2=document.getElementById('gr-stats-bar'); if(gsb2){ gsb2.style.display='none'; gsb2.innerHTML=''; }
@@ -7241,6 +7244,8 @@ function renderGrades(){
       const gradeId = g ? g.id : '';
       const hasSaved = !!g;
       const isLocked = isElecExam || (g && g.locked);
+      const isExc = isStuFinExcluded(s.id);
+      const excBadge = isExc ? ' <span title="مستبعد — غاب 3 أيام متتالية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>' : '';
       // ── امتحان إلكتروني: الدرجة تُرصد تلقائياً من الامتحان أونلاين، لا يمكن إدخالها أو تعديلها هنا ──
       if(isLocked){
         return `<tr id="gr-row-${s.id}">
@@ -7248,7 +7253,7 @@ function renderGrades(){
           <td>
             <div style="display:flex;align-items:center;gap:8px;">
               <div class="av av28" style="background:${s.color}20;color:${s.color};flex-shrink:0;">${s.fname[0]}</div>
-              <span style="font-weight:600;">${s.fname} ${s.lname}</span>
+              <span style="font-weight:600;">${s.fname} ${s.lname}</span>${excBadge}
             </div>
           </td>
           <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td>
@@ -7280,7 +7285,7 @@ function renderGrades(){
         <td>
           <div style="display:flex;align-items:center;gap:8px;">
             <div class="av av28" style="background:${s.color}20;color:${s.color};flex-shrink:0;">${s.fname[0]}</div>
-            <span style="font-weight:600;">${s.fname} ${s.lname}</span>
+            <span style="font-weight:600;">${s.fname} ${s.lname}</span>${excBadge}
             ${!hasSaved?`<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);color:var(--amber);">جديد</span>`:''}
           </div>
         </td>
