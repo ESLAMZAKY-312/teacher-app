@@ -7185,11 +7185,13 @@ function renderGrades(){
     return;
   }
 
-  // ── وضع "كشف مجموعة" — لما يكون الامتحان + الصف + المجموعة محددين ──
-  if(ef && realCf && activeGf){
+  // ── وضع "كشف كامل" — لما يكون الامتحان + الصف محددين (المجموعة اختيارية: لو محددة يتفلتر بيها، ولو "كل المجموعات" يعرض كل طلاب الصف) ──
+  if(ef && realCf){
     const outOfVal = exam?.outOf || 100;
-    // كل طلاب المجموعة
-    let studentsAll = DB.students.filter(s=>s.classId===realCf && s.groupId===activeGf && matchesStuSearch(s));
+    // كل طلاب الصف (أو المجموعة المحددة لو فيه فلتر مجموعة) — لو الامتحان مخصص لمجموعات معيّنة، نلتزم بيها لما تكون "كل المجموعات" مختارة
+    let studentsAll = DB.students.filter(s=>s.classId===realCf
+      && (activeGf ? s.groupId===activeGf : (!examGroupsArr.length || examGroupsArr.includes(s.groupId)))
+      && matchesStuSearch(s));
 
     // ── دالة الترتيب المختار (تُطبَّق على المستبعدين والعاديين كل على حدة، والمستبعدون دايماً في النهاية) ──
     function _applyGradeSort(arr){
@@ -7230,7 +7232,8 @@ function renderGrades(){
 
     if(!students.length){
       const gsb2=document.getElementById('gr-stats-bar'); if(gsb2){ gsb2.style.display='none'; gsb2.innerHTML=''; }
-      tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">${stuf?'لا يوجد طالب مطابق للبحث في هذه المجموعة':'لا يوجد طلاب في هذه المجموعة'}</td></tr>`;
+      const scopeLabel = activeGf ? 'هذه المجموعة' : 'هذا الصف';
+      tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);">${stuf?`لا يوجد طالب مطابق للبحث في ${scopeLabel}`:`لا يوجد طلاب في ${scopeLabel}`}</td></tr>`;
       return;
     }
 
