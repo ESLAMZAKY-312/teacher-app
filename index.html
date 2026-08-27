@@ -11345,12 +11345,14 @@ function switchRep(tab,btn){
     const paidStudentIds=[...new Set(paidPayments.map(p=>p.studentId))];
     const paidStudents=paidStudentIds.map(id=>DB.students.find(s=>s.id===id)).filter(Boolean);
 
-    // الطلاب غير المسددين (لا توجد دفعة مسددة لهم خلال الفترة)
-    const unpaidStudents=DB.students.filter(s=>!paidStudentIds.includes(s.id));
+    // الطلاب غير المسددين (لا توجد دفعة مسددة لهم خلال الفترة) — باستثناء المعفيين والمستبعدين (لا يُحتسبون في أي إحصائية مالية)
+    const unpaidStudents=DB.students.filter(s=>!paidStudentIds.includes(s.id)&&!isStuExempt(s.id)&&!isStuFinExcluded(s.id));
 
     const totalPaid=paidPayments.reduce((a,b)=>a+b.amount,0);
     const totalExp=DB.expenses.reduce((a,b)=>a+b.amount,0);
-    const payRate=DB.students.length?Math.round(paidStudents.length/DB.students.length*100):0;
+    // ── نسبة التسديد: من إجمالي الطلاب المُطالَبين بالسداد فعلياً (بدون المعفيين والمستبعدين) ──
+    const eligibleForPay=DB.students.filter(s=>!isStuExempt(s.id)&&!isStuFinExcluded(s.id));
+    const payRate=eligibleForPay.length?Math.round(paidStudents.length/eligibleForPay.length*100):0;
 
     if(subEl) subEl.textContent=`من ${from||'—'} إلى ${to||'—'} — ${paidStudents.length} طالب مسدد`;
 
