@@ -695,6 +695,19 @@ function submitMcq(){
     locked:    true,
     source:    'online_exam'
   };
+  // ── تحديث فوري (متفائل) للنسخة المحلية من البيانات ──
+  // قائمة "الامتحانات المعلّقة/المؤداة" بتتحسب من schoolData.grades المحلية، واللي بتتحدّث بس لما
+  // الـ listener الخاص بـ Firebase يوصله تحديث من السيرفر (ده ممكن ياخد وقت لو النت بطيء).
+  // من غير السطر ده، لو التحديث اتأخر أكتر من 7 ثواني، الامتحان كان بيرجع يظهر "معلّق" تاني
+  // للطالب فور رجوعه لقائمة الامتحانات، فيقدر يمتحنه تاني وتالت رغم إن نتيجته اتحفظت فعلاً.
+  // بنضيف الدرجة هنا فورًا (بدون انتظار السيرفر) عشان renderMcq تعتبره "مؤدّى" من ثانيته.
+  if(schoolData){
+    if(!Array.isArray(schoolData.grades)) schoolData.grades = [];
+    if(!schoolData.grades.find(g=>g && g.studentId===gradeRecord.studentId && g.examId===gradeRecord.examId)){
+      schoolData.grades.push(gradeRecord);
+    }
+  }
+
   _saveMcqGradeWithRetry(gradeRecord, 0);
 
   setTimeout(()=>_endMcqExam(), 7000);
@@ -800,7 +813,7 @@ function renderAtt(s){
   });
 
   const total = present+absent+late;
-  const pct   = total ? Math.round(present/total*100) : 100;
+  const pct   = total ? Math.round((present+late)/total*100) : 100;
 
   document.getElementById('att-pct').textContent     = pct+'%';
   document.getElementById('att-pct').style.color     = pct>=80?'var(--green)':pct>=60?'var(--amber)':'var(--red)';
