@@ -2636,10 +2636,11 @@ async function _loadFromFirebase(){
         <div style="font-size:10px;color:var(--text2);margin-top:3px;">اترك الكل بدون تحديد ليظهر الامتحان لكل مجموعات الصف</div>
       </div>
       <div class="fr">
-        <div class="fg"><label class="fl">🕒 من (بداية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-from"></div>
-        <div class="fg"><label class="fl">🕒 إلى (نهاية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-until"></div>
+        <div class="fg"><label class="fl">🕒 من (بداية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-from" oninput="_checkVisWindow()"></div>
+        <div class="fg"><label class="fl">🕒 إلى (نهاية الظهور)</label><input type="datetime-local" class="fi" id="ex-visible-until" oninput="_checkVisWindow()"></div>
       </div>
       <div style="font-size:10px;color:var(--text2);margin-top:3px;">⚠️ لازم تحدد حقل واحد على الأقل ("من" أو "إلى") عشان الامتحان يظهر للطالب — لو سبتهم فاضيين الاثنين الامتحان هيفضل مخفي تمامًا عنه</div>
+      <div id="ex-vis-warning" style="display:none;font-size:11px;color:var(--red);margin-top:6px;font-weight:700;">🚫 فترة غير منطقية: "بداية الظهور" بعد "نهاية الظهور" — الامتحان هيفضل مخفي عن الطلاب طول الوقت لو اتحفظ بالشكل ده</div>
     </div>
 
     <div class="fg" id="ex-paper-score-row"><label class="fl">الدرجة الكاملة</label><input type="number" class="fi" id="ex-out-of" value="100" min="1" placeholder="مثال: 100"></div>
@@ -7607,6 +7608,7 @@ function editExam(id){
   document.getElementById('ex-date').value=exam.date;
   const vfEl=document.getElementById('ex-visible-from'); if(vfEl) vfEl.value=exam.visibleFrom||'';
   const vuEl=document.getElementById('ex-visible-until'); if(vuEl) vuEl.value=exam.visibleUntil||'';
+  _checkVisWindow();
   document.getElementById('ex-show-result').value=exam.showResult||'yes';
   if(document.getElementById('ex-randomize-q')) document.getElementById('ex-randomize-q').checked = !!exam.randomizeQuestions;
   if(document.getElementById('ex-randomize-opts')) document.getElementById('ex-randomize-opts').checked = !!exam.randomizeOptions;
@@ -7785,6 +7787,13 @@ function _renderExamGroupsSummary(){
   const names=[..._examSelectedGroups].map(id=>{ const g=DB.groups.find(x=>x.id===id); return g?`${g.name} (${clsN(g.classId)||'—'})`:null; }).filter(Boolean);
   el.innerHTML = `<div style="font-size:10.5px;color:var(--accent);margin-top:7px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;"><span>✅ إجمالي المجموعات المختارة من كل الصفوف (${n}): ${names.join('، ')}</span><button type="button" onclick="_clearExamSelectedGroups()" style="background:none;border:none;color:var(--red);font-size:10px;cursor:pointer;text-decoration:underline;padding:0;">مسح الكل</button></div>`;
 }
+// ── تحذير فوري لحظة الكتابة لو الفترة غير منطقية (من بعد إلى) — بيمنع المشكلة قبل ما المعلم يحاول الحفظ أصلاً ──
+function _checkVisWindow(){
+  const w = document.getElementById('ex-vis-warning'); if(!w) return;
+  const f = document.getElementById('ex-visible-from')?.value || '';
+  const u = document.getElementById('ex-visible-until')?.value || '';
+  w.style.display = (f && u && new Date(f).getTime() >= new Date(u).getTime()) ? 'block' : 'none';
+}
 function saveExam(){
   const title=document.getElementById('ex-title').value.trim(); if(!title){toast('أدخل العنوان','e');return;}
   const examType=document.getElementById('ex-type')?.value||'paper';
@@ -7798,6 +7807,16 @@ function saveExam(){
   const showResult = document.getElementById('ex-show-result')?.value || 'yes';
   const outOf = +document.getElementById('ex-out-of')?.value || 100;
   const paperGrpVal = document.getElementById('ex-grp-paper')?.value || '';
+  // ── تحقق من منطقية فترة الظهور: "بداية الظهور" لازم تكون قبل "نهاية الظهور" ──
+  // (لو الاتنين متسجلين وغير منطقيين، الامتحان كان بيتحفظ عادي ويفضل مخفي عن الطلاب للأبد من غير ما حد يلاحظ)
+  if(examType==='electronic'){
+    const visFromVal = document.getElementById('ex-visible-from')?.value || '';
+    const visUntilVal = document.getElementById('ex-visible-until')?.value || '';
+    if(visFromVal && visUntilVal && new Date(visFromVal).getTime() >= new Date(visUntilVal).getTime()){
+      toast('⚠️ الفترة غير منطقية: وقت "بداية الظهور" لازم يكون قبل وقت "نهاية الظهور" — راجع الحقلين وعدّل التاريخ/الوقت','e');
+      return;
+    }
+  }
   // نضم أي تحديد ظاهر حالياً على الشاشة لسه ما اتسجّلش (حماية إضافية) قبل القراءة النهائية
   document.querySelectorAll('.ex-grp-check:checked').forEach(cb=>_examSelectedGroups.add(cb.value));
   const selectedGroups = examType==='electronic'
