@@ -12667,13 +12667,23 @@ function switchRep(tab,btn){
         <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:2.5rem;text-align:center;backdrop-filter:blur(8px);">
           <div style="font-size:20px;font-weight:900;margin-bottom:1.8rem;">🔍 تقرير مفصل للطالب</div>
           <div style="margin-bottom:1.1rem;text-align:right;">
-            <label class="fl" style="font-size:13px;">البحث بالاسم أو الباركود</label>
+            <label class="fl" style="font-size:13px;">إرسال جماعي حسب الصف والمجموعة</label>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+              <select class="fs" id="rep-dr-cls" onchange="onDetailedReportClsChange()"><option value="">كل الصفوف</option></select>
+              <select class="fs" id="rep-dr-grp"><option value="">كل المجموعات</option></select>
+            </div>
+            <button onclick="sendBulkDetailedReports()" style="width:100%;padding:10px;border-radius:var(--rs);background:linear-gradient(135deg,rgba(37,211,102,.18),rgba(37,211,102,.08));border:1px solid rgba(37,211,102,.4);color:#25d366;font-family:'Cairo',sans-serif;font-size:13px;font-weight:800;cursor:pointer;margin-top:.7rem;">📤 إرسال تقارير المجموعة دفعة واحدة</button>
+          </div>
+          <div style="border-top:1px solid var(--border);margin:1.4rem 0;"></div>
+          <div style="margin-bottom:1.1rem;text-align:right;">
+            <label class="fl" style="font-size:13px;">أو ابحث عن طالب واحد بالاسم أو الباركود</label>
             <input class="fi" id="rep-dr-code" placeholder="أدخل اسم الطالب أو الباركود" style="margin-top:4px;" onkeydown="if(event.key==='Enter') showDetailedReportInline()">
           </div>
           <button onclick="showDetailedReportInline()" style="width:100%;padding:12px;border-radius:var(--rs);background:linear-gradient(135deg,var(--accent2),var(--accent));border:none;color:#fff;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:1rem;">بحث</button>
           <div id="rep-dr-result"></div>
         </div>
       </div>`;
+    populateDetailedReportClsGrp();
     setTimeout(()=>document.getElementById('rep-dr-code')?.focus(),100);
   }
 }
@@ -14606,7 +14616,12 @@ function sendGradesWA(){
 
 function showWAList(list){
   if(!list.length){toast('لا توجد أرقام هواتف','e');return;}
-  let _list=list.map((x,i)=>({...x,_wid:'wid'+i+Date.now()}));
+  // توحيد الشكل: كل عنصر يبقى له مصفوفة numbers (رقم واحد أو أكتر لكل طالب)، كل رقم بأيقونة مميزة له
+  let _list=list.map((x,i)=>{
+    const numbers=x.numbers && x.numbers.length ? x.numbers.map((n,ni)=>({icon:n.icon||'💬',label:n.label||'',ph:n.ph,msg:n.msg,_nid:'n'+i+'_'+ni+Date.now()}))
+      : [{icon:'💬',label:'',ph:x.ph,msg:x.msg,_nid:'n'+i+'0'+Date.now()}];
+    return {name:x.name,color:x.color,numbers,_wid:'wid'+i+Date.now()};
+  });
   function renderWAItems(){
     const container=document.getElementById('wa-list-items');
     if(!container)return;
@@ -14615,30 +14630,36 @@ function showWAList(list){
       document.getElementById('wa-list-count').innerHTML='<span style="color:var(--green);font-weight:700;">✅ تم إرسال جميع الرسائل</span>';
       return;
     }
-    container.innerHTML=_list.map((x,idx)=>`<div id="wali-${x._wid}" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);transition:all .25s;">
+    container.innerHTML=_list.map((x)=>`<div id="wali-${x._wid}" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);transition:all .25s;flex-wrap:wrap;">
       <div style="width:26px;height:26px;border-radius:50%;background:${x.color||'rgba(79,124,255,.15)'};color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;">${(x.name||'?')[0]}</div>
-      <span style="font-size:12.5px;flex:1;font-weight:600;">${x.name}</span>
-      <span style="font-size:10px;color:var(--text2);direction:ltr;">${x.ph}</span>
-      <a href="https://wa.me/${x.ph}?text=${encodeURIComponent(x.msg)}" target="_blank"
-        title="إرسال عبر واتساب"
-        onclick="(function(wid){
-          const row=document.getElementById('wali-'+wid);
-          if(row){row.style.opacity='0';row.style.transform='translateX(-20px)';}
-          setTimeout(()=>{
-            _list=_list.filter(item=>item._wid!==wid);
-            renderWAItems();
-          },250);
-        })('${x._wid}')"
-        style="text-decoration:none;">
-        <div class="msg-bubble-icon">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 10H6v-2h12v2zm0-3H6V7h12v2z"/></svg>
-        </div>
-      </a>
+      <span style="font-size:12.5px;font-weight:600;flex:1 1 auto;min-width:70px;">${x.name}</span>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        ${x.numbers.map(n=>`<div id="wani-${n._nid}" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:20px;padding:3px 8px 3px 3px;transition:all .25s;">
+          ${n.label?`<span style="font-size:10.5px;color:var(--text2);white-space:nowrap;">${n.icon} ${n.label}</span>`:''}
+          <span style="font-size:10px;color:var(--text2);direction:ltr;white-space:nowrap;">${n.ph}</span>
+          <a href="https://wa.me/${n.ph}?text=${encodeURIComponent(n.msg)}" target="_blank"
+            title="إرسال عبر واتساب"
+            onclick="(function(wid,nid){
+              const nrow=document.getElementById('wani-'+nid);
+              if(nrow){nrow.style.opacity='0';nrow.style.transform='translateX(-20px)';}
+              setTimeout(()=>{
+                const item=_list.find(it=>it._wid===wid);
+                if(item){ item.numbers=item.numbers.filter(nn=>nn._nid!==nid); if(!item.numbers.length){ _list=_list.filter(it=>it._wid!==wid); } }
+                renderWAItems();
+              },250);
+            })('${x._wid}','${n._nid}')"
+            style="text-decoration:none;display:flex;">
+            <div class="msg-bubble-icon" style="width:22px;height:22px;">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M20 2H4C2.9 2 2 2.9 2 4v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 10H6v-2h12v2zm0-3H6V7h12v2z"/></svg>
+            </div>
+          </a>
+        </div>`).join('')}
+      </div>
     </div>`).join('');
-    const remaining=_list.length;
-    document.getElementById('wa-list-count').innerHTML=`<span>يوجد <b style="color:var(--accent);">${remaining}</b> رسالة متبقية</span> <span style="font-size:10px;color:var(--text2);">— اضغط إرسال لكل طالب</span>`;
+    const remaining=_list.reduce((sum,it)=>sum+it.numbers.length,0);
+    document.getElementById('wa-list-count').innerHTML=`<span>يوجد <b style="color:var(--accent);">${remaining}</b> رسالة متبقية</span> <span style="font-size:10px;color:var(--text2);">— اضغط إرسال لكل رقم</span>`;
   }
-  const total=list.length;
+  const total=_list.reduce((sum,it)=>sum+it.numbers.length,0);
   const body=`<div id="wa-list-count" style="font-size:12px;color:var(--text2);margin-bottom:.9rem;padding:8px 10px;background:rgba(37,211,102,.06);border:1px solid rgba(37,211,102,.15);border-radius:var(--rs);">يوجد <b style="color:var(--accent);">${total}</b> رسالة — اضغط على كل زر لفتح المحادثة وإرسال الرسالة</div>
   <div id="wa-list-items" style="max-height:400px;overflow-y:auto;"></div>
   <div class="fa"><button class="btn btn-secondary" onclick="closeModal('wa-list-modal')">إغلاق</button></div>`;
@@ -16123,6 +16144,48 @@ function showDetailedReport(){
 }
 
 // نسخة التقارير (تقرأ من rep-dr-code وتعرض في rep-dr-result) — بحث بالاسم أو الباركود
+// تعبئة قوائم (الصف) و(المجموعة) الخاصة بالإرسال الجماعي للتقارير المفصلة
+function populateDetailedReportClsGrp(){
+  const clsSel=document.getElementById('rep-dr-cls');
+  const grpSel=document.getElementById('rep-dr-grp');
+  if(!clsSel||!grpSel) return;
+  clsSel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  grpSel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+}
+
+// عند تغيير الصف: تحديث قائمة المجموعات لتعرض مجموعات هذا الصف فقط
+function onDetailedReportClsChange(){
+  const cid=document.getElementById('rep-dr-cls')?.value||'';
+  const grpSel=document.getElementById('rep-dr-grp');
+  if(!grpSel) return;
+  grpSel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cid||g.classId===cid).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+}
+
+// إرسال التقرير المفصل (رابط دخول تلقائي للبوابة) لكل طلاب الصف/المجموعة المختارة دفعة واحدة
+function sendBulkDetailedReports(){
+  const cid=document.getElementById('rep-dr-cls')?.value||'';
+  const gid=document.getElementById('rep-dr-grp')?.value||'';
+  const students=DB.students.filter(s=>(!cid||s.classId===cid)&&(!gid||s.groupId===gid));
+  if(!students.length){ toast('لا يوجد طلاب مطابقين للصف/المجموعة المختارة','e'); return; }
+  const portalBase='https://eslamzaky-312.github.io/teacher-app/portal.html';
+  let missingPhone=0;
+  const list=students.map(s=>{
+    const bc=s.barcode||s.id;
+    const pin=s.pin||'';
+    const directLink=portalBase+'#auto:'+encodeURIComponent(bc)+':'+encodeURIComponent(pin);
+    const numbers=[];
+    const stuPh=fmtPhone(s.phone||'');
+    const parPh=fmtPhone(s.parentPhone||'');
+    if(stuPh) numbers.push({icon:'🎓',label:'الطالب',ph:stuPh,msg:directLink});
+    if(parPh) numbers.push({icon:'👪',label:'ولي الأمر',ph:parPh,msg:directLink});
+    if(!numbers.length){ missingPhone++; return null; }
+    return {name:s.fname+' '+s.lname, numbers, color:s.color?s.color+'20':undefined};
+  }).filter(Boolean);
+  if(missingPhone>0) toast(`⚠️ تم تجاهل ${missingPhone} طالب بدون رقم هاتف`,'e');
+  if(!list.length){ toast('لا توجد أرقام هواتف متاحة لهؤلاء الطلاب','e'); return; }
+  showWAList(list);
+}
+
 function showDetailedReportInline(){
   const raw=(document.getElementById('rep-dr-code')?.value||'').trim();
   const el=document.getElementById('rep-dr-result');
@@ -16269,12 +16332,16 @@ function sendSelectedStudentsCredentials(){
   let missingPhone=0;
   const list=checked.map(sid=>{
     const s=stu(sid); if(!s) return null;
-    const ph=fmtPhone(s.parentPhone||s.phone||'');
-    if(!ph){ missingPhone++; return null; }
     const bc=s.barcode||s.id;
     const pin=s.pin||'—';
     const msg=`اسم الطالب: ${s.fname} ${s.lname}\nكود الطالب: ${bc}\nكلمة السر: ${pin}\nرابط البوابة: https://eslamzaky-312.github.io/teacher-app/portal.html`;
-    return {name:s.fname+' '+s.lname, ph, msg, color:s.color?s.color+'20':undefined};
+    const numbers=[];
+    const stuPh=fmtPhone(s.phone||'');
+    const parPh=fmtPhone(s.parentPhone||'');
+    if(stuPh) numbers.push({icon:'🎓',label:'الطالب',ph:stuPh,msg});
+    if(parPh) numbers.push({icon:'👪',label:'ولي الأمر',ph:parPh,msg});
+    if(!numbers.length){ missingPhone++; return null; }
+    return {name:s.fname+' '+s.lname, numbers, color:s.color?s.color+'20':undefined};
   }).filter(Boolean);
   if(missingPhone>0) toast(`⚠️ تم تجاهل ${missingPhone} طالب بدون رقم هاتف`,'e');
   showWAList(list);
