@@ -734,7 +734,7 @@ async function _loadFromFirebase(){
         <div class="fg" style="position:relative;">
           <label class="fl">الطالب</label>
           <input class="fi" id="beh-st-search" placeholder="🔍 ابحث بالاسم أو الكود..." autocomplete="off"
-                 oninput="behStSearchInput()" onfocus="behStSearchInput()" onblur="setTimeout(()=>document.getElementById('beh-st-dd').style.display='none',150)">
+                 oninput="behStSearchInput()" onfocus="behStSearchInput()" onblur="setTimeout(()=>{_behStAutoResolve();document.getElementById('beh-st-dd').style.display='none';},150)">
           <input type="hidden" id="beh-st">
           <div id="beh-st-dd" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:50;max-height:260px;overflow-y:auto;background:var(--bg3,#181c2e);border:1px solid var(--border,#333);border-radius:10px;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,.55);"></div>
         </div>
@@ -2886,7 +2886,9 @@ async function _loadFromFirebase(){
 
 <!-- Trash Modal -->
 <div class="modal-ov" id="trash-modal">
-  <div class="modal modal-lg"><div class="mtt">🗑️ سلة المحذوفات <button class="mc-btn" onclick="closeModal('trash-modal')">✕</button></div><div id="trash-body"></div></div>
+  <div class="modal modal-lg"><div class="mtt">🗑️ سلة المحذوفات <button class="mc-btn" onclick="closeModal('trash-modal')">✕</button></div>
+  <div style="padding:0 0 10px;"><input type="text" class="fi" id="trash-search" placeholder="🔍 بحث بالاسم أو الباركود..." oninput="renderTrash()" style="width:100%;"></div>
+  <div id="trash-body"></div></div>
 </div>
 
 <!-- Daily Inventory Modal -->
@@ -3399,6 +3401,22 @@ async function _saveFlush(){
   if(!_fbDB){ _showSyncIndicator('error'); return false; }
   try{
     _showSyncIndicator('saving');
+    // ⚠️ حماية إضافية قبل الكتابة الكاملة فوق schoolData: بوابة الطالب ممكن تكون كتبت
+    // درجة امتحان إلكتروني مباشرة في schoolData/grades (عبر transaction) في نفس الوقت
+    // اللي إحنا مش لسه واخدين بالها منه محليًا (مثلاً لو المستمع اللحظي فاته التحديث
+    // لأي سبب). لو كتبنا فوق schoolData بنسختنا المحلية القديمة من غير ما نتأكد،
+    // هنمسح درجة الطالب دي نهائيًا من Firebase. فبنجيب آخر نسخة من الدرجات الفعلية
+    // على السيرفر ونضم أي درجة امتحان أونلاين مش موجودة عندنا محليًا قبل الحفظ.
+    try{
+      const gSnap = await _fbDB.ref('schoolData/grades').once('value');
+      const serverGrades = gSnap.val();
+      const serverArr = Array.isArray(serverGrades) ? serverGrades : (serverGrades ? Object.values(serverGrades) : []);
+      if(serverArr.length){
+        const localKeys = new Set((DB.grades||[]).map(g=>g && (g.id || (g.studentId+'_'+g.examId))));
+        const missing = serverArr.filter(g=>g && g.studentId && !localKeys.has(g.id || (g.studentId+'_'+g.examId)));
+        if(missing.length){ DB.grades = [...(DB.grades||[]), ...missing]; }
+      }
+    }catch(e){ console.warn('تعذّر التحقق من درجات السيرفر قبل الحفظ:', e.message); }
     const logo    = DB.settings.logo;
     const certBgs = {};
     if(DB.certTemplates){
@@ -3946,7 +3964,7 @@ function popModal(id){
   }
   if(id==='add-points-modal'){ document.getElementById('pt-st').innerHTML=DB.students.map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join(''); }
   if(id==='add-product-modal'){ document.getElementById('pr-cls').innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); const pub=document.getElementById('pr-type-public'); const azh=document.getElementById('pr-type-azhar'); if(pub) pub.checked=true; if(azh) azh.checked=false; const editId=document.getElementById('pr-edit-id'); if(editId && !editId.value){ document.getElementById('pr-modal-title').innerHTML='إضافة منتج <button class="mc-btn" onclick="closeModal(\'add-product-modal\')">✕</button>'; document.getElementById('pr-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('add-product-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveProduct()">✅ إضافة</button>`; document.getElementById('pr-name').value=''; document.getElementById('pr-icon').value=''; document.getElementById('pr-price').value=''; document.getElementById('pr-stock').value=''; } }
-  if(id==='trash-modal'){ renderTrash(); }
+  if(id==='trash-modal'){ const _ts=document.getElementById('trash-search'); if(_ts) _ts.value=''; renderTrash(); }
   if(id==='add-subject-modal'){
     // Don't pre-populate classes here — filterSubjClsByStage handles it based on selected stage
     const grpSel=document.getElementById('subj-groups');
@@ -6150,11 +6168,32 @@ function behStSelect(sid){
   document.getElementById('beh-st-search').value=`${s.fname} ${s.lname}`;
   document.getElementById('beh-st-dd').style.display='none';
 }
+// ── لو المستخدم كتب اسم/باركود طالب بالظبط من غير ما يضغط على اقتراح من القائمة، نربطه تلقائيًا عند الخروج من الحقل ──
+function _behStAutoResolve(){
+  const hid=document.getElementById('beh-st');
+  if(hid.value)return; // اتربط بالفعل عبر الاختيار من القائمة
+  const typed=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
+  if(!typed)return;
+  const match=DB.students.find(s=>(s.fname+' '+s.lname).trim().toLowerCase()===typed||(s.barcode||'').toLowerCase()===typed);
+  if(match) hid.value=match.id;
+}
 function togBeh(btn,beh){ if(selBeh.includes(beh)){selBeh=selBeh.filter(x=>x!==beh);btn.classList.remove('sel');}else{selBeh.push(beh);btn.classList.add('sel');} }
 function saveBeh(sendWA){
-  const sid=document.getElementById('beh-st').value;
+  try{
+  if(!Array.isArray(DB.behaviors)) DB.behaviors=[]; // ⚠️ حماية: بيانات قديمة ممكن تكون من غير هذه المصفوفة أصلاً
+  let sid=document.getElementById('beh-st').value;
+  // ⚠️ احتياطي: لو المستخدم كتب اسم الطالب يدويًا في حقل البحث ولم يضغط على اقتراح من القائمة،
+  // الحقل المخفي beh-st يفضل فاضي رغم إن الاسم ظاهر في الحقل. هنا بندور عن تطابق تام بالاسم أو الباركود
+  // قبل ما نرفض العملية، عشان السلوك يتسجل فعليًا بدل ما يفشل بصمت.
+  if(!sid){
+    const typed=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
+    if(typed){
+      const match=DB.students.find(s=>(s.fname+' '+s.lname).trim().toLowerCase()===typed||(s.barcode||'').toLowerCase()===typed);
+      if(match){ sid=match.id; document.getElementById('beh-st').value=sid; }
+    }
+  }
   const note=document.getElementById('beh-note').value.trim();
-  if(!sid){toast('اختر الطالب أولاً','e');return;}
+  if(!sid){toast('اختر الطالب أولاً من القائمة المنسدلة','e');return;}
   if(!selBeh.length&&!note){toast('اختر سلوكاً على الأقل','e');return;}
   const entry={id:nid('bh'),studentId:sid,behaviors:[...selBeh],note,date:localDate(),time:new Date().toLocaleTimeString('ar-EG')};
   DB.behaviors.push(entry);
@@ -6183,11 +6222,17 @@ function saveBeh(sendWA){
       window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
     }
   }
+  }catch(err){
+    console.error('saveBeh error:', err);
+    toast('❌ حدث خطأ أثناء الحفظ: '+(err&&err.message?err.message:err),'e');
+  }
 }
 function renderBehLog(){
+  if(!Array.isArray(DB.behaviors)) DB.behaviors=[];
   const f=document.getElementById('beh-f-st')?.value||'';
   const ft=document.getElementById('beh-f-type')?.value||'';
   let list=DB.behaviors.filter(b=>{
+    if(!b||!Array.isArray(b.behaviors))return false;
     if(f&&b.studentId!==f)return false;
     if(ft==='pos')return b.behaviors.some(bh=>BEH_POS.some(p=>p.includes(bh)||bh.includes(p.replace(/^.\s/,''))));
     if(ft==='neg')return b.behaviors.some(bh=>BEH_NEG.some(n=>n.includes(bh)||bh.includes(n.replace(/^.\s/,''))));
@@ -13576,7 +13621,18 @@ function importExcel(e){
     toast(unmatched ? `✅ تم استيراد ${added} طالب — تنبيه: ${unmatched} حالة صف/مجموعة لم تتطابق بدقة مع أسماء الملف واستُخدم الافتراضي بدلها، راجعها يدويًا` : `✅ تم استيراد ${added} طالب بكل بياناتهم (الصف، المجموعة، الباركود، الرقم السري، وغيرها) حسب الملف`);
   }catch(err){toast('خطأ في الملف','e');} }; r.readAsBinaryString(f);
 }
-function renderTrash(){ document.getElementById('trash-body').innerHTML=DB.trash.length?DB.trash.map((t,i)=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();renderTrash()">حذف نهائي</button></div>`).join(''):'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>'; }
+function renderTrash(){
+  const qEl=document.getElementById('trash-search');
+  const q=(qEl?qEl.value:'').trim().toLowerCase();
+  const indexed=DB.trash.map((t,i)=>({t,i}));
+  const filtered=q?indexed.filter(({t})=>{
+    if(t.type!=='student') return t.type.toLowerCase().includes(q);
+    const name=(t.data.fname+' '+t.data.lname).toLowerCase();
+    const barcode=(t.data.barcode||'').toLowerCase();
+    return name.includes(q)||barcode.includes(q);
+  }):indexed;
+  document.getElementById('trash-body').innerHTML=filtered.length?filtered.map(({t,i})=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}${t.type==='student'&&t.data.barcode?' · 🏷️ '+t.data.barcode:''}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();renderTrash()">حذف نهائي</button></div>`).join(''):(q?'<div class="empty"><div class="empty-ic">🔍</div><div>لا توجد نتائج مطابقة</div></div>':'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>');
+}
 function restoreTrash(i){ const t=DB.trash[i]; if(t.type==='student')DB.students.push(t.data); DB.trash.splice(i,1); save(); toast('✅ تم الاستعادة'); renderTrash(); }
 function clearAll(){ openModal('selective-delete-modal'); renderSelectiveDelete(); }
 function renderSelectiveDelete(){
