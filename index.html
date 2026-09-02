@@ -1029,7 +1029,7 @@ async function _loadFromFirebase(){
           <input class="fi" id="pay-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:200px;" oninput="_debouncedRenderPayments()" onkeydown="if(event.key==='Enter'){_payBarcodeScan();}" autocomplete="off">
           <select class="fs" style="width:130px" id="pay-cls-f" onchange="renderPayments()"><option value="">كل الصفوف</option></select>
           <select class="fs" style="width:130px" id="pay-grp-f" onchange="renderPayments()"><option value="">كل المجموعات</option></select>
-          <select class="fs" style="width:120px" id="pay-st-f" onchange="_onPayStatusChange()"><option value="">الحالة</option><option value="paid">مسدد</option><option value="unpaid">غير مسدد</option><option value="partial">جزئي</option><option value="overdue">⚠️ مديونيات سابقة</option></select>
+          <select class="fs" style="width:120px" id="pay-st-f" onchange="_onPayStatusChange()"><option value="">الحالة</option><option value="paid">مسدد</option><option value="unpaid">غير مسدد</option><option value="partial">جزئي</option><option value="curdebt">🕒 مديونيات حالية</option><option value="overdue">⚠️ مديونيات سابقة</option></select>
           <input class="fi" type="month" id="pay-month-f" style="width:145px;" oninput="_debouncedRenderPayments()" title="تصفية حسب الشهر">
           <input class="fi" id="pay-inv-code" placeholder="🔑 التأكد من الفاتورة..." style="width:200px;" oninput="_verifyInvCode(this.value.trim())" onpaste="setTimeout(()=>_verifyInvCode(document.getElementById('pay-inv-code').value.trim()),50)" onchange="_verifyInvCode(this.value.trim())" onkeydown="if(event.key==='Enter')_showInvDetails(this.value.trim())" title="ابحث بكود الفاتورة — اضغط Enter لعرض التفاصيل">
           <button class="btn btn-wa btn-sm" onclick="sendPayWABulkSequential()">📱 تذكير واتساب (للجميع)</button><button class="btn btn-tg btn-sm" onclick="sendPayTGBulk()">✈️ تذكير تيليجرام (للجميع)</button>
@@ -1062,6 +1062,11 @@ async function _loadFromFirebase(){
               </button>
             </div>
           </div>
+          <div id="pay-filter-stat" style="
+            display:none;align-items:center;gap:6px;padding:6px 12px;
+            background:rgba(79,124,255,.1);border:1px solid rgba(79,124,255,.3);
+            border-radius:var(--rs);font-size:12px;font-weight:700;color:var(--accent);
+            white-space:nowrap;"></div>
         </div>
       </div>
       <table><thead><tr><th>الطالب</th><th>الصف</th><th>المجموعة</th><th>المبلغ</th><th>الشهر</th><th>التاريخ</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="pay-tbody"></tbody></table>
@@ -1567,6 +1572,15 @@ async function _loadFromFirebase(){
         <div style="font-size:11px;color:var(--text2);padding:6px 10px;background:var(--glass);border-radius:var(--rs);">
           📌 بعد التصدير: ارفع ملف <b>portal-data.json</b> على GitHub في مجلد <b>teacher-app</b> ليتمكن أولياء الأمور من رؤية بيانات أبنائهم.
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="tc" style="border-color:rgba(245,166,35,.3);margin-top:1rem;">
+    <div class="th" style="border-color:rgba(245,166,35,.18);"><div class="tt" style="color:var(--amber);">🔍 فحص جودة البيانات</div></div>
+    <div style="padding:1rem;display:flex;flex-direction:column;gap:9px;">
+      <button class="btn btn-secondary" onclick="scanDuplicateStudents()">🔍 فحص تكرار كود/باركود الطلاب</button>
+      <div style="font-size:11px;color:var(--text2);padding:6px 10px;background:var(--glass);border-radius:var(--rs);">
+        📌 لو طالبين بيتسجل عليهم نفس الحضور أو الغياب أو نفس المدفوعات تلقائياً بمجرد تعديل واحد فيهم، السبب غالباً إنهم بيشاركوا نفس الكود الداخلي أو الباركود (عادة من استيراد إكسل قديم). استخدم هذا الفحص لاكتشاف وإصلاح الحالة.
       </div>
     </div>
   </div>
@@ -3284,6 +3298,11 @@ function localDate(){
   const d=new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+// ── وقت التسجيل الفعلي لحظة الضغط/المسح (HH:MM بنظام 24 ساعة) — يُستخدم كـ "وقت الحضور" ──
+function localTime(){
+  const d=new Date();
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
 function localMonth(){
   const d=new Date();
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
@@ -3895,6 +3914,11 @@ function popModal(id){
     const cs=document.getElementById('s-cls'); cs.innerHTML=DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
     filterGroupsByCls('s-cls','s-grp');
     document.getElementById('s-date').value=localDate();
+    // ⚠️ المشرف لازم يضيف الطلاب بتاريخ اليوم الحالي فقط ولا يقدر يعدّله (منعًا لتسجيل
+    // تاريخ التحاق قديم بالغلط يسبب ظهور "مديونيات سابقة" وهمية للطالب) — مدير النظام مسموح له كل شيء
+    const dEl=document.getElementById('s-date');
+    if(document.body.dataset.role==='supervisor'){ dEl.disabled=true; dEl.style.opacity='.65'; dEl.style.cursor='not-allowed'; dEl.title='غير مسموح للمشرف بتغيير تاريخ الالتحاق — دائمًا تاريخ اليوم'; }
+    else { dEl.disabled=false; dEl.style.opacity=''; dEl.style.cursor=''; dEl.title=''; }
     ['s-fn','s-ph','s-pph','s-bc','s-tg-chatid','s-tg-username'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('s-fee').value='';
     genPin('s-pin');
@@ -5243,11 +5267,14 @@ function addStudent(){
   if(dupStu){ toast('❌ الكود "'+bc+'" مستخدم بالفعل للطالب: '+dupStu.fname+' '+dupStu.lname+' — من فضلك استخدم كود مختلف','e'); return; }
   const clsId=document.getElementById('s-cls').value, grpId=document.getElementById('s-grp').value;
   const fee=document.body.dataset.role==='supervisor'?DB.settings.fee:(+document.getElementById('s-fee').value||grp(grpId)?.fee||DB.settings.fee);
+  // ⚠️ حماية إضافية: المشرف لازم يضيف الطالب بتاريخ اليوم الحالي دائمًا مهما كانت قيمة الحقل
+  // (حتى لو اتغيرت بأي شكل غير متوقع)، منعًا لتسجيل تاريخ التحاق قديم بالغلط
+  const joinDate=document.body.dataset.role==='supervisor'?localDate():(document.getElementById('s-date').value||localDate());
   const gender=document.getElementById('s-gender-f').checked?'female':'male';
   const eduSystem=document.getElementById('s-edu-azhar')?.checked?'azhar':(document.getElementById('s-edu-general')?.checked?'general':'');
   let pin=document.getElementById('s-pin')?.value.trim()||'';
   if(!pin || pin.length<8) pin=genPin('s-pin'); // ضمان وجود رقم سري صالح دائماً حتى لو الحقل فارغ لأي سبب
-  DB.students.push({id:bc,fname:fn,lname:ln,gender,eduSystem,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:document.getElementById('s-date').value,fee,notes:'',barcode:bc,pin,color:COLORS[DB.students.length%COLORS.length]});
+  DB.students.push({id:bc,fname:fn,lname:ln,gender,eduSystem,phone:document.getElementById('s-ph').value,parentPhone:document.getElementById('s-pph').value,parentName:'',tgChatId:document.getElementById('s-tg-chatid')?.value.trim()||'',tgUsername:document.getElementById('s-tg-username')?.value.trim().replace(/^@/,'')||'',classId:clsId,groupId:grpId,date:joinDate,fee,notes:'',barcode:bc,pin,color:COLORS[DB.students.length%COLORS.length]});
   save(); renderStudents(); toast('✅ تم إضافة '+(gender==='female'?'الطالبة':'الطالب')+' '+fullName+' — الصف والمجموعة باقيين لإضافة طالب تاني بسرعة');
   _resetAddStudentFieldsOnly();
 }
@@ -5278,6 +5305,11 @@ function openEditStudent(id){
   const etcid=document.getElementById('edit-s-tg-chatid'); if(etcid) etcid.value=s.tgChatId||'';
   const etuser=document.getElementById('edit-s-tg-username'); if(etuser) etuser.value=s.tgUsername||'';
   document.getElementById('edit-s-date').value=s.date||'';
+  // ⚠️ نفس منطق منع المشرف من تعديل تاريخ الالتحاق — حتى بعد الإضافة، عشان منمنعش
+  // الإضافة بتاريخ اليوم بس نسمح بالتحايل عن طريق التعديل بعدها مباشرة
+  const edEl=document.getElementById('edit-s-date');
+  if(document.body.dataset.role==='supervisor'){ edEl.disabled=true; edEl.style.opacity='.65'; edEl.style.cursor='not-allowed'; edEl.title='غير مسموح للمشرف بتعديل تاريخ الالتحاق'; }
+  else { edEl.disabled=false; edEl.style.opacity=''; edEl.style.cursor=''; edEl.title=''; }
   document.getElementById('edit-s-fee').value=s.fee||'';
   document.getElementById('edit-s-bc').value=s.barcode||s.id;
   document.getElementById('edit-s-pin').value=(s.pin && s.pin.length>=8) ? s.pin : genPin('edit-s-pin');
@@ -5327,7 +5359,7 @@ function saveEditStudent(){
     s.groupHistory.push({groupId:s.groupId, from:prevFrom, to:today});
   }
   s.groupId=newGrpId;
-  s.date=document.getElementById('edit-s-date').value||s.date;
+  s.date=document.body.dataset.role==='supervisor'?s.date:(document.getElementById('edit-s-date').value||s.date);
   s.fee=document.body.dataset.role==='supervisor'?s.fee:(+document.getElementById('edit-s-fee').value||s.fee);
   s.barcode=newBc;
   const editPin=document.getElementById('edit-s-pin').value.trim();
@@ -6085,7 +6117,7 @@ function confirmImportGroup(){
     const fullname=(row['الاسم']||row['name']||'').trim(); if(!fullname)return;
     const parts=fullname.split(' ');
     const fn=parts[0], ln=parts.slice(1).join(' ')||'.';
-    const id='STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*999);
+    const id=_genUniqueStudentId('STU');
     const genderRaw=String(row['الجنس']||row['النوع']||row['gender']||'').trim().toLowerCase();
     const gender=['أنثى','انثى','بنت','طالبة','f','female'].includes(genderRaw)?'female':'male';
     DB.students.push({
@@ -6378,7 +6410,9 @@ function renderAttGrid(){
     const isExc=isStuFinExcluded(s.id);
     const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'}[st]||'var(--border)');
     const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'}[st]||'var(--card)');
-    return `<div id="ac-${s.id}" style="background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;${isExc?'opacity:.6;':''}">
+    return `<div id="ac-${s.id}" style="position:relative;background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;${isExc?'opacity:.6;':''}">
+      ${!isExc?`<button onclick="event.stopPropagation();cancelAttCard('${s.id}')" title="إلغاء الإجراء — رجوع الطالب كما كان"
+        style="position:absolute;top:6px;left:6px;width:20px;height:20px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;z-index:2;">↩</button>`:''}
       <div class="av av40" style="margin:0 auto 5px;background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
       <div style="font-size:11.5px;font-weight:700;">${s.fname} ${s.lname}${isExc?' <span title="مستبعد — غاب 3 أيام متتالية" style="font-size:9px;font-weight:800;color:var(--red);">⛔</span>':''}</div>
       <div style="font-size:10px;color:var(--text2);margin-top:1px;">${grpN(s.groupId)}</div>
@@ -6544,6 +6578,10 @@ function setAtt(sid,status){
     // حفظ فوري لحظة الضغط — بدون الحاجة لزر حفظ منفصل
     if(!DB.attendance[date]) DB.attendance[date]={};
     DB.attendance[date][sid]=status;
+    // نسجّل وقت الضغط الفعلي (ساعة:دقيقة) بس لو التاريخ المختار هو النهارده —
+    // تعديل حضور تاريخ سابق مايتسجلش عليه وقت "دلوقتي" لأنه مش وقت حضور حقيقي
+    if(date===localDate()) DB.attendance[date][sid+'_time']=localTime();
+    else delete DB.attendance[date][sid+'_time'];
     save();
     const s=stu(sid);
     if(s){
@@ -6565,6 +6603,20 @@ function setAtt(sid,status){
   btns.forEach((b,i)=>{ b.style.background=sts[i]===status?bgmap[status]:'transparent'; b.style.color=sts[i]===status?cols[status]:'var(--text2)'; });
   const gf=document.getElementById('att-grp')?.value||''; updateAttCounts(DB.students.filter(s=>!gf||s.groupId===gf));
 }
+// ── زر (إلغاء) في كل خانة طالب بشبكة الحضور: يمسح أي إجراء (حضور/غياب/تأخير/استئذان) تم عليه
+// اليوم المختار حالياً، ويرجّعه لحالة "غير محدد" كأنه لم يُسجَّل له شيء من الأساس ──
+function cancelAttCard(sid){
+  const date=document.getElementById('att-date')?.value||localDate();
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
+  const hadEntry = !!(DB.attendance[date] && DB.attendance[date][sid]!==undefined);
+  if(DB.attendance[date]){ delete DB.attendance[date][sid]; delete DB.attendance[date][sid+'_time']; }
+  if(attState) delete attState[sid];
+  save();
+  const s=stu(sid);
+  toast(hadEntry ? `↩️ تم إلغاء التسجيل — ${s?s.fname+' '+s.lname:''} رجع "غير محدد"` : 'لا يوجد إجراء مسجّل على هذا الطالب لإلغائه','i');
+  renderAttGrid();
+  renderTodayLog();
+}
 function updateAttCounts(students){
   const p=students.filter(s=>attState[s.id]==='present').length, a=students.filter(s=>attState[s.id]==='absent').length, l=students.filter(s=>attState[s.id]==='late').length, ex=students.filter(s=>attState[s.id]==='excused').length;
   document.getElementById('att-p').textContent='حاضر: '+p; document.getElementById('att-a').textContent='غائب: '+a; document.getElementById('att-l').textContent='متأخر: '+l;
@@ -6579,9 +6631,11 @@ function bulkMarkGroupPresent(){
   if(!students.length){toast('اختر صفاً أو مجموعة أولاً','e');return;}
   if(!confirm(`سيتم تسجيل حضور جميع طلاب هذه المجموعة (${students.length} طالب) دفعة واحدة.\nتقدر تعدّل أي طالب بعد كده لو محتاج. متابعة؟`))return;
   if(!DB.attendance[date]) DB.attendance[date]={};
+  const _bulkTime = date===localDate() ? localTime() : null;
   students.forEach(s=>{
     attState[s.id]='present';
     DB.attendance[date][s.id]='present';
+    if(_bulkTime) DB.attendance[date][s.id+'_time']=_bulkTime; else delete DB.attendance[date][s.id+'_time'];
     pushNotif(s.id,'attendance','✅','تسجيل حضور',`تم تسجيل حضور ${s.fname} ${s.lname} بتاريخ ${date}`);
   });
   save();
@@ -6646,6 +6700,7 @@ function deleteAttEntry(sid){
   if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   if(!DB.attendance[date]) return;
   delete DB.attendance[date][sid];
+  delete DB.attendance[date][sid+'_time'];
   if(typeof attState!=='undefined' && attState) delete attState[sid];
   save();
   toast('تم حذف التسجيل');
@@ -6670,7 +6725,7 @@ function manualAttend(status){
   if(!sid){toast('اختر الطالب أولاً','e');return;}
   const today=localDate();
   if(!DB.attendance[today])DB.attendance[today]={};
-  DB.attendance[today][sid]=status; attState[sid]=status; save();
+  DB.attendance[today][sid]=status; DB.attendance[today][sid+'_time']=localTime(); attState[sid]=status; save();
   const s=stu(sid); const lbl={present:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب'}[status];
   toast(`${lbl} — ${s?s.fname+' '+s.lname:sid}`);
   // Update card if visible
@@ -7006,7 +7061,7 @@ function checkIn(sid, forceAll){
     const status = isLate ? 'late' : 'present';
 
     if(!DB.attendance[today]) DB.attendance[today]={};
-    DB.attendance[today][sid]=status; attState[sid]=status; save();
+    DB.attendance[today][sid]=status; DB.attendance[today][sid+'_time']=localTime(); attState[sid]=status; save();
     pushNotif(sid,'attendance', isLate?'⏰':'✅', isLate?'تسجيل تأخير':'تسجيل حضور',
       `تم تسجيل ${isLate?'تأخير':'حضور'} ${s.fname} ${s.lname} بتاريخ ${today}`);
 
@@ -8329,16 +8384,23 @@ function _payBarcodeScan(){
 function _onPayStatusChange(){
   const sf=document.getElementById('pay-st-f')?.value||'';
   const mfEl=document.getElementById('pay-month-f');
-  if(mfEl) mfEl.title = sf==='overdue' ? 'غير متاح عند اختيار "مديونيات سابقة"' : 'تصفية حسب الشهر';
+  if(mfEl) mfEl.title = (sf==='overdue'||sf==='curdebt') ? 'غير متاح عند اختيار "مديونيات سابقة/حالية" — الشهر محدد تلقائياً' : 'تصفية حسب الشهر';
   renderPayments();
 }
 
+// ── إحصائية سريعة بجوار زر (تصدير) — حسب الفلتر المختار حالياً، مخفية عن المشرف ──
+function _updatePayFilterStat(count,amount,label){
+  const el=document.getElementById('pay-filter-stat'); if(!el) return;
+  if(document.body.dataset.role==='supervisor' || !count){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='flex';
+  el.innerHTML=`📊 ${count} ${label||'دفعة'} <span style="color:var(--text3);">|</span> ${fmtM(amount)}`;
+}
 function renderPayments(){
   const _mfEl=document.getElementById('pay-month-f');
   if(_mfEl&&!_mfEl.value){ const _n=new Date(); _mfEl.value=localMonth(); }
   const cf=document.getElementById('pay-cls-f')?.value||'', gf=document.getElementById('pay-grp-f')?.value||'', sf=document.getElementById('pay-st-f')?.value||'', qf=(document.getElementById('pay-search')?.value||'').trim().toLowerCase(), mf=document.getElementById('pay-month-f')?.value||'';
   // ── مزامنة حالة تعطيل خانة الشهر مع خانة الحالة (احتياطاً لأي استدعاء مباشر لـ renderPayments) ──
-  if(_mfEl){ _mfEl.disabled = sf==='overdue'; _mfEl.style.opacity = sf==='overdue'?'.5':''; _mfEl.style.cursor = sf==='overdue'?'not-allowed':''; }
+  if(_mfEl){ _mfEl.disabled = sf==='overdue'||sf==='curdebt'; _mfEl.style.opacity = (sf==='overdue'||sf==='curdebt')?'.5':''; _mfEl.style.cursor = (sf==='overdue'||sf==='curdebt')?'not-allowed':''; }
   // ── مسح الباركود: لو النص المكتوب يطابق باركود طالب بالضبط، افتح سجل مدفوعاته تلقائياً ──
   if(!qf) _lastPayBarcodeOpened='';
   if(qf && _tryOpenPayHistoryByBarcode(qf)) return;
@@ -8362,15 +8424,16 @@ function renderPayments(){
       <div style="font-size:40px;margin-bottom:.75rem;">💰</div>
       <div style="font-size:13px;font-weight:600;">ابحث بالاسم أو الباركود<br>أو اختر الصف أو الحالة لعرض النتائج</div>
     </td></tr>`;
+    _updatePayFilterStat(0,0);
     return;
   }
 
   // ══════════════════════════════════════════════════════════
-  // ⚠️ حالة خاصة: "مديونيات سابقة" — تستعرض كل الشهور غير المسددة
-  // منذ تاريخ التحاق كل طالب في الصف/المجموعة المختارة وحتى الآن
+  // ⚠️ حالتان خاصتان: "مديونيات سابقة" (كل الشهور غير المسددة منذ الالتحاق
+  // وحتى الآن بدون الشهر الحالي) و"مديونيات حالية" (الشهر الحالي فقط لو غير مسدد)
   // ══════════════════════════════════════════════════════════
-  if(sf==='overdue'){
-    let candidates=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
+  if(sf==='overdue'||sf==='curdebt'){
+    let candidates=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id));
     if(qf){
       candidates=candidates.filter(s=>{
         const nm=(s.fname+' '+s.lname).toLowerCase();
@@ -8378,19 +8441,23 @@ function renderPayments(){
         return nm.includes(qf)||bc.includes(qf);
       });
     }
+    const _curM=localMonth();
     const rows=[];
     candidates.forEach(s=>{
-      const unpaidMonths=getUnpaidMonthsSince(s.id);
+      let unpaidMonths=getUnpaidMonthsSince(s.id);
+      unpaidMonths = sf==='overdue' ? unpaidMonths.filter(m=>m!==_curM) : unpaidMonths.filter(m=>m===_curM);
       if(!unpaidMonths.length) return;
       rows.push({s,unpaidMonths});
     });
     if(!rows.length){
       document.getElementById('pay-tbody').innerHTML=`<tr><td colspan="8" style="text-align:center;padding:3rem;color:var(--text3);">
         <div style="font-size:40px;margin-bottom:.75rem;">✅</div>
-        <div style="font-size:13px;font-weight:600;">لا توجد مديونيات سابقة لهذا الاختيار</div>
+        <div style="font-size:13px;font-weight:600;">${sf==='overdue'?'لا توجد مديونيات سابقة لهذا الاختيار':'لا توجد مديونيات للشهر الحالي لهذا الاختيار'}</div>
       </td></tr>`;
+      _updatePayFilterStat(0,0);
       return;
     }
+    _updatePayFilterStat(rows.length, rows.reduce((a,{s,unpaidMonths})=>a+unpaidMonths.length*stuEffectiveFee(s),0), 'طالب مديون');
     document.getElementById('pay-tbody').innerHTML=rows.map(({s,unpaidMonths})=>{
       const fee=stuEffectiveFee(s);
       const totalDebt=unpaidMonths.length*fee;
@@ -8409,7 +8476,7 @@ function renderPayments(){
         <td style="font-weight:800;color:var(--red);">${fmtM(totalDebt)}</td>
         <td style="font-size:11px;color:var(--text2);">${unpaidMonths.length} شهر</td>
         <td style="font-size:11px;color:var(--text3);">—</td>
-        <td><span class="badge bg-r">⚠️ مديونية سابقة</span></td>
+        <td><span class="badge bg-r">${sf==='overdue'?'⚠️ مديونية سابقة':'🕒 مديونية حالية'}</span></td>
         <td></td>
       </tr>`;
     }).join('');
@@ -8461,6 +8528,7 @@ function renderPayments(){
   const listedIds=new Set(list.map(p=>p.studentId));
   const unlistedUnpaid=DB.students.filter(s=>{
     if(isStuFinExcluded(s.id))return false;
+    if(isStuExempt(s.id))return false;
     const paidInMonth=DB.payments.some(p=>p.studentId===s.id&&p.month===_chkMonth&&p.status==='paid');
     if(paidInMonth)return false;
     if(cf&&s.classId!==cf)return false;
@@ -8503,6 +8571,14 @@ function renderPayments(){
       <td><span class="badge bg-r">⏳ لم يسدد</span></td><td></td>
     </tr>`).join('');
     document.getElementById('pay-tbody').innerHTML+=extraRows;
+  }
+
+  // ── تحديث إحصائية الفلتر الحالي (عدد السجلات الظاهرة + إجمالي مبالغها) ──
+  {
+    const listedCount=list.length, listedAmount=list.reduce((a,p)=>a+(+p.amount||0),0);
+    const unlistedCount=showUnlisted?unlistedUnpaid.length:0;
+    const unlistedAmount=showUnlisted?unlistedUnpaid.reduce((a,s)=>a+stuEffectiveFee(s),0):0;
+    _updatePayFilterStat(listedCount+unlistedCount, listedAmount+unlistedAmount, 'سجل');
   }
 
   // ── لو في بحث نشط باسم/كود، افتح صف الإجراءات تلقائياً بدون الحاجة للضغط على الاسم ──
@@ -10936,12 +11012,14 @@ function renderStore(){
     if(fProd || fCls || fGrp || fStuQ || fPaid || fReceived){
       const totQty=filteredSales.reduce((a,b)=>a+b.qty,0);
       const totRev=filteredSales.reduce((a,b)=>a+b.total,0);
+      const totRem=filteredSales.reduce((a,b)=>a+saleRemaining(b),0);
       const unpaidCount=filteredSales.filter(s=>s.paid===false).length;
       const prodLabel=fProd?(DB.products.find(p=>p.id===fProd)?.name||''):'';
       statsBoxEl.style.display='flex';
       statsBoxEl.innerHTML=`${prodLabel?`<span style="color:var(--text);">${prodLabel}</span><span style="color:var(--border2);">|</span>`:''}`
         +`<span>📦 ${totQty} وحدة</span><span style="color:var(--border2);">|</span>`
         +`<span style="color:var(--green);">💰 ${fmtM(totRev)}</span>`
+        +`${totRem>0?`<span style="color:var(--border2);">|</span><span style="color:var(--amber);">🔶 متبقي ${fmtM(totRem)}</span>`:''}`
         +`${unpaidCount?`<span style="color:var(--border2);">|</span><span style="color:var(--amber);">⏳ ${unpaidCount} غير مدفوع</span>`:''}`;
     } else {
       statsBoxEl.style.display='none';
@@ -13567,13 +13645,29 @@ function exportPortalData(){
   toast('🌐 تم تصدير بيانات البوابة — ارفع الملف على GitHub');
 }
 function importJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=async ev=>{ try{ DB=JSON.parse(ev.target.result); DB.__lastSave=Date.now(); if(_fbSyncPending){clearTimeout(_fbSyncPending);_fbSyncPending=null;} _idbSet('etp3',DB).catch(()=>{}); await _saveFlush(); location.reload(); }catch(err){toast('خطأ في الملف','e');} }; r.readAsText(f); }
+// ── توليد كود داخلي فريد تماماً لطالب جديد (يتأكد من عدم تعارضه مع أي id أو باركود موجود حالياً) ──
+function _genUniqueStudentId(prefix='STU'){
+  let id;
+  do { id = nid(prefix); } while(DB.students.some(s=>s.id===id||s.barcode===id));
+  return id;
+}
 function importExcel(e){
   const f=e.target.files[0]; if(!f)return;
   const r=new FileReader(); r.onload=ev=>{ try{ const wb=XLSX.read(ev.target.result,{type:'binary'}); const ws=wb.Sheets[wb.SheetNames[0]]; const data=XLSX.utils.sheet_to_json(ws); let added=0, unmatched=0;
     const norm=t=>String(t||'').replace(/\s+/g,'').trim();
+    const rejectedDup=[]; // ⚠️ أسماء الطلاب اللي رُفض تسجيلهم بسبب كود/باركود مستخدم لطالب حالي بالفعل
     data.forEach(row=>{ const fullname=(row['الاسم']||row['الاسم الكامل']||row['name']||'').trim(); if(!fullname)return; const parts=fullname.split(' '); const fn=parts[0], ln=parts.slice(1).join(' ')||'.';
       const genderRaw=String(row['الجنس']||row['النوع']||row['gender']||'').trim().toLowerCase();
       const gender=['أنثى','انثى','بنت','طالبة','f','female'].includes(genderRaw)?'female':'male';
+
+      // ⚠️ منع تكرار الكود: لو الباركود المكتوب في الملف مستخدم بالفعل لطالب حالي (أو لطالب
+      // سبق إضافته من نفس الملف في نفس عملية الاستيراد)، يُرفض تسجيل هذا الطالب تماماً
+      // بدل ما نولّد له كود بديل بصمت — عشان المدرّس يراجع الكود الصح ويعيد استيراده بنفسه.
+      const barcodeRaw=String(row['الباركود']||row['كود']||row['barcode']||row['code']||'').trim();
+      if(barcodeRaw && DB.students.some(s2=>s2.id===barcodeRaw||s2.barcode===barcodeRaw)){
+        rejectedDup.push(fullname+' (كود: '+barcodeRaw+')');
+        return; // ⛔ تخطي هذا الطالب بالكامل — لم يُسجَّل
+      }
 
       // ── مطابقة الصف والمجموعة من بيانات نفس الصف في الملف (بدل تثبيت الكل على أول صف/مجموعة في القائمة) ──
       const clsNameRaw=String(row['الصف']||row['الصف الدراسي']||row['class']||'').trim();
@@ -13589,8 +13683,8 @@ function importExcel(e){
       if(grpNameRaw && !matchedGroup) unmatched++;
 
       // ── باقي بيانات الطالب: تُقرأ من الملف لو موجودة، وإلا تتولّد/تُفترض تلقائيًا ──
-      const barcodeRaw=String(row['الباركود']||row['كود']||row['barcode']||row['code']||'').trim();
-      const id=barcodeRaw || ('STU'+Date.now().toString().slice(-6)+Math.floor(Math.random()*99));
+      // لو مفيش باركود مكتوب في الملف أصلاً، يتولّد كود فريد تلقائياً (بدون أي خطر تصادم)
+      const id = barcodeRaw || _genUniqueStudentId('STU');
       const pinRaw=String(row['الرقم السري']||row['كلمة السر']||row['pin']||'').trim();
       const feeRaw=row['الرسوم']||row['رسوم']||row['fee'];
       const joinDateRaw=row['تاريخ الالتحاق']||row['التاريخ']||row['date'];
@@ -13618,8 +13712,55 @@ function importExcel(e){
       added++;
     });
     save();
-    toast(unmatched ? `✅ تم استيراد ${added} طالب — تنبيه: ${unmatched} حالة صف/مجموعة لم تتطابق بدقة مع أسماء الملف واستُخدم الافتراضي بدلها، راجعها يدويًا` : `✅ تم استيراد ${added} طالب بكل بياناتهم (الصف، المجموعة، الباركود، الرقم السري، وغيرها) حسب الملف`);
+    const parts2=[];
+    if(unmatched) parts2.push(`${unmatched} حالة صف/مجموعة لم تتطابق بدقة مع أسماء الملف واستُخدم الافتراضي بدلها`);
+    if(rejectedDup.length) parts2.push(`${rejectedDup.length} طالب لم يُسجَّل لأن كوده/باركوده مستخدم بالفعل لطالب حالي: ${rejectedDup.join('، ')}`);
+    toast(parts2.length ? `✅ تم استيراد ${added} طالب — تنبيه: ${parts2.join(' | ')}، راجع الحالات دي يدويًا` : `✅ تم استيراد ${added} طالب بكل بياناتهم (الصف، المجموعة، الباركود، الرقم السري، وغيرها) حسب الملف`);
   }catch(err){toast('خطأ في الملف','e');} }; r.readAsBinaryString(f);
+}
+// ══════════════════════════════════════════════
+// 🔍 فحص وإصلاح تكرار كود/باركود الطلاب
+// السبب الشائع لو طالبين بيتسجل عليهم نفس الحضور/الغياب أو نفس المدفوعات تلقائياً:
+// الاثنين ليهم نفس الـ id الداخلي أو نفس الباركود (غالباً من استيراد إكسل قديم كان فيه
+// باركود فاضي أو مكرر لأكتر من طالب). كل بيانات الحضور والمدفوعات مربوطة بالـ id، فلو
+// اتنين شاركوا نفس الـ id، أي تعديل على واحد بيظهر تلقائياً على التاني لأنهم فعلياً
+// بيقروا/يكتبوا على نفس السجل.
+// ══════════════════════════════════════════════
+function _findDuplicateStudents(){
+  const idMap=new Map(), dupIds=[];
+  const bcMap=new Map(), dupBcs=[];
+  DB.students.forEach(s=>{
+    if(idMap.has(s.id)) dupIds.push(s); else idMap.set(s.id,s);
+    if(s.barcode){ if(bcMap.has(s.barcode)) dupBcs.push(s); else bcMap.set(s.barcode,s); }
+  });
+  return {dupIds,dupBcs};
+}
+function scanDuplicateStudents(){
+  const {dupIds,dupBcs}=_findDuplicateStudents();
+  if(!dupIds.length && !dupBcs.length){ toast('✅ لا يوجد أي تكرار في أكواد أو باركود الطلاب حالياً','s'); return; }
+  let msg='تم العثور على تكرار قد يسبب تداخل بيانات طلاب مختلفين (حضور/مدفوعات):\n\n';
+  if(dupIds.length) msg+=`⚠️ ${dupIds.length} طالب يشاركون نفس الكود الداخلي مع طالب آخر:\n`+dupIds.map(s=>'• '+s.fname+' '+s.lname).join('\n')+'\n\n';
+  if(dupBcs.length) msg+=`⚠️ ${dupBcs.length} طالب يشاركون نفس الباركود مع طالب آخر:\n`+dupBcs.map(s=>'• '+s.fname+' '+s.lname).join('\n')+'\n\n';
+  msg+='هل تريد الإصلاح التلقائي الآن؟ (سيُعطى كل طالب مكرر كوداً وباركوداً جديداً منفصلاً بدون فقد بياناته الحالية — ملحوظة: سجلات الحضور/المدفوعات القديمة المسجلة على الكود المشترك ستبقى مرتبطة بالطالب الأول، ويلزم مراجعة الطالب الآخر يدوياً وإعادة تسجيل حضوره/مدفوعاته من تاريخ حدوث التكرار)';
+  if(!confirm(msg)) return;
+  fixDuplicateStudents();
+}
+function fixDuplicateStudents(){
+  const seenIds=new Set(), seenBcs=new Set();
+  let fixed=0;
+  DB.students.forEach(s=>{
+    let changed=false;
+    if(seenIds.has(s.id)){ s.id=nid('STU'); changed=true; }
+    seenIds.add(s.id);
+    if(s.barcode){
+      if(seenBcs.has(s.barcode)){ s.barcode=s.id; changed=true; }
+      seenBcs.add(s.barcode);
+    }
+    if(changed) fixed++;
+  });
+  save();
+  toast(fixed?`✅ تم فصل ${fixed} طالب كان مشتركاً في كود/باركود مع طالب آخر — راجع حضورهم ومدفوعاتهم السابقة`:'✅ لا يوجد تكرار لإصلاحه','s');
+  if(typeof renderStudents==='function') renderStudents();
 }
 function renderTrash(){
   const qEl=document.getElementById('trash-search');
@@ -13633,7 +13774,21 @@ function renderTrash(){
   }):indexed;
   document.getElementById('trash-body').innerHTML=filtered.length?filtered.map(({t,i})=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}${t.type==='student'&&t.data.barcode?' · 🏷️ '+t.data.barcode:''}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();renderTrash()">حذف نهائي</button></div>`).join(''):(q?'<div class="empty"><div class="empty-ic">🔍</div><div>لا توجد نتائج مطابقة</div></div>':'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>');
 }
-function restoreTrash(i){ const t=DB.trash[i]; if(t.type==='student')DB.students.push(t.data); DB.trash.splice(i,1); save(); toast('✅ تم الاستعادة'); renderTrash(); }
+function restoreTrash(i){
+  const t=DB.trash[i];
+  if(t.type==='student'){
+    // ⚠️ لو كود/باركود الطالب المطلوب استعادته بقى مستخدماً بالفعل لطالب آخر (اتضاف بعد الحذف)،
+    // نرفض الاستعادة المباشرة ونديله كود جديد فريد بدل ما نسبب تصادم مع الطالب الحالي.
+    const dupStu=DB.students.find(x=>x.id===t.data.id||(t.data.barcode&&x.barcode===t.data.barcode));
+    if(dupStu){
+      if(!confirm('❌ الكود "'+(t.data.barcode||t.data.id)+'" مستخدم بالفعل للطالب: '+dupStu.fname+' '+dupStu.lname+'.\nهل تريد استعادة "'+t.data.fname+' '+t.data.lname+'" بكود جديد مختلف بدلاً من الكود القديم؟'))return;
+      const newId=_genUniqueStudentId('STU');
+      t.data.id=newId; t.data.barcode=newId;
+    }
+    DB.students.push(t.data);
+  }
+  DB.trash.splice(i,1); save(); toast('✅ تم الاستعادة'); renderTrash();
+}
 function clearAll(){ openModal('selective-delete-modal'); renderSelectiveDelete(); }
 function renderSelectiveDelete(){
   const csel=document.getElementById('sd-cls'); if(csel) csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
