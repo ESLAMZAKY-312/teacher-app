@@ -774,6 +774,13 @@ function _saveMcqGradeWithRetry(gradeRecord, attempt){
       if(!error && committed){
         // اتأكدت على السيرفر فعلاً — تقدر تتشال من localStorage بأمان
         _removePendingGradeLocal(gradeRecord);
+        // ⚠️ مهم جداً: برنامج المعلم عنده حماية بتتجاهل أي تحديث وارد من Firebase لو حقل
+        // __syncedAt مش أحدث من نسخته المحلية. الـ transaction اللي فوق بتكتب في
+        // schoolData/grades بس من غير ما تلمس __syncedAt، فبرنامج المعلم كان
+        // بيتجاهل درجة الامتحان دي تمامًا — وبعدين حفظه التلقائي الدوري كان بيمسحها
+        // نهائيًا من Firebase لأنه بيكتب فوق schoolData بالكامل بنسخته القديمة.
+        // الحل: نحدّث __syncedAt بعد نجاح الحفظ عشان برنامج المعلم ياخد التحديث فعليًا.
+        firebase.database().ref('schoolData/__syncedAt').set(new Date().toISOString()).catch(()=>{});
         if(statusEl){
           statusEl.textContent = '✅ تم حفظ النتيجة بنجاح';
           statusEl.style.color = 'var(--green)';
