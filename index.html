@@ -2437,6 +2437,7 @@ async function _loadFromFirebase(){
       <div><label class="fl">إلى تاريخ</label><input class="fi" type="date" id="avw-to" style="width:150px;"></div>
       <div><label class="fl">الصف</label><select class="fs" id="avw-cls" style="width:150px;" onchange="_filterAttViewGrp()"><option value="">كل الصفوف</option></select></div>
       <div><label class="fl">المجموعة</label><select class="fs" id="avw-grp" style="width:150px;"><option value="">كل المجموعات</option></select></div>
+      <div><label class="fl">بحث (اسم/باركود)</label><input class="fi" type="text" id="avw-search" placeholder="اسم الطالب أو الباركود" style="width:190px;" oninput="renderAttViewGrid()"></div>
       <button class="btn btn-primary btn-sm" onclick="renderAttViewGrid()">👁️ عرض</button>
     </div>
 
@@ -6456,6 +6457,7 @@ function openAttViewModal(){
   _filterAttViewGrp();
   const grpSel=document.getElementById('avw-grp');
   if(grpSel) grpSel.value=document.getElementById('att-grp')?.value||'';
+  const searchEl=document.getElementById('avw-search'); if(searchEl) searchEl.value='';
   // نطاق افتراضي: آخر 14 يوم لحد النهارده
   const today=localDate();
   const toEl=document.getElementById('avw-to'); if(toEl) toEl.value=today;
@@ -6515,7 +6517,8 @@ function renderAttViewGrid(){
   let dates=_dateRangeList(from,to);
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
   if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
-  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
+  const searchQ=(document.getElementById('avw-search')?.value||'').trim().toLowerCase();
+  const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&(!searchQ||(s.fname+' '+s.lname).toLowerCase().includes(searchQ)||String(s.barcode||s.id||'').toLowerCase().includes(searchQ)));
   const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
   const _excS=students.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
   students.length=0; students.push.apply(students,_normS.concat(_excS));
@@ -10509,7 +10512,9 @@ function openDailyInventory(){
 }
 function renderDailyInventory(){
   const day=document.getElementById('inv-day').value; if(!day)return;
-  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial'));
+  // الإخوة: كل أخ بياخد سجل دفعة منفصل تلقائياً (isSiblingAuto) بنفس قيمة الدفعة الأصلية —
+  // بنستبعدهم من الجرد اليومي عشان الحالة تتحسب "فرد واحد بقيمة واحدة" زي باقي شاشات الإحصائيات
+  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial')&&!p.isSiblingAuto);
   const dayExp=DB.expenses.filter(e=>e.date===day);
   const daySalesAll=DB.sales.filter(s=>s.date===day);
   const daySales=daySalesAll.filter(s=>saleAmountPaid(s)>0);
@@ -10549,7 +10554,8 @@ function renderDailyInventory(){
 function printDailyInventoryPDF(){
   const day=document.getElementById('inv-day').value;
   if(!day)return;
-  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial'));
+  // نفس منطق استبعاد دفعات الإخوة الآلية المكرّرة المستخدم في عرض الجرد داخل الصفحة
+  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial')&&!p.isSiblingAuto);
   const dayExp=DB.expenses.filter(e=>e.date===day);
   const daySalesAll=DB.sales.filter(s=>s.date===day);
   const daySales=daySalesAll.filter(s=>saleAmountPaid(s)>0);
