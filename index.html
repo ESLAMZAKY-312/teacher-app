@@ -6589,6 +6589,9 @@ function _isPastAttDateBlockedForSupervisor(date){
 function setAtt(sid,status){
   const _chkDate=document.getElementById('att-date')?.value;
   if(_isPastAttDateBlockedForSupervisor(_chkDate)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
+  // ── تسجيل "حاضر" يدوياً في يوم خارج جدول مجموعة الطالب الأسبوعي (حصة تعويض/استثنائية) ──
+  // يتحول تلقائياً لـ"حضور استثنائي" بدل "حاضر" العادي
+  if(status==='present' && _chkDate && _isExceptionalDay(sid, _chkDate)) status='exceptional';
   attState[sid]=status;
   const date=document.getElementById('att-date')?.value;
   if(date){
@@ -6609,15 +6612,17 @@ function setAtt(sid,status){
     renderTodayLog();
   }
   const card=document.getElementById('ac-'+sid);
-  const bcs={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'};
-  const bgs={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'};
+  const bcs={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',exceptional:'rgba(34,201,122,.4)'};
+  const bgs={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',exceptional:'rgba(34,201,122,.04)'};
   card.style.borderColor=bcs[status]||'var(--border)'; card.style.background=bgs[status]||'var(--card)';
   document.getElementById('as-'+sid).textContent=attLbl(status);
   const btns=card.querySelectorAll('button');
   const sts=['present','late','excused','absent'];
   const cols={present:'var(--green)',late:'var(--amber)',excused:'#7c5cff',absent:'var(--red)'};
   const bgmap={present:'rgba(34,201,122,.2)',late:'rgba(245,166,35,.2)',excused:'rgba(124,92,255,.2)',absent:'rgba(255,77,109,.2)'};
-  btns.forEach((b,i)=>{ b.style.background=sts[i]===status?bgmap[status]:'transparent'; b.style.color=sts[i]===status?cols[status]:'var(--text2)'; });
+  // "حضور استثنائي" بيتعرض شكله زي زرار "حاضر" (اللون الأخضر) لأنه في الأساس حضور فعلي
+  const _visSt = status==='exceptional' ? 'present' : status;
+  btns.forEach((b,i)=>{ b.style.background=sts[i]===_visSt?bgmap[_visSt]:'transparent'; b.style.color=sts[i]===_visSt?cols[_visSt]:'var(--text2)'; });
   const gf=document.getElementById('att-grp')?.value||''; updateAttCounts(DB.students.filter(s=>!gf||s.groupId===gf));
 }
 // ── زر (إلغاء) في كل خانة طالب بشبكة الحضور: يمسح أي إجراء (حضور/غياب/تأخير/استئذان) تم عليه
@@ -6635,7 +6640,7 @@ function cancelAttCard(sid){
   renderTodayLog();
 }
 function updateAttCounts(students){
-  const p=students.filter(s=>attState[s.id]==='present').length, a=students.filter(s=>attState[s.id]==='absent').length, l=students.filter(s=>attState[s.id]==='late').length, ex=students.filter(s=>attState[s.id]==='excused').length;
+  const p=students.filter(s=>attState[s.id]==='present'||attState[s.id]==='exceptional').length, a=students.filter(s=>attState[s.id]==='absent').length, l=students.filter(s=>attState[s.id]==='late').length, ex=students.filter(s=>attState[s.id]==='excused').length;
   document.getElementById('att-p').textContent='حاضر: '+p; document.getElementById('att-a').textContent='غائب: '+a; document.getElementById('att-l').textContent='متأخر: '+l;
   const exEl=document.getElementById('att-ex'); if(exEl) exEl.textContent='مستأذن: '+ex;
 }
@@ -6650,10 +6655,13 @@ function bulkMarkGroupPresent(){
   if(!DB.attendance[date]) DB.attendance[date]={};
   const _bulkTime = date===localDate() ? localTime() : null;
   students.forEach(s=>{
-    attState[s.id]='present';
-    DB.attendance[date][s.id]='present';
+    // ── لو التاريخ المختار خارج جدول مجموعة الطالب الأسبوعي (حصة تعويض/استثنائية) ──
+    // يتسجّل "حضور استثنائي" بدل "حاضر" العادي
+    const st = _isExceptionalDay(s.id, date) ? 'exceptional' : 'present';
+    attState[s.id]=st;
+    DB.attendance[date][s.id]=st;
     if(_bulkTime) DB.attendance[date][s.id+'_time']=_bulkTime; else delete DB.attendance[date][s.id+'_time'];
-    pushNotif(s.id,'attendance','✅','تسجيل حضور',`تم تسجيل حضور ${s.fname} ${s.lname} بتاريخ ${date}`);
+    pushNotif(s.id,'attendance', st==='exceptional'?'⭐':'✅', st==='exceptional'?'تسجيل حضور استثنائي':'تسجيل حضور',`تم تسجيل ${st==='exceptional'?'حضور استثنائي':'حضور'} ${s.fname} ${s.lname} بتاريخ ${date}`);
   });
   save();
   renderAttGrid(); renderTodayLog();
@@ -6741,9 +6749,12 @@ function manualAttend(status){
   const sid=document.getElementById('manual-stu').value;
   if(!sid){toast('اختر الطالب أولاً','e');return;}
   const today=localDate();
+  // ── لو الطالب اتسجّل "حاضر" في يوم خارج جدول مجموعته الأسبوعي (حصة تعويض/استثنائية) ──
+  // يتحول تلقائياً لـ"حضور استثنائي" بدل "حاضر" العادي
+  if(status==='present' && _isExceptionalDay(sid, today)) status='exceptional';
   if(!DB.attendance[today])DB.attendance[today]={};
   DB.attendance[today][sid]=status; DB.attendance[today][sid+'_time']=localTime(); attState[sid]=status; save();
-  const s=stu(sid); const lbl={present:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب'}[status];
+  const s=stu(sid); const lbl={present:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب',exceptional:'⭐ حضور استثنائي'}[status];
   toast(`${lbl} — ${s?s.fname+' '+s.lname:sid}`);
   // Update card if visible
   const card=document.getElementById('ac-'+sid);
@@ -7075,25 +7086,28 @@ function checkIn(sid, forceAll){
     // (يُحسب فقط ضمن نافذة وقت المجموعة الطبيعية — الحالات المعتمدة يدوياً خارج الوقت (forceAll) تبقى "حضور")
     const isLate = (!wrongTime && !pastAutoClose) && timeCheck.fromMin!=null && timeCheck.nowMin!=null &&
       (timeCheck.nowMin - timeCheck.fromMin) >= LATE_THRESHOLD_MIN;
-    const status = isLate ? 'late' : 'present';
+    // ── يوم خارج جدول مجموعة الطالب الأسبوعي (حصة تعويض/استثنائية) → يتسجّل
+    // "حضور استثنائي" دائماً بدل "حاضر"/"متأخر" العاديين، حتى لو الوقت مطابق لميعاد مجموعته ──
+    const exceptionalDay = _isExceptionalDay(sid, today);
+    const status = exceptionalDay ? 'exceptional' : (isLate ? 'late' : 'present');
 
     if(!DB.attendance[today]) DB.attendance[today]={};
     DB.attendance[today][sid]=status; DB.attendance[today][sid+'_time']=localTime(); attState[sid]=status; save();
-    pushNotif(sid,'attendance', isLate?'⏰':'✅', isLate?'تسجيل تأخير':'تسجيل حضور',
-      `تم تسجيل ${isLate?'تأخير':'حضور'} ${s.fname} ${s.lname} بتاريخ ${today}`);
+    pushNotif(sid,'attendance', exceptionalDay?'⭐':(isLate?'⏰':'✅'), exceptionalDay?'تسجيل حضور استثنائي':(isLate?'تسجيل تأخير':'تسجيل حضور'),
+      `تم تسجيل ${exceptionalDay?'حضور استثنائي':(isLate?'تأخير':'حضور')} ${s.fname} ${s.lname} بتاريخ ${today}`);
 
     const extraTxt = (forceAll && (wrongTime||pastAutoClose)) ? ' (خارج الوقت ✔)' : '';
 
     const r=document.getElementById('scan-res');
     if(r){
       r.style.display='block';
-      r.style.background= isLate ? 'rgba(245,166,35,.1)' : 'rgba(34,201,122,.1)';
-      r.style.borderColor= isLate ? 'rgba(245,166,35,.3)' : 'rgba(34,201,122,.3)';
-      r.style.color= isLate ? 'var(--amber)' : 'var(--green)';
-      r.innerHTML=`${isLate?'⏰':'✅'} <b>${s.fname} ${s.lname}</b> — ${clsN(s.classId)} · ${grpN(s.groupId)} — ${isLate?'تسجيل تأخير':'حضور مسجّل'}${extraTxt}`;
+      r.style.background= exceptionalDay ? 'rgba(34,201,122,.1)' : (isLate ? 'rgba(245,166,35,.1)' : 'rgba(34,201,122,.1)');
+      r.style.borderColor= exceptionalDay ? 'rgba(34,201,122,.3)' : (isLate ? 'rgba(245,166,35,.3)' : 'rgba(34,201,122,.3)');
+      r.style.color= exceptionalDay ? 'var(--green)' : (isLate ? 'var(--amber)' : 'var(--green)');
+      r.innerHTML=`${exceptionalDay?'⭐':(isLate?'⏰':'✅')} <b>${s.fname} ${s.lname}</b> — ${clsN(s.classId)} · ${grpN(s.groupId)} — ${exceptionalDay?'حضور استثنائي مسجّل':(isLate?'تسجيل تأخير':'حضور مسجّل')}${extraTxt}`;
       setTimeout(()=>r.style.display='none',3500);
     }
-    toast((isLate?'⏰ ':'✅ ')+s.fname+' '+s.lname+' — '+(isLate?'مسجّل متأخر':'مسجّل حاضر')+extraTxt);
+    toast((exceptionalDay?'⭐ ':(isLate?'⏰ ':'✅ '))+s.fname+' '+s.lname+' — '+(exceptionalDay?'مسجّل حضور استثنائي':(isLate?'مسجّل متأخر':'مسجّل حاضر'))+extraTxt);
     const card=document.getElementById('ac-'+sid);
     if(card) setAtt(sid,status);
     renderTodayLog();
@@ -8829,6 +8843,17 @@ function _grpIdOnDate(s, date){
     if(date<hist[0].from) return hist[0].groupId;
   }
   return s.groupId; // المجموعة الحالية (من تاريخ آخر تحويل حتى الآن)
+}
+// ── هل هذا التاريخ يوم خارج جدول مجموعة الطالب الأسبوعي؟ (حصة تعويض/استثنائية) ──
+// تُستخدم في كل نقاط تسجيل الحضور (مسح باركود / تسجيل يدوي / شبكة الحضور / تسجيل جماعي)
+// عشان أي حضور فعلي في يوم مش من أيام جدول المجموعة يتسجّل تلقائياً "استثنائي" بدل "حاضر"
+function _isExceptionalDay(sid, dateStr){
+  const s = stu(sid); if(!s || !dateStr) return false;
+  const allowedDays = _grpDayNums(_grpIdOnDate(s, dateStr));
+  if(!allowedDays) return false; // المجموعة بلا جدول أيام محدد → لا يوجد مفهوم "استثنائي"
+  const parts = dateStr.split('-');
+  const dt = new Date(+parts[0], +parts[1]-1, +parts[2]);
+  return !allowedDays.has(dt.getDay());
 }
 function _filterDaysByGrp(days, grpIdOrStudent, sid){
   // sid اختياري: لو مُمرَّر، تُضاف أي أيام له فيها سجل حضور فعلي (حاضر/غائب/
