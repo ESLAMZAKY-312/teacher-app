@@ -6537,7 +6537,10 @@ function renderAttViewGrid(){
   if(relevantDays && relevantDays.size){
     dates=dates.filter(d=>{
       const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
-      return relevantDays.has(dt.getDay());
+      if(relevantDays.has(dt.getDay())) return true;
+      // احتفظ باليوم برضه لو فيه "حضور استثنائي" مسجَّل لأي طالب من المعروضين، حتى لو خارج
+      // أيام الجدول الأسبوعي للمجموعة (زي حصص التعويض) — عشان يظهر عمود اليوم في الشبكة
+      return students.some(s=>DB.attendance[d] && DB.attendance[d][s.id]==='exceptional');
     });
   }
   // الأحدث يظهر بجوار عمود الاسم (يمين) والأقدم في أقصى اليسار
