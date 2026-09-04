@@ -169,7 +169,7 @@ tbody tr:last-child td{border-bottom:none;}
           <thead><tr>
             <th>#</th>
             <th>📅 التاريخ</th>
-            <th>🕐 الوقت</th>
+            <th>🕐 ميعاد المجموعة</th>
             <th>⏱️ وقت الحضور</th>
             <th>الحالة</th>
           </tr></thead>
@@ -897,7 +897,7 @@ function renderAtt(s){
     present:     {lbl:'حاضر',     cls:'badge-green',  ic:'✅'},
     absent:      {lbl:'غائب',     cls:'badge-red',    ic:'❌'},
     late:        {lbl:'متأخر',    cls:'badge-amber',  ic:'⏰'},
-    exceptional: {lbl:'استثنائي', cls:'badge-blue',   ic:'⭐'},
+    exceptional: {lbl:'حضور استثنائي', cls:'badge-blue',   ic:'⭐'},
     excused:     {lbl:'مستأذن',   cls:'badge-purple', ic:'🙋'},
   };
   tbody.innerHTML = records.map((r,i)=>{
@@ -905,8 +905,8 @@ function renderAtt(s){
     // تنسيق التاريخ للعربية
     let dateStr = r.date;
     try{ dateStr = new Date(r.date).toLocaleDateString('ar-EG',{weekday:'short',year:'numeric',month:'short',day:'numeric'}); }catch(e){}
-    // الوقت (بنظام 12 ساعة)
-    const timeStrRaw = r.time || (grp?.timeFrom ? grp.timeFrom+(grp.timeTo?'-'+grp.timeTo:'') : '—');
+    // ميعاد المجموعة الثابت (من — إلى) — دايمًا جدول المجموعة الأسبوعي المحدد، بغض النظر عن وقت حضور الطالب الفعلي
+    const timeStrRaw = grp?.timeFrom ? grp.timeFrom+(grp.timeTo?'-'+grp.timeTo:'') : '—';
     const timeStr = timeStrRaw==='—' ? timeStrRaw : _fmt12h(timeStrRaw);
     // وقت الحضور الفعلي المسجَّل للطالب (ساعة:دقيقة) — لو مش متسجّل بيتعرض "—"
     const checkInStr = r.time ? _fmt12h(r.time) : '—';
