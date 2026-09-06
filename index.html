@@ -1067,6 +1067,11 @@ async function _loadFromFirebase(){
             background:rgba(79,124,255,.1);border:1px solid rgba(79,124,255,.3);
             border-radius:var(--rs);font-size:12px;font-weight:700;color:var(--accent);
             white-space:nowrap;"></div>
+          <div id="pay-remaining-stat" style="
+            display:none;align-items:center;gap:6px;padding:6px 12px;
+            background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.3);
+            border-radius:var(--rs);font-size:12px;font-weight:700;color:var(--amber);
+            white-space:nowrap;"></div>
         </div>
       </div>
       <table><thead><tr><th>الطالب</th><th>الصف</th><th>المجموعة</th><th>المبلغ</th><th>الشهر</th><th>التاريخ</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="pay-tbody"></tbody></table>
@@ -2721,7 +2726,7 @@ async function _loadFromFirebase(){
 </div>
 
 <!-- Add Product -->
-<div class="modal-ov" id="add-product-modal">
+<div class="modal-ov" id="add-product-modal" style="z-index:1100;">
   <div class="modal modal-sm">
     <div class="mtt" id="pr-modal-title">إضافة منتج <button class="mc-btn" onclick="closeModal('add-product-modal')">✕</button></div>
     <input type="hidden" id="pr-edit-id" value="">
@@ -3895,7 +3900,7 @@ function _resetStoreSearchState(){
   const inp=document.getElementById('store-barcode-search');
   if(!inp) return;
   inp.value='';
-  setTimeout(()=>{ inp.focus(); },60);
+  setTimeout(()=>{ inp.focus({preventScroll:true}); },60);
 }
 // إعادة تبويب المدفوعات لحالته الأصلية بعد إغلاق نافذة سجل/تسديد الطالب
 function _resetPaySearchState(){
@@ -3906,7 +3911,9 @@ function _resetPaySearchState(){
   inp.value='';
   _lastPayBarcodeOpened='';
   renderPayments();
-  setTimeout(()=>{ inp.focus(); },60);
+  // ── preventScroll: true عشان تركيز خانة البحث ميرجعش الشاشة لأعلى الصفحة تلقائياً —
+  // (المستخدم ممكن يكون نازل لسجل طالب في نص الجدول، فمينفعش الفوكس يشيله من مكانه) ──
+  setTimeout(()=>{ inp.focus({preventScroll:true}); },60);
 }
 document.querySelectorAll('.modal-ov').forEach(o=>o.addEventListener('click',e=>{ if(e.target===o)closeModal(o.id); }));
 
@@ -8426,6 +8433,13 @@ function _updatePayFilterStat(count,amount,label){
   el.style.display='flex';
   el.innerHTML=`📊 ${count} ${label||'دفعة'} <span style="color:var(--text3);">|</span> ${fmtM(amount)}`;
 }
+// ── إحصائية إضافية بجوار سابقتها — عدد السجلات اللي عليها متبقي فعلي + إجمالي هذا المتبقي، بنفس الفلتر الحالي ──
+function _updatePayRemainingStat(count,amount){
+  const el=document.getElementById('pay-remaining-stat'); if(!el) return;
+  if(document.body.dataset.role==='supervisor' || !count){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='flex';
+  el.innerHTML=`🔶 ${count} متبقي <span style="color:var(--text3);">|</span> ${fmtM(amount)}`;
+}
 function renderPayments(){
   const _mfEl=document.getElementById('pay-month-f');
   if(_mfEl&&!_mfEl.value){ const _n=new Date(); _mfEl.value=localMonth(); }
@@ -8437,16 +8451,21 @@ function renderPayments(){
   if(qf && _tryOpenPayHistoryByBarcode(qf)) return;
   const csel=document.getElementById('pay-cls-f'); if(csel){ const v=csel.value; csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); csel.value=v; }
   const gsel=document.getElementById('pay-grp-f'); if(gsel){ const v=gsel.value; gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!cf||g.classId===cf).map(g=>`<option value="${g.id}">${g.name}</option>`).join(''); gsel.value=v; }
-  const paid=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
+  const paid=DB.payments.filter(p=>{
+    if(p.status!=='paid'&&p.status!=='partial') return false;
+    const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); // الطلاب المستبعدين لا يُحتسبون ضمن أي إحصائية مالية
+  }).reduce((a,b)=>a+b.amount,0);
   // ── الطلاب المستبعدين (غياب 3 أيام متتالية) لا يُحتسبون ضمن غير المسددين ولا المتأخرات ──
   const unpaidSt=DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id));
   // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ والإجمالي معاً — مش كل أخ بعدّه/بقيمته لوحده
   const unpaidStForTotal=_dedupeSiblingsForTotals(unpaidSt);
+  // ── إجمالي عدد الدفعات: بدون دفعات الطلاب المستبعدين ──
+  const totalPayCount=DB.payments.filter(p=>{ const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); }).length;
   document.getElementById('pay-metrics').innerHTML=document.body.dataset.role==='supervisor'?'':`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
     <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidStForTotal.length}</div><div class="ml">غير مسددين</div></div>
     <div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuUnpaidAmount(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>
-    <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${DB.payments.length}</div><div class="ml">إجمالي الدفعات</div></div>`;
+    <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${totalPayCount}</div><div class="ml">إجمالي الدفعات</div></div>`;
 
   // ── شرط العرض: يجب وجود بحث أو صف/مجموعة أو حالة ──
   const hasFilter = qf || cf || sf;
@@ -8456,6 +8475,7 @@ function renderPayments(){
       <div style="font-size:13px;font-weight:600;">ابحث بالاسم أو الباركود<br>أو اختر الصف أو الحالة لعرض النتائج</div>
     </td></tr>`;
     _updatePayFilterStat(0,0);
+    _updatePayRemainingStat(0,0);
     return;
   }
 
@@ -8486,9 +8506,11 @@ function renderPayments(){
         <div style="font-size:13px;font-weight:600;">${sf==='overdue'?'لا توجد مديونيات سابقة لهذا الاختيار':'لا توجد مديونيات للشهر الحالي لهذا الاختيار'}</div>
       </td></tr>`;
       _updatePayFilterStat(0,0);
+      _updatePayRemainingStat(0,0);
       return;
     }
     _updatePayFilterStat(rows.length, rows.reduce((a,{s,unpaidMonths})=>a+unpaidMonths.length*stuEffectiveFee(s),0), 'طالب مديون');
+    _updatePayRemainingStat(rows.length, rows.reduce((a,{s,unpaidMonths})=>a+unpaidMonths.length*stuEffectiveFee(s),0));
     document.getElementById('pay-tbody').innerHTML=rows.map(({s,unpaidMonths})=>{
       const fee=stuEffectiveFee(s);
       const totalDebt=unpaidMonths.length*fee;
@@ -8551,7 +8573,7 @@ function renderPayments(){
   };
 
   const _chkMonth=mf||(()=>{const n=new Date();return localMonth();})();
-  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; if(isStuFinExcluded(s.id))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
+  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; if(isStuFinExcluded(s.id))return false; if(isStuExempt(s.id))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
   // ── سجل واحد فقط لكل طالب (آخر دفعة بحسب تاريخ الإنشاء) ──
   const seenStu=new Map();
   rawList.forEach(p=>{ const ex=seenStu.get(p.studentId); if(!ex||(p.createdAt||'')>(ex.createdAt||''))seenStu.set(p.studentId,p); });
@@ -8560,6 +8582,14 @@ function renderPayments(){
   const unlistedUnpaid=DB.students.filter(s=>{
     if(isStuFinExcluded(s.id))return false;
     if(isStuExempt(s.id))return false;
+    // ── تجاهل الطالب لو الشهر المطلوب فحصه قبل تاريخ التحاقه فعلاً (مايستحقش عليه اشتراك أصلاً) ──
+    if(s.date){
+      const _jd=new Date(s.date);
+      if(!isNaN(_jd.getTime())){
+        const _joinMonth=_jd.getFullYear()+'-'+String(_jd.getMonth()+1).padStart(2,'0');
+        if(_chkMonth<_joinMonth) return false;
+      }
+    }
     const paidInMonth=DB.payments.some(p=>p.studentId===s.id&&p.month===_chkMonth&&p.status==='paid');
     if(paidInMonth)return false;
     if(cf&&s.classId!==cf)return false;
@@ -8610,6 +8640,18 @@ function renderPayments(){
     const unlistedCount=showUnlisted?unlistedUnpaid.length:0;
     const unlistedAmount=showUnlisted?unlistedUnpaid.reduce((a,s)=>a+stuEffectiveFee(s),0):0;
     _updatePayFilterStat(listedCount+unlistedCount, listedAmount+unlistedAmount, 'سجل');
+    // ── عدد السجلات اللي عليها "متبقي" فعلي + إجمالي هذا المتبقي، على نفس السجلات الظاهرة ──
+    let remainingCount=0, remainingAmount=0;
+    list.forEach(p=>{
+      const st=stu(p.studentId); if(!st) return;
+      if(p.status==='unpaid'){ remainingCount++; remainingAmount+=stuEffectiveFee(st); return; }
+      if(p.status==='partial'){
+        const {partialTotal}=_stuDebt(p.studentId);
+        if(partialTotal>0){ remainingCount++; remainingAmount+=partialTotal; }
+      }
+    });
+    if(showUnlisted){ remainingCount+=unlistedUnpaid.length; remainingAmount+=unlistedUnpaid.reduce((a,s)=>a+stuEffectiveFee(s),0); }
+    _updatePayRemainingStat(remainingCount, remainingAmount);
   }
 
   // ── لو في بحث نشط باسم/كود، افتح صف الإجراءات تلقائياً بدون الحاجة للضغط على الاسم ──
@@ -10376,7 +10418,10 @@ function renderRevenue(){
   const fromD=document.getElementById('rev-from')?.value||'';
   const toD  =document.getElementById('rev-to')?.value||'';
 
-  const paid=DB.payments.filter(p=>p.status==='paid'||p.status==='partial');
+  const paid=DB.payments.filter(p=>{
+    if(p.status!=='paid'&&p.status!=='partial') return false;
+    const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); // الطلاب المستبعدين لا يُحتسبون في أي إحصائية مالية
+  });
   const todRev=paid.filter(p=>p.date===tod).reduce((a,b)=>a+b.amount,0);
   const tmRev=paid.filter(p=>p.month===tm).reduce((a,b)=>a+b.amount,0);
   const lmRev=paid.filter(p=>p.month===lmS).reduce((a,b)=>a+b.amount,0);
@@ -11530,9 +11575,10 @@ function switchRep(tab,btn){
 
     const from=fromEl.value, to=toEl.value;
 
-    // الدفعات المسددة خلال الفترة
+    // الدفعات المسددة خلال الفترة (بدون دفعات الطلاب المستبعدين — لا يُحتسبون في أي إحصائية مالية)
     const paidPayments=DB.payments.filter(p=>{
       if(p.status!=='paid') return false;
+      const s=stu(p.studentId); if(!s||isStuFinExcluded(s.id)) return false;
       const d=p.date||p.month||'';
       const dCmp=d.length===7?d+'-01':d; // تحويل YYYY-MM إلى YYYY-MM-01 للمقارنة
       return (!from||dCmp>=from)&&(!to||dCmp<=to);
@@ -11625,9 +11671,10 @@ function switchRep(tab,btn){
     const from=fromEl?fromEl.value:'';
     const to=toEl?toEl.value:'';
 
-    // جمع الدفعات المسددة خلال الفترة المختارة
+    // جمع الدفعات المسددة خلال الفترة المختارة (بدون دفعات الطلاب المستبعدين)
     const paidPayments=DB.payments.filter(p=>{
       if(p.status!=='paid') return false;
+      const s=stu(p.studentId); if(!s||isStuFinExcluded(s.id)) return false;
       const d=p.date||p.month||'';
       const dCmp=d.length===7?d+'-01':d;
       return (!from||dCmp>=from)&&(!to||dCmp<=to);
@@ -12750,9 +12797,10 @@ function switchRep(tab,btn){
     const present=Object.values(att).filter(v=>v==='present').length;
     // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ — مش كل أخ بعدّه لوحده، والمُعفيّون لا يُحتسبون ضمن غير المسددين
     const unpaidN=_dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id))).length;
-    const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
-    const totalExp=DB.expenses.reduce((a,b)=>a+b.amount,0);
-    const declining=DB.students.filter(s=>{ const gs=DB.grades.filter(g=>g.studentId===s.id).slice(-3); if(gs.length<2)return false; return gs[gs.length-1].score<gs[0].score; });
+    const totalRev=DB.payments.filter(p=>{
+      if(p.status!=='paid'&&p.status!=='partial') return false;
+      const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); // الطلاب المستبعدين لا يُحتسبون في أي إحصائية مالية
+    }).reduce((a,b)=>a+b.amount,0);
     const allAvgs=DB.students.map(s=>stuAvg(s.id)).filter(Boolean);
     const globalAvg=allAvgs.length?Math.round(allAvgs.reduce((a,b)=>a+b,0)/allAvgs.length):0;
     const passed=allAvgs.filter(a=>a>=50).length;
@@ -13607,7 +13655,7 @@ function exportExcel(){
     { 'البيان': 'عدد الإناث',        'القيمة': DB.students.filter(s=>s.gender==='female').length },
     { 'البيان': 'الطلاب المسددون',   'القيمة': _dedupeSiblingsForTotals(DB.students.filter(s=>isPaid(s.id))).length },
     { 'البيان': 'الطلاب غير المسددين','القيمة': _dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id))).length },
-    { 'البيان': 'إجمالي الإيرادات',  'القيمة': DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0)+' جنيه' },
+    { 'البيان': 'إجمالي الإيرادات',  'القيمة': DB.payments.filter(p=>{ if(p.status!=='paid'&&p.status!=='partial') return false; const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); }).reduce((a,b)=>a+b.amount,0)+' جنيه' },
     { 'البيان': 'تاريخ التصدير',     'القيمة': new Date().toLocaleDateString('ar-EG') },
     { 'البيان': 'اسم المدرس',        'القيمة': DB.settings.name || '—' },
     { 'البيان': 'المادة',            'القيمة': DB.settings.subject || '—' },
@@ -16066,7 +16114,8 @@ function filterSpStudent(){
   const clsId=document.getElementById('sp-cls-sel').value;
   const grpId=document.getElementById('sp-grp-sel').value;
   const stuSel=document.getElementById('sp-stu-sel');
-  const stus=DB.students.filter(s=>(!clsId||s.classId===clsId)&&(!grpId||s.groupId===grpId));
+  // ── الطلاب المستبعدين (غياب متكرر) لا يظهروا هنا — حالات الدفع الخاصة تخص الطلاب المنتظمين فقط ──
+  const stus=DB.students.filter(s=>(!clsId||s.classId===clsId)&&(!grpId||s.groupId===grpId)&&!isStuFinExcluded(s.id));
   stuSel.innerHTML='<option value="">— اختر الطالب —</option>'+stus.map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join('');
   document.getElementById('sp-code').value='';
 }
@@ -16083,7 +16132,9 @@ function _spSearchStudent(q){
   const resEl=document.getElementById('sp-search-result');
   if(!q){ resEl.style.display='none'; return; }
   const ql=q.toLowerCase();
+  // ── الطلاب المستبعدين (غياب متكرر) لا يظهروا في نتائج البحث هنا — حالات الدفع الخاصة تخص الطلاب المنتظمين فقط ──
   const matches=DB.students.filter(s=>{
+    if(isStuFinExcluded(s.id)) return false;
     const name=(s.fname+' '+s.lname).toLowerCase();
     const bc=(s.barcode||s.id||'').toLowerCase();
     return name.includes(ql)||bc.includes(ql);
