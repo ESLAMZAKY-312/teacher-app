@@ -638,7 +638,7 @@ async function _loadFromFirebase(){
   <div class="g4" id="dash-metrics"></div>
   <div class="g2" style="margin-bottom:1rem;">
     <div class="tc">
-      <div class="th"><div class="tt">أحدث الطلاب</div><button class="btn btn-secondary btn-sm" onclick="gp('students')">الكل</button></div>
+      <div class="th"><div class="tt">أحدث الطلاب</div><button class="btn btn-secondary btn-sm" onclick="gpStudentsNewest()">الكل</button></div>
       <table><thead><tr><th>الطالب</th><th>الصف</th><th>الحضور</th><th>الرسوم</th></tr></thead><tbody id="dash-stu-tb"></tbody></table>
     </div>
     <div class="tc">
@@ -813,10 +813,13 @@ async function _loadFromFirebase(){
               <div style="font-size:11px;color:var(--text2);">وجّه القارئ نحو بطاقة الطالب — سيُسجَّل الحضور فوراً</div>
             </div>
             <div style="display:flex;gap:7px;">
-              <input class="fi" id="manual-id" placeholder="امسح الباركود أو اكتب الكود يدوياً..." style="flex:1;font-size:13px;" autocomplete="off" onkeydown="if(event.key==='Enter'){manualCI();}" autofocus>
+              <div style="flex:1;position:relative;">
+                <input class="fi" id="manual-id" placeholder="امسح الباركود، أو اكتب الكود أو اسم الطالب..." style="width:100%;font-size:13px;" autocomplete="off" oninput="_onManualIdInput()" onblur="setTimeout(()=>{const b=document.getElementById('manual-id-suggest'); if(b) b.style.display='none';},200)" onkeydown="if(event.key==='Enter'){manualCI();}" autofocus>
+                <div id="manual-id-suggest" style="display:none;position:absolute;top:calc(100% + 4px);right:0;left:0;z-index:50;background:var(--bg3,#181c2e);border:1px solid var(--border);border-radius:var(--rs);max-height:220px;overflow-y:auto;box-shadow:0 8px 20px rgba(0,0,0,.5);"></div>
+              </div>
               <button class="btn btn-primary" onclick="manualCI()">✅ تسجيل</button>
             </div>
-            <div style="font-size:10.5px;color:var(--text2);margin-top:5px;">💡 تأكد من وجود المؤشر داخل حقل الإدخال قبل المسح</div>
+            <div style="font-size:10.5px;color:var(--text2);margin-top:5px;">💡 تقدر تمسح الباركود، أو تكتب الكود، أو تكتب اسم الطالب مباشرة</div>
           </div>
 
           <!-- ── وضع الكاميرا ── -->
@@ -2367,6 +2370,7 @@ async function _loadFromFirebase(){
     <div style="display:flex;gap:8px;margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem;">
       <button class="btn btn-secondary" onclick="closeModal('pay-export-modal')" style="flex:1;">إلغاء</button>
       <button class="btn btn-primary" onclick="runPayExport()" style="flex:2;" id="pay-export-run-btn">📊 تصدير Excel</button>
+      <button class="btn btn-success" onclick="closeModal('pay-export-modal')" style="flex:1;display:none;" id="pay-export-finish-btn">✅ إنهاء</button>
     </div>
   </div>
 </div>
@@ -4012,6 +4016,14 @@ function filterGroupsByCls(csId,gsId){ const cid=document.getElementById(csId).v
 const PT={dashboard:'لوحة التحكم',students:'الطلاب',classes:'الصفوف والمجموعات',behavior:'سلوك الطلاب',honor:'لوحة الشرف',attendance:'الحضور والباركود',grades:'الدرجات',exams:'الامتحانات',assignments:'الواجبات والملفات',qbank:'بنك الأسئلة',payments:'المدفوعات',revenue:'الإيرادات',store:'المتجر',reports:'التقارير','detailed-report':'تقرير مفصل','pinned-messages':'رسائل واتساب مثبتة',specialpays:'حالات دفع خاصة',cards:'البطاقات والطباعة',supervisors:'المشرفون',datacenter:'مركز البيانات',settings:'الإعدادات'};
 const PR={dashboard:renderDashboard,students:renderStudents,classes:renderClasses,behavior:renderBehPage,honor:renderHonor,attendance:renderAttPage,grades:renderGrades,exams:renderExams,assignments:renderAssignments,qbank:renderQBank,payments:renderPayments,revenue:renderRevenue,store:renderStore,reports:()=>switchRep('academic',document.querySelector('#rep-tabs .active')),'detailed-report':renderDetailedReport,'pinned-messages':renderPinnedMessages,cards:renderCards,certificates:renderCertPage,supervisors:renderSupervisors,settings:loadSettings};
 
+function gpStudentsNewest(){
+  const sortSel=document.getElementById('st-sort'); if(sortSel) sortSel.value='newest';
+  const clsSel=document.getElementById('st-cls'); if(clsSel) clsSel.value='';
+  const grpSel=document.getElementById('st-grp'); if(grpSel) grpSel.value='';
+  const qEl=document.getElementById('st-q'); if(qEl) qEl.value='';
+  _stuForceShowAll=true;
+  gp('students');
+}
 function gp(id){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.ni').forEach(n=>n.classList.remove('active'));
@@ -4134,13 +4146,14 @@ function renderStudents(){
   const sf=document.getElementById('st-sort')?.value||'';
   const csel=document.getElementById('st-cls');
   if(csel){ const v=csel.value; csel.innerHTML='<option value="">اختر فصل دراسي</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); csel.value=v; }
-  // لا تظهر نتائج إلا بعد اختيار الصف والمجموعة (أو عند البحث بالاسم/الكود)
-  if(!cf && !gf && !q){
+  // لا تظهر نتائج إلا بعد اختيار الصف والمجموعة (أو عند البحث بالاسم/الكود) — إلا لو جاي من زرار "الكل" (أحدث الطلاب)
+  if(!cf && !gf && !q && !_stuForceShowAll){
     const countEl=document.getElementById('stu-count');
     if(countEl) countEl.textContent='0/'+DB.students.length;
     document.getElementById('stu-tbody').innerHTML=`<tr><td colspan="9" style="text-align:center;padding:3.5rem 1rem;color:var(--text3);"><div style="font-size:48px;margin-bottom:.8rem;">👨‍🎓</div><div style="font-size:13.5px;font-weight:700;margin-bottom:.35rem;">اختر الصف الدراسي والمجموعة لعرض الطلاب</div><div style="font-size:11.5px;opacity:.7;">أو ابحث باسم الطالب / الكود في حقل البحث</div></td></tr>`;
     return;
   }
+  _stuForceShowAll=false; // بيتصفّر بعد أول عرض — أي فلترة يدوية بعد كده ترجع للسلوك الطبيعي
   const showExcluded = document.getElementById('st-show-excluded')?.checked||false;
   let list=DB.students.filter(s=>{
     const nameMatch = (s.fname+' '+s.lname).toLowerCase().includes(q);
@@ -4514,6 +4527,7 @@ const PAY_EXPORT_COLS = [
 // بترتيب اختيارها (زي علامة ✔ / ☐ لكل شهر)، مش عمود "شهر" واحد بيتكرر لكل صف.
 
 let _payExportMode = 'excel'; // 'excel' | 'pdf'
+let _stuForceShowAll = false; // لما يتفعّل، صفحة الطلاب تعرض كل الطلاب بدون ما تشترط اختيار صف/مجموعة أولاً (مستخدم من زرار "الكل" بتاع "أحدث الطلاب" في لوحة التحكم)
 let _payExportMonths = []; // ['2026-08', ...] — بترتيب الإضافة فعلياً (مش مُرتّبة أبجدياً/زمنياً)
 let _payExportProducts = []; // [productId, ...] — منتجات المتجر المطلوب عرض حالة الاستلام/الدفع بتاعتها
 
@@ -4543,6 +4557,9 @@ function openPayExportModal(mode){
     (isView ? '👁️ اختيار بيانات العرض' : isExcel ? '📊 اختيار بيانات تصدير المدفوعات — Excel' : '🖨️ اختيار بيانات تصدير المدفوعات — PDF') +
     ' <button class="mc-btn" onclick="closeModal(\'pay-export-modal\')">✕</button>';
   document.getElementById('pay-export-run-btn').textContent = isView ? '👁️ عرض البيانات' : isExcel ? '📊 تصدير Excel' : '🖨️ تصدير PDF';
+  // زر "إنهاء" يظهر بس في وضع تصدير Excel، عشان يسمح بتصدير أكثر من مجموعة بنفس الإعدادات من غير ما القافلة تقفل
+  const finishBtn = document.getElementById('pay-export-finish-btn');
+  if(finishBtn) finishBtn.style.display = isExcel ? '' : 'none';
 
   // بناء خانات الأعمدة (مجمّعة)
   const groups = [...new Set(PAY_EXPORT_COLS.map(c=>c.group))];
@@ -4741,7 +4758,10 @@ function runPayExport(){
   const clsF=document.getElementById('pex-cls')?.value||'';
   const grpF=document.getElementById('pex-grp')?.value||'';
 
-  closeModal('pay-export-modal');
+  // في وضع تصدير Excel: الشاشة بتفضل مفتوحة بعد التصدير عشان تقدر تصدّر أكتر من مجموعة/صف
+  // بنفس الإعدادات المختارة من غير ما تقفل وتفتح تاني — بتقفل بس لما تدوس "إنهاء".
+  // وضعي "عرض" و"PDF" بيقفلوا الشاشة زي ما كانوا (بيفتحوا شاشة تانية أو معاينة طباعة).
+  if(_payExportMode !== 'excel') closeModal('pay-export-modal');
   const months = _payExportMonths.slice(); // بترتيب اختيارها فعلياً
   const products = _payExportProducts.slice(); // بترتيب اختيارها فعلياً
   const rows = getPayExportRows(months, statusSet, spSet, clsF, grpF);
@@ -6944,17 +6964,71 @@ function _initZxingReader(video, statusEl){
   }
 }
 
-// ── معالجة الباركود المُقرأ (من أي مصدر) ──
-function _processBarcode(code){
+// ── البحث عن طلاب بالاسم (كامل/جزئي) أو بالكود ──
+function _findStudentsByNameOrCode(q){
+  const ql=(q||'').trim().toLowerCase();
+  if(!ql) return [];
+  return DB.students.filter(s=>{
+    const fullName=((s.fname||'')+' '+(s.lname||'')).toLowerCase();
+    const barcode=(s.barcode||s.id||'').toLowerCase();
+    return fullName.includes(ql) || barcode.includes(ql);
+  });
+}
+
+// ── اقتراحات حية أثناء الكتابة في حقل الباركود/الاسم ──
+function _onManualIdInput(){
+  const inp=document.getElementById('manual-id');
+  const box=document.getElementById('manual-id-suggest');
+  if(!inp||!box) return;
+  const q=inp.value.trim();
+  if(q.length<2){ box.style.display='none'; box.innerHTML=''; return; }
+  // لو النص مطابق تماماً لكود/باركود موجود، مفيش داعي نقترح حاجة — هيتسجل فورًا (مسح باركود حقيقي)
+  const exact=DB.students.find(x=>(x.barcode||x.id||'').toLowerCase()===q.toLowerCase());
+  if(exact){ box.style.display='none'; box.innerHTML=''; return; }
+  const matches=_findStudentsByNameOrCode(q).slice(0,8);
+  if(!matches.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML=matches.map(s=>{
+    const grp=DB.groups.find(g=>g.id===s.groupId);
+    return `<div onclick="_pickManualIdSuggestion('${s.id}')" style="padding:8px 12px;cursor:pointer;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(79,124,255,.1)'" onmouseout="this.style.background='transparent'">${s.fname} ${s.lname} <span style="font-weight:400;color:var(--text2);font-size:11px;">${grp?(' — '+grp.name):''}</span></div>`;
+  }).join('');
+  box.style.display='block';
+}
+
+// ── اختيار طالب من قائمة الاقتراحات بالاسم ──
+function _pickManualIdSuggestion(sid){
+  const box=document.getElementById('manual-id-suggest');
+  if(box){ box.style.display='none'; box.innerHTML=''; }
+  const inp=document.getElementById('manual-id');
+  if(inp) inp.value='';
+  _processBarcode(sid, true);
+  focusBarcodeInput();
+}
+
+// ── معالجة الباركود المُقرأ (من أي مصدر) — أو الاسم لو اتكتب بدل الكود ──
+function _processBarcode(code, byId){
   if(!code) return;
   const codeL=code.toLowerCase();
-  const s=DB.students.find(x=>(x.barcode||x.id||'').toLowerCase()===codeL);
+  // 1) مطابقة مباشرة بالكود/الباركود (أسرع مسار — مسح باركود حقيقي)
+  let s = byId ? DB.students.find(x=>x.id===code) : DB.students.find(x=>(x.barcode||x.id||'').toLowerCase()===codeL);
+  // 2) لو مفيش مطابقة بالكود، جرّب البحث بالاسم (كامل أو جزئي)
+  if(!s && !byId){
+    const matches=_findStudentsByNameOrCode(code);
+    if(matches.length===1){
+      s=matches[0];
+    } else if(matches.length>1){
+      toast('⚠️ في أكتر من طالب بنفس الاسم — اختر الطالب من القائمة تحت الحقل','e');
+      _onManualIdInput();
+      return;
+    }
+  }
   if(!s){
-    toast('❌ لم يتم العثور على طالب بالكود: '+code,'e');
+    toast('❌ لم يتم العثور على طالب بالكود أو الاسم: '+code,'e');
     const scanRes=document.getElementById('scan-res');
     if(scanRes){ scanRes.style.display='block'; scanRes.style.background='rgba(255,77,109,.1)'; scanRes.style.borderColor='rgba(255,77,109,.3)'; scanRes.style.color='var(--red)'; scanRes.innerHTML='❌ لم يُعثر على طالب: '+code; setTimeout(()=>{ scanRes.style.display='none'; scanRes.style.background='rgba(34,201,122,.1)'; scanRes.style.borderColor='rgba(34,201,122,.3)'; scanRes.style.color='var(--green)'; },3000); }
     return;
   }
+  const box=document.getElementById('manual-id-suggest');
+  if(box){ box.style.display='none'; box.innerHTML=''; }
   checkIn(s.id);
 }
 
