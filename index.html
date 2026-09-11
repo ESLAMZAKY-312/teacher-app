@@ -2402,6 +2402,10 @@ async function _loadFromFirebase(){
         <div id="pvw-att-filters" style="display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:.8rem;">
           <div><label class="fl">من تاريخ</label><input class="fi" type="date" id="pvw-att-from" style="width:150px;" onchange="renderPvwAttGrid()"></div>
           <div><label class="fl">إلى تاريخ</label><input class="fi" type="date" id="pvw-att-to" style="width:150px;" onchange="renderPvwAttGrid()"></div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:6px;" title="إظهار حضور الطلاب المستبعدين (غياب متكرر) في هذه المجموعة بدل الطلاب النشطين">
+            <input type="checkbox" id="pvw-att-show-excluded" onchange="renderPvwAttGrid()" style="cursor:pointer;">
+            ⛔ المستبعدين
+          </label>
         </div>
         <div id="pvw-att-legend" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:.8rem;font-size:11.5px;font-weight:700;">
           <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:var(--green);display:inline-block;"></span> حضور</span>
@@ -4116,8 +4120,8 @@ function renderDashboard(){
 
   updateRetakeBadge();
 
-  // Top 5
-  const ranked=DB.students.map(s=>({s,avg:stuAvg(s.id)||0})).filter(x=>x.avg>0).sort((a,b)=>b.avg-a.avg).slice(0,5);
+  // Top 5 — بدون الطلاب المستبعدين (غياب متكرر)
+  const ranked=activeStudents.map(s=>({s,avg:stuAvg(s.id)||0})).filter(x=>x.avg>0).sort((a,b)=>b.avg-a.avg).slice(0,5);
   document.getElementById('dash-top-tb').innerHTML=ranked.map((x,i)=>`<tr><td><span style="font-size:16px;">${['🥇','🥈','🥉','4','5'][i]}</span></td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${x.s.color}20;color:${x.s.color}">${x.s.fname[0]}</div><span style="font-weight:600;">${x.s.fname} ${x.s.lname}</span></div></td><td><span class="badge ${grBadge(x.avg)}">${x.avg}%</span></td></tr>`).join('')||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:1rem;">لا توجد درجات</td></tr>';
 
   document.getElementById('pay-badge').textContent=unpaidN;
@@ -4146,10 +4150,12 @@ function renderStudents(){
   const sf=document.getElementById('st-sort')?.value||'';
   const csel=document.getElementById('st-cls');
   if(csel){ const v=csel.value; csel.innerHTML='<option value="">اختر فصل دراسي</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); csel.value=v; }
+  // إجمالي الطلاب النشطين فقط (بدون المستبعدين بسبب الغياب المتكرر) — يُستخدم كمقام للعداد بدل إجمالي كل السجلات
+  const _activeTotal=DB.students.filter(s=>!isStuFinExcluded(s.id)).length;
   // لا تظهر نتائج إلا بعد اختيار الصف والمجموعة (أو عند البحث بالاسم/الكود) — إلا لو جاي من زرار "الكل" (أحدث الطلاب)
   if(!cf && !gf && !q && !_stuForceShowAll){
     const countEl=document.getElementById('stu-count');
-    if(countEl) countEl.textContent='0/'+DB.students.length;
+    if(countEl) countEl.textContent='0/'+_activeTotal;
     document.getElementById('stu-tbody').innerHTML=`<tr><td colspan="9" style="text-align:center;padding:3.5rem 1rem;color:var(--text3);"><div style="font-size:48px;margin-bottom:.8rem;">👨‍🎓</div><div style="font-size:13.5px;font-weight:700;margin-bottom:.35rem;">اختر الصف الدراسي والمجموعة لعرض الطلاب</div><div style="font-size:11.5px;opacity:.7;">أو ابحث باسم الطالب / الكود في حقل البحث</div></td></tr>`;
     return;
   }
@@ -4177,7 +4183,8 @@ function renderStudents(){
     return (a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'); // أبجدياً داخل نفس الجنس
   });
   // ── المستبعدون دايماً في نهاية القائمة، مرتّبين تنازلياً: الأحدث استبعاداً أولاً بينهم، والأقدم استبعاداً في آخر القائمة كلها ──
-  if(showExcluded){
+  // بيظهروا لو مفعّل شرط "إظهار المستبعدين"، أو لو في بحث فعلي (يعني بتدوّر عليهم بالاسم/الكود بالتحديد) ──
+  if(showExcluded || q){
     const excludedList = list.filter(s=>isStuFinExcluded(s.id))
       .sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
     list = normalList.concat(excludedList);
@@ -4186,7 +4193,7 @@ function renderStudents(){
   }
   // update counter
   const countEl=document.getElementById('stu-count');
-  if(countEl) countEl.textContent=list.length+'/'+DB.students.length;
+  if(countEl) countEl.textContent=list.filter(s=>!isStuFinExcluded(s.id)).length+'/'+_activeTotal;
 
   // ── رصد الأكواد المكرّرة بين كل الطلاب (مش بس المفلترين) عشان نلفت نظر المستخدم يصلّحها ──
   const _codeCounts={};
@@ -4951,9 +4958,10 @@ function renderPvwAttGrid(){
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
   if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&matchesStuq(s));
+  const showExcluded=document.getElementById('pvw-att-show-excluded')?.checked||false;
   const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
   const _excS=students.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
-  students.length=0; students.push.apply(students,_normS.concat(_excS));
+  students.length=0; students.push.apply(students, showExcluded ? _excS : _normS);
 
   let relevantDays=null;
   if(gf){
@@ -4982,8 +4990,8 @@ function renderPvwAttGrid(){
   dates=dates.slice().reverse();
 
   const metaEl=document.getElementById('pvw-att-meta');
-  if(metaEl) metaEl.innerHTML=`👤 عدد الطلاب: <b>${_normS.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
-  if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
+  if(metaEl) metaEl.innerHTML=`👤 عدد الطلاب: <b>${students.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>${showExcluded?' &nbsp; · &nbsp; <span style="color:var(--red);">⛔ عرض المستبعدين فقط</span>':''}`;
+  if(!students.length){ body.innerHTML=`<div style="padding:2rem;text-align:center;color:var(--text2);">${showExcluded?'لا يوجد طلاب مستبعدين في هذه المجموعة':'لا يوجد طلاب مطابقين'}</div>`; return; }
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
 
   const thStyle='color:#fff;font-weight:800;font-size:11px;white-space:nowrap;background:#1c2140;text-align:center;padding:6px 4px;';
@@ -8647,14 +8655,16 @@ function renderPayments(){
   };
 
   const _chkMonth=mf||(()=>{const n=new Date();return localMonth();})();
-  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; if(isStuFinExcluded(s.id))return false; if(isStuExempt(s.id))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
+  // ── الطلاب المستبعدين (غياب 3 أيام متتالية) بيتخفوا من القوائم افتراضيًا، لكن لو البحث (qf) بيطابق اسمهم/كودهم بالظبط بيظهروا عشان تقدر تراجع سجلهم — مع بقائهم مستبعدين تمامًا من أي إجمالي/حساب مالي ──
+  const _matchesSearch=(s)=>{ if(!qf) return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return fullName.includes(qf)||barcode.includes(qf); };
+  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; if(isStuFinExcluded(s.id)&&!_matchesSearch(s))return false; if(isStuExempt(s.id))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
   // ── سجل واحد فقط لكل طالب (آخر دفعة بحسب تاريخ الإنشاء) ──
   const seenStu=new Map();
   rawList.forEach(p=>{ const ex=seenStu.get(p.studentId); if(!ex||(p.createdAt||'')>(ex.createdAt||''))seenStu.set(p.studentId,p); });
   const list=[...seenStu.values()];
   const listedIds=new Set(list.map(p=>p.studentId));
   const unlistedUnpaid=DB.students.filter(s=>{
-    if(isStuFinExcluded(s.id))return false;
+    if(isStuFinExcluded(s.id)&&!_matchesSearch(s))return false;
     if(isStuExempt(s.id))return false;
     // ── تجاهل الطالب لو الشهر المطلوب فحصه قبل تاريخ التحاقه فعلاً (مايستحقش عليه اشتراك أصلاً) ──
     if(s.date){
@@ -8685,7 +8695,7 @@ function renderPayments(){
       ?`<div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div><div style="font-size:10px;color:var(--amber);font-weight:700;">متبقي: ${fmtM(partialTotal)}</div>`
       :`<div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div>`;
     return `<tr onclick="_payToggleBtns(this)" style="cursor:pointer;">
-      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div><div style="font-weight:600;">${stuN(p.studentId)}</div><div style="font-size:10px;color:var(--text2)">${clsN(s?.classId)} · ${grpN(s?.groupId)}</div>${_btns(p.id,p.studentId)}${_alertBadge(p.studentId)}</div></div></td>
+      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div><div style="font-weight:600;">${stuN(p.studentId)}${s&&isStuFinExcluded(s.id)?' <span title="مستبعد بسبب الغياب المتكرر — غير محتسب في أي إحصائية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div><div style="font-size:10px;color:var(--text2)">${clsN(s?.classId)} · ${grpN(s?.groupId)}</div>${_btns(p.id,p.studentId)}${_alertBadge(p.studentId)}</div></div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s?.classId)}</td>
       <td style="font-size:11px;color:var(--text2);">${grpN(s?.groupId)}</td>
       <td>${amtDisplay}</td>
@@ -8699,7 +8709,7 @@ function renderPayments(){
 
   if(showUnlisted){
     const extraRows=unlistedUnpaid.map(s=>`<tr onclick="_payToggleBtns(this)" style="cursor:pointer;opacity:.85">
-      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}</div><div style="font-size:10px;color:var(--text2)">${clsN(s.classId)} · ${grpN(s.groupId)}</div>${_btns('',s.id)}</div></div></td>
+      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}${isStuFinExcluded(s.id)?' <span title="مستبعد بسبب الغياب المتكرر — غير محتسب في أي إحصائية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div><div style="font-size:10px;color:var(--text2)">${clsN(s.classId)} · ${grpN(s.groupId)}</div>${_btns('',s.id)}</div></div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
       <td style="font-weight:700;color:var(--red);">${fmtM(stuEffectiveFee(s))}</td>
       <td colspan="2" style="font-size:11px;color:var(--text3);">—</td>
@@ -8708,15 +8718,17 @@ function renderPayments(){
     document.getElementById('pay-tbody').innerHTML+=extraRows;
   }
 
-  // ── تحديث إحصائية الفلتر الحالي (عدد السجلات الظاهرة + إجمالي مبالغها) ──
+  // ── تحديث إحصائية الفلتر الحالي (عدد السجلات الظاهرة + إجمالي مبالغها) — الطلاب المستبعدين (لو ظهروا بسبب البحث) لا يُحتسبون هنا إطلاقاً ──
   {
-    const listedCount=list.length, listedAmount=list.reduce((a,p)=>a+(+p.amount||0),0);
-    const unlistedCount=showUnlisted?unlistedUnpaid.length:0;
-    const unlistedAmount=showUnlisted?unlistedUnpaid.reduce((a,s)=>a+stuEffectiveFee(s),0):0;
+    const _statList=list.filter(p=>{ const s=stu(p.studentId); return !s||!isStuFinExcluded(s.id); });
+    const _statUnlisted=showUnlisted?unlistedUnpaid.filter(s=>!isStuFinExcluded(s.id)):[];
+    const listedCount=_statList.length, listedAmount=_statList.reduce((a,p)=>a+(+p.amount||0),0);
+    const unlistedCount=_statUnlisted.length;
+    const unlistedAmount=_statUnlisted.reduce((a,s)=>a+stuEffectiveFee(s),0);
     _updatePayFilterStat(listedCount+unlistedCount, listedAmount+unlistedAmount, 'سجل');
-    // ── عدد السجلات اللي عليها "متبقي" فعلي + إجمالي هذا المتبقي، على نفس السجلات الظاهرة ──
+    // ── عدد السجلات اللي عليها "متبقي" فعلي + إجمالي هذا المتبقي، على نفس السجلات الظاهرة (بدون المستبعدين) ──
     let remainingCount=0, remainingAmount=0;
-    list.forEach(p=>{
+    _statList.forEach(p=>{
       const st=stu(p.studentId); if(!st) return;
       if(p.status==='unpaid'){ remainingCount++; remainingAmount+=stuEffectiveFee(st); return; }
       if(p.status==='partial'){
@@ -8724,7 +8736,7 @@ function renderPayments(){
         if(partialTotal>0){ remainingCount++; remainingAmount+=partialTotal; }
       }
     });
-    if(showUnlisted){ remainingCount+=unlistedUnpaid.length; remainingAmount+=unlistedUnpaid.reduce((a,s)=>a+stuEffectiveFee(s),0); }
+    if(showUnlisted){ remainingCount+=_statUnlisted.length; remainingAmount+=_statUnlisted.reduce((a,s)=>a+stuEffectiveFee(s),0); }
     _updatePayRemainingStat(remainingCount, remainingAmount);
   }
 
