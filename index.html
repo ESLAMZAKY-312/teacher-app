@@ -17430,9 +17430,9 @@ function _updateCountdownBar(){
   bar.style.color='var(--red)';
 
   if(remaining > 0){
-    txt.textContent = `🔔 تذكير: أغلق الحضور يدوياً خلال ${remaining} دقيقة`;
+    txt.textContent = `🔔 هيتم إغلاق الحضور تلقائياً خلال ${remaining} دقيقة`;
   } else {
-    txt.textContent = `⚠️ حان وقت إغلاق الحضور — اضغط "🔒 إغلاق الحضور" يدوياً`;
+    txt.textContent = `🔒 تم إغلاق الحضور تلقائياً`;
   }
 }
 
@@ -17468,31 +17468,29 @@ function _absWACheck(){
     const waKey    = `${grp.id}_${today}_wa`;
 
     // ────────────────────────────────────────────
-    // مرحلة 1: تم إلغاء الإغلاق التلقائي بناءً على طلب المستخدم —
-    // إغلاق الحضور دلوقتي يدوي فقط عن طريق زر "🔒 إغلاق الحضور".
-    // السطور دي متسيبة معطّلة (مش محذوفة) للرجوع لها بسهولة لو احتجت تفعيلها تاني مستقبلاً.
+    // مرحلة 1: الإغلاق التلقائي عند الدقيقة 35 من بداية الحصة — مُفعّلة بناءً على طلب المستخدم.
     // ────────────────────────────────────────────
-    // if(elapsed >= AUTO_CLOSE_MIN && !_absWAFired[closeKey]){
-    //   _absWAFired[closeKey] = true;
-    //   const grpStudents = DB.students.filter(s => s.groupId === grp.id);
-    //   if(!grpStudents.length) continue;
-    //   if(!DB.attendance[today]) DB.attendance[today] = {};
-    //   let closedCount = 0;
-    //   grpStudents.forEach(s => {
-    //     const st = DB.attendance[today][s.id];
-    //     if(!st || st === 'unknown'){
-    //       DB.attendance[today][s.id] = 'absent';
-    //       if(typeof attState !== 'undefined') attState[s.id] = 'absent';
-    //       closedCount++;
-    //     }
-    //   });
-    //   if(closedCount > 0){
-    //     save();
-    //     if(typeof renderAttGrid === 'function') renderAttGrid();
-    //     if(typeof renderTodayLog === 'function') renderTodayLog();
-    //     _showAutoCloseToast(grp, closedCount);
-    //   }
-    // }
+    if(elapsed >= AUTO_CLOSE_MIN && !_absWAFired[closeKey]){
+      _absWAFired[closeKey] = true;
+      const grpStudents = DB.students.filter(s => s.groupId === grp.id);
+      if(!grpStudents.length) continue;
+      if(!DB.attendance[today]) DB.attendance[today] = {};
+      let closedCount = 0;
+      grpStudents.forEach(s => {
+        const st = DB.attendance[today][s.id];
+        if(!st || st === 'unknown'){
+          DB.attendance[today][s.id] = 'absent';
+          if(typeof attState !== 'undefined') attState[s.id] = 'absent';
+          closedCount++;
+        }
+      });
+      if(closedCount > 0){
+        save();
+        if(typeof renderAttGrid === 'function') renderAttGrid();
+        if(typeof renderTodayLog === 'function') renderTodayLog();
+        _showAutoCloseToast(grp, closedCount);
+      }
+    }
 
     // ────────────────────────────────────────────
     // مرحلة 2: تنبيه واتساب عند الدقيقة 40 — تم إلغاؤها بناءً على طلب المستخدم
