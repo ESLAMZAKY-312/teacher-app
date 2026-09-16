@@ -4036,10 +4036,27 @@ function gp(id){
   document.querySelectorAll('.ni').forEach(n=>{ if(n.getAttribute('onclick')?.includes("'"+id+"'"))n.classList.add('active'); });
   sessionStorage.setItem('etp_page',id);
   if(PR[id]) requestAnimationFrame(()=>PR[id]());
-  if(id==='payments') setTimeout(()=>{ document.getElementById('pay-search')?.focus(); },80);
-  if(id==='store') setTimeout(()=>{ document.getElementById('store-barcode-search')?.focus(); },80);
-  if(id==='attendance') focusBarcodeInput();
-  if(id==='students') setTimeout(()=>{ document.getElementById('st-q')?.focus({preventScroll:true}); },80);
+  setTimeout(()=>_focusPageSearchInput(id), 90);
+}
+
+// ── ربط كل صفحة بخانة البحث بالاسم/الباركود الرئيسية بتاعتها (لو معروفة مسبقاً) ──
+const _SEARCH_INPUT_IDS = {
+  students:'st-q', payments:'pay-search', store:'store-barcode-search',
+  grades:'gr-stu-f', specialpays:'sp-list-search'
+};
+// ── تركيز تلقائي على خانة "البحث بالاسم أو الباركود" عند الانتقال لأي صفحة فيها واحدة ──
+function _focusPageSearchInput(id){
+  if(id==='attendance'){ focusBarcodeInput(); return; }
+  let el = document.getElementById(_SEARCH_INPUT_IDS[id]||'');
+  if(!el || el.offsetParent===null){
+    // مفيش ربط معروف لهذه الصفحة (أو الحقل مخفي) — دوّر جوه الصفحة النشطة على أول حقل بحث بالاسم/الباركود
+    const pageEl=document.getElementById('page-'+id);
+    if(pageEl){
+      el = Array.from(pageEl.querySelectorAll('input[placeholder*="بالاسم"], input[placeholder*="بالباركود"], input[placeholder*="الباركود"], input[placeholder*="أو الكود"]'))
+        .find(x=>x.offsetParent!==null) || null;
+    }
+  }
+  if(el) el.focus({preventScroll:true});
 }
 
 // ================================================================
