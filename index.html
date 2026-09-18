@@ -7596,6 +7596,7 @@ function renderGrades(){
             <div style="display:flex;gap:3px;align-items:center;">
               <span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span>
               ${hasSaved?`
+              <button class="btn btn-amber btn-xs" onclick="allowExamRetake('${s.id}','${ef}','${gradeId}')" title="السماح بإعادة الاختبار — يحذف الدرجة ويفك القفل على جهاز الطالب فوراً">🔄</button>
               <button class="btn btn-wa btn-xs" onclick="sendGradeWA('${s.id}','${g.score}/${g.outOf}','${exam?.title||''}')" title="إرسال واتساب">📱</button>
               <button class="btn btn-tg btn-xs" onclick="sendGradeTG('${s.id}','${g.score}/${g.outOf}','${exam?.title||''}')" title="إرسال تيليجرام">✈️</button>
               `:''}
