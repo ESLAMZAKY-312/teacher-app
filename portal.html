@@ -590,6 +590,35 @@ function _buildStudentExamQuestions(exam){
   return qs;
 }
 
+// ── الدرجة المعروضة للطالب في الامتحانات الإلكترونية (بدل النسبة المئوية) ──
+// كل سؤال = درجة واحدة، والمجموع = «الدرجة النهائية» المحددة في الامتحان لو موجودة، وإلا عدد الأسئلة.
+// لو الدرجة النهائية مختلفة عن عدد الأسئلة، الدرجة بتتحسب بالتناسب (مثال: 20 سؤال × نهائية 10 = نص درجة للسؤال).
+function _examQCount(exam){
+  const real=((exam&&exam.questions)||[]).filter(q=>q&&!q._placeholder).length;
+  const c=+(exam&&exam.questionCount)||0;
+  return (c>0 && c<real) ? c : real;
+}
+function _fmtScore(n){ return String(Math.round((+n||0)*100)/100); }
+function _examScoreView(exam, g){
+  let n, correct;
+  if(g && g.correct!=null && +g.total>0){            // درجات جديدة مسجّلة من البوابة (عدد الصحيح + عدد الأسئلة)
+    n=+g.total; correct=+g.correct;
+  } else if(g && +g.outOf>0 && +g.outOf!==100){      // درجات من برنامج الإدارة (عدد الصحيح من عدد الأسئلة)
+    n=+g.outOf; correct=+g.score||0;
+  } else {                                           // درجات قديمة من البوابة (نسبة مئوية من 100)
+    const of=(g && +g.outOf)||100;
+    n=_examQCount(exam)||of;
+    correct=Math.round(((g && +g.score)||0)/of*n);
+  }
+  const F=(exam && +exam.finalGrade>0) ? +exam.finalGrade : n;
+  return {
+    score: n>0 ? Math.round(correct/n*F*100)/100 : 0,
+    max:   F,
+    correct, total:n,
+    pct:   n>0 ? Math.round(correct/n*100) : 0   // للتلوين فقط — لا تُعرض للطالب
+  };
+}
+
 // ── هل مجموعة الطالب ضمن مجموعات الامتحان؟ (يدعم exam.groups الجديدة المصفوفة + exam.group القديمة النصية) ──
 function _examGroupMatches(e, studentGroupId){
   const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
@@ -658,7 +687,8 @@ function renderMcq(s){
     doneEl.innerHTML = done.map(e=>{
       const g   = _examGradeFor(s.id, e.id, grades);
       const onServer = !!(grades||[]).find(x=>x && x.studentId===s.id && x.examId===e.id);
-      const pct = g ? Math.round(g.score/g.outOf*100) : 0;
+      const sv  = g ? _examScoreView(e, g) : {score:0,max:0,pct:0};
+      const pct = sv.pct; // للتلوين فقط
       const cls = pct>=85?'badge-green':pct>=60?'badge-amber':'badge-red';
       return '<div class="mcq-card" style="flex-direction:column;align-items:stretch;gap:10px;">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">'
@@ -667,8 +697,8 @@ function renderMcq(s){
         +'<div style="font-size:11px;color:var(--text2);">📅 '+(g?.date||'—')+(onServer?'':' &nbsp;·&nbsp; ⏳ جاري المزامنة')+'</div>'
         +'</div>'
         +'<div style="text-align:left;">'
-        +'<span class="badge '+cls+'" style="font-size:13px;padding:5px 14px;">'+pct+'%</span>'
-        +'<div style="font-size:10px;color:var(--text2);margin-top:4px;text-align:center;">'+(g?.score||0)+'/'+(g?.outOf||0)+'</div>'
+        +'<span class="badge '+cls+'" style="font-size:13px;padding:5px 14px;">'+_fmtScore(sv.score)+' / '+_fmtScore(sv.max)+'</span>'
+        +'<div style="font-size:10px;color:var(--text2);margin-top:4px;text-align:center;">الدرجة</div>'
         +'</div>'
         +'</div>'
         +'</div>';
@@ -769,14 +799,15 @@ function submitMcq(){
   let score     = 0;
   const outOf   = qs.length;
   qs.forEach((q,i)=>{ if(_mcqAnswers[i]===q.correct) score++; });
-  const pct     = Math.round(score/outOf*100);
+  const sv      = _examScoreView(_mcqExam, {correct:score, total:outOf});
+  const pct     = outOf ? Math.round(score/outOf*100) : 0; // للتلوين/التقدير فقط
   const cls     = pct>=85?'badge-green':pct>=60?'badge-amber':'badge-red';
   const color   = pct>=85?'var(--green)':pct>=60?'var(--amber)':'var(--red)';
 
   document.getElementById('mcq-question-wrap').innerHTML =
     '<div style="text-align:center;padding:30px 10px;">'
     +'<div style="font-size:52px;margin-bottom:10px;">'+(pct>=60?'🎉':'😔')+'</div>'
-    +'<div style="font-size:28px;font-weight:900;color:'+color+';">'+pct+'%</div>'
+    +'<div style="font-size:28px;font-weight:900;color:'+color+';">'+_fmtScore(sv.score)+' <span style="font-size:18px;font-weight:700;color:var(--text2);">/ '+_fmtScore(sv.max)+'</span></div>'
     +'<div style="font-size:13px;color:var(--text2);margin-top:6px;">'+score+' / '+outOf+' إجابة صحيحة</div>'
     +'<span class="badge '+cls+'" style="margin-top:12px;font-size:13px;padding:6px 18px;">'+(pct>=85?'ممتاز':pct>=60?'جيد':'يحتاج مراجعة')+'</span>'
     +'<div id="mcq-save-status" style="margin-top:14px;font-size:11.5px;color:var(--text2);">⏳ جاري حفظ النتيجة...</div>'
@@ -794,6 +825,8 @@ function submitMcq(){
     examTitle: _mcqExam.title,
     score:     pct,
     outOf:     100,
+    correct:   score,   // عدد الإجابات الصحيحة (لعرض الدرجة بدل النسبة)
+    total:     outOf,   // عدد الأسئلة اللي ظهرت للطالب
     date:      new Date().toISOString().split('T')[0],
     note:      'امتحان أونلاين',
     locked:    true,
@@ -1001,7 +1034,14 @@ function renderGrades(s){
   const avg = avgs.length ? Math.round(avgs.reduce((a,b)=>a+b,0)/avgs.length) : null;
   document.getElementById('grades-avg').textContent = avg!==null ? avg+'%' : '—';
   document.getElementById('grades-tbody').innerHTML = grades.length
-    ? grades.map(g=>{const p=Math.round(g.score/g.outOf*100);const c=p>=85?'badge-green':p>=60?'badge-amber':'badge-red';return `<tr><td style="font-weight:700;">${g.examTitle||'امتحان'}</td><td style="font-weight:800;">${g.score}/${g.outOf}</td><td><span class="badge ${c}">${p}%</span></td><td style="font-size:11px;color:var(--text2);">${g.date||'—'}</td></tr>`;}).join('')
+    ? grades.map(g=>{
+        // الامتحان الإلكتروني: تُعرض الدرجة الفعلية (كل سؤال بدرجة) بدل النسبة المئوية
+        const ex=(schoolData?.exams||[]).find(x=>x&&x.id===g.examId);
+        if(g.source==='online_exam' || (ex && ex.type==='electronic')){
+          const sv=_examScoreView(ex,g);
+          return `<tr><td style="font-weight:700;">${g.examTitle||'امتحان'}</td><td style="font-weight:800;">${_fmtScore(sv.score)}/${_fmtScore(sv.max)}</td><td style="color:var(--text3);">—</td><td style="font-size:11px;color:var(--text2);">${g.date||'—'}</td></tr>`;
+        }
+        const p=Math.round(g.score/g.outOf*100);const c=p>=85?'badge-green':p>=60?'badge-amber':'badge-red';return `<tr><td style="font-weight:700;">${g.examTitle||'امتحان'}</td><td style="font-weight:800;">${g.score}/${g.outOf}</td><td><span class="badge ${c}">${p}%</span></td><td style="font-size:11px;color:var(--text2);">${g.date||'—'}</td></tr>`;}).join('')
     : '<tr><td colspan="4"><div class="empty"><div class="empty-ic">📝</div><div>لا توجد درجات</div></div></td></tr>';
 }
 
