@@ -2446,12 +2446,13 @@ async function _loadFromFirebase(){
 
     <!-- فلاتر العرض -->
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:.8rem;background:var(--glass);border-radius:var(--rs);padding:.7rem;">
-      <div><label class="fl">من تاريخ</label><input class="fi" type="date" id="avw-from" style="width:150px;"></div>
-      <div><label class="fl">إلى تاريخ</label><input class="fi" type="date" id="avw-to" style="width:150px;"></div>
-      <div><label class="fl">الصف</label><select class="fs" id="avw-cls" style="width:150px;" onchange="_filterAttViewGrp()"><option value="">كل الصفوف</option></select></div>
-      <div><label class="fl">المجموعة</label><select class="fs" id="avw-grp" style="width:150px;"><option value="">كل المجموعات</option></select></div>
+      <div><label class="fl">من تاريخ</label><input class="fi" type="date" id="avw-from" style="width:150px;" onchange="renderAttViewGrid()"></div>
+      <div><label class="fl">إلى تاريخ</label><input class="fi" type="date" id="avw-to" style="width:150px;" onchange="renderAttViewGrid()"></div>
+      <div><label class="fl">الصف</label><select class="fs" id="avw-cls" style="width:150px;" onchange="_filterAttViewGrp();renderAttViewGrid();"><option value="">كل الصفوف</option></select></div>
+      <div><label class="fl">المجموعة</label><select class="fs" id="avw-grp" style="width:150px;" onchange="renderAttViewGrid()"><option value="">كل المجموعات</option></select></div>
       <div><label class="fl">بحث (اسم/باركود)</label><input class="fi" type="text" id="avw-search" placeholder="اسم الطالب أو الباركود" style="width:190px;" oninput="renderAttViewGrid()"></div>
-      <button class="btn btn-primary btn-sm" onclick="renderAttViewGrid()">👁️ عرض</button>
+      <button class="btn btn-danger btn-sm" id="avw-del-excluded-btn" onclick="delExcludedInAttView()" style="display:none;">🗑️ حذف المستبعدين للغياب</button>
+      <button class="btn btn-danger btn-sm" id="avw-del-selected-btn" onclick="delSelectedInAttView()" disabled style="opacity:.5;cursor:not-allowed;">🗑️ حذف المحدد (0)</button>
     </div>
 
     <!-- مفتاح الألوان -->
@@ -2693,11 +2694,13 @@ async function _loadFromFirebase(){
   <div class="modal modal-lg">
     <div class="mtt">استيراد أسئلة من البنك <button class="mc-btn" onclick="closeModal('qbank-picker-modal')">✕</button></div>
     <div class="filt" style="flex-wrap:wrap;gap:6px;margin-bottom:.7rem;">
-      <select class="fs" style="width:150px" id="qbp-cls-f" onchange="renderQBankPicker()"><option value="">كل الصفوف</option></select>
-      <select class="fs" style="width:150px" id="qbp-tag-f" onchange="renderQBankPicker()"><option value="">كل التصنيفات</option></select>
+      <select class="fs" style="width:150px" id="qbp-cls-f" onchange="_qbpUpdateTags();_qbpUpdateLessons();renderQBankPicker()"><option value="">كل الصفوف</option></select>
+      <select class="fs" style="width:170px" id="qbp-tag-f" onchange="_qbpUpdateLessons();renderQBankPicker()"><option value="">كل التصنيفات</option></select>
+      <select class="fs" style="width:150px" id="qbp-lesson-f" onchange="renderQBankPicker()"><option value="">كل الدروس</option></select>
       <button class="btn btn-secondary btn-xs" onclick="qbpSelectAll()">تحديد الكل</button>
       <button class="btn btn-secondary btn-xs" onclick="qbpDeselectAll()">إلغاء التحديد</button>
     </div>
+    <div id="qbp-stats" style="margin-bottom:.7rem;"></div>
     <div id="qbp-list" style="max-height:420px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
     <button class="btn btn-primary" style="width:100%;margin-top:.9rem;" onclick="importSelectedQBank()">➕ إضافة الأسئلة المحددة للامتحان</button>
   </div>
@@ -3446,7 +3449,9 @@ async function _saveFlush(){
       const serverArr = Array.isArray(serverGrades) ? serverGrades : (serverGrades ? Object.values(serverGrades) : []);
       if(serverArr.length){
         const localKeys = new Set((DB.grades||[]).map(g=>g && (g.id || (g.studentId+'_'+g.examId))));
-        const missing = serverArr.filter(g=>g && g.studentId && !localKeys.has(g.id || (g.studentId+'_'+g.examId)));
+        // درجات ألغاها المعلم عمداً (السماح بإعادة الاختبار) ما ترجعش تاني مع الدمج
+        const revoked = new Set((DB.examRetakes||[]).map(r=>r && r.revokedGradeId).filter(Boolean));
+        const missing = serverArr.filter(g=>g && g.studentId && !localKeys.has(g.id || (g.studentId+'_'+g.examId)) && !revoked.has(g.id));
         if(missing.length){ DB.grades = [...(DB.grades||[]), ...missing]; }
       }
     }catch(e){ console.warn('تعذّر التحقق من درجات السيرفر قبل الحفظ:', e.message); }
@@ -6525,7 +6530,49 @@ function openAttViewModal(){
     const d=new Date(today); d.setDate(d.getDate()-13);
     fromEl.value=d.toISOString().slice(0,10);
   }
+  _avwSelectedIds=new Set();
   openModal('att-view-modal');
+  renderAttViewGrid();
+}
+// ── تحديد/حذف طلاب مختارين يدويًا عبر صناديق الاختيار (checkbox) بجانب كل اسم ──
+let _avwSelectedIds=new Set();
+let _avwRenderedIds=[];
+function _avwUpdateSelBtn(){
+  const btn=document.getElementById('avw-del-selected-btn');
+  const allChk=document.getElementById('avw-check-all');
+  if(!btn) return;
+  const n=_avwSelectedIds.size;
+  btn.textContent=`🗑️ حذف المحدد (${n})`;
+  const isAdmin=document.body.dataset.role!=='supervisor';
+  if(n>0 && isAdmin){ btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer'; }
+  else { btn.disabled=true; btn.style.opacity='.5'; btn.style.cursor='not-allowed'; }
+  if(allChk){
+    const total=_avwRenderedIds.length;
+    const selShown=_avwRenderedIds.filter(id=>_avwSelectedIds.has(id)).length;
+    allChk.checked = total>0 && selShown===total;
+    allChk.indeterminate = selShown>0 && selShown<total;
+  }
+}
+function _avwToggleRow(id,checked){
+  if(checked) _avwSelectedIds.add(id); else _avwSelectedIds.delete(id);
+  _avwUpdateSelBtn();
+}
+function _avwToggleAll(checked){
+  _avwRenderedIds.forEach(id=>{ if(checked) _avwSelectedIds.add(id); else _avwSelectedIds.delete(id); });
+  document.querySelectorAll('.avw-row-chk').forEach(cb=>{ cb.checked=checked; });
+  _avwUpdateSelBtn();
+}
+function delSelectedInAttView(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف الطلاب','e'); return; }
+  const ids=Array.from(_avwSelectedIds);
+  if(!ids.length) return;
+  const names=ids.map(id=>{ const s=stu(id); return s?(s.fname+' '+s.lname):id; });
+  if(!confirm(`⚠️ هل تريد حذف ${ids.length} طالب؟\n\n${names.join('، ')}\n\nسيتم نقلهم لسلة المحذوفات ويمكن استعادتهم منها لاحقاً.`)) return;
+  ids.forEach(id=>{ const s=stu(id); if(s){ DB.trash.push({type:'student',data:{...s},deletedAt:new Date().toLocaleString('ar-EG')}); } });
+  DB.students=DB.students.filter(s=>!ids.includes(s.id));
+  save();
+  _avwSelectedIds=new Set();
+  toast(`✅ تم حذف ${ids.length} طالب — يمكن الاستعادة من سلة المحذوفات`,'e');
   renderAttViewGrid();
 }
 function _filterAttViewGrp(){
@@ -6568,18 +6615,43 @@ function _avwBox(status){
   const m=map[status]||map.excluded;
   return `<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;font-weight:800;font-size:12.5px;background:${m.bg};color:${m.fg};">${m.label}</span>`;
 }
+// ── إظهار/تحديث زرار "حذف المستبعدين للغياب" — للمدير فقط، وبيحمل أكواد الطلاب المستبعدين المعروضين حاليًا بالفلتر ──
+let _avwExcludedIds=[];
+function _updateAvwDelBtn(excS){
+  const btn=document.getElementById('avw-del-excluded-btn');
+  if(!btn) return;
+  const isAdmin=document.body.dataset.role!=='supervisor';
+  _avwExcludedIds=excS.map(s=>s.id);
+  if(!isAdmin || !excS.length){ btn.style.display='none'; return; }
+  btn.style.display='';
+  btn.textContent=`🗑️ حذف المستبعدين للغياب (${excS.length})`;
+}
+// ── حذف كل الطلاب المستبعدين للغياب الظاهرين حالياً بالفلتر (نقل لسلة المحذوفات — قابل للاستعادة) — للمدير فقط ──
+function delExcludedInAttView(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بحذف الطلاب','e'); return; }
+  const ids=_avwExcludedIds.slice();
+  if(!ids.length) return;
+  const names=ids.map(id=>{ const s=stu(id); return s?(s.fname+' '+s.lname):id; });
+  if(!confirm(`⚠️ هل تريد حذف ${ids.length} طالب مستبعد بسبب الغياب المتكرر؟\n\n${names.join('، ')}\n\nسيتم نقلهم لسلة المحذوفات ويمكن استعادتهم منها لاحقاً.`)) return;
+  ids.forEach(id=>{ const s=stu(id); if(s){ DB.trash.push({type:'student',data:{...s},deletedAt:new Date().toLocaleString('ar-EG')}); } });
+  DB.students=DB.students.filter(s=>!ids.includes(s.id));
+  save();
+  toast(`✅ تم حذف ${ids.length} طالب مستبعد — يمكن الاستعادة من سلة المحذوفات`,'e');
+  renderAttViewGrid();
+}
 function renderAttViewGrid(){
   const from=document.getElementById('avw-from')?.value, to=document.getElementById('avw-to')?.value;
   const cf=document.getElementById('avw-cls')?.value||'', gf=document.getElementById('avw-grp')?.value||'';
   const body=document.getElementById('avw-body');
-  if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; return; }
+  if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; _updateAvwDelBtn([]); return; }
   let dates=_dateRangeList(from,to);
-  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
-  if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
+  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; _updateAvwDelBtn([]); return; }
+  if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; _updateAvwDelBtn([]); return; }
   const searchQ=(document.getElementById('avw-search')?.value||'').trim().toLowerCase();
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&(!searchQ||(s.fname+' '+s.lname).toLowerCase().includes(searchQ)||String(s.barcode||s.id||'').toLowerCase().includes(searchQ)));
   const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
   const _excS=students.filter(s=>isStuFinExcluded(s.id)).sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
+  _updateAvwDelBtn(_excS);
   students.length=0; students.push.apply(students,_normS.concat(_excS));
 
   // ── اقتصار الأعمدة على أيام الحصص الفعلية بس (لصف/مجموعة واحدة محددة، أو اتحاد أيام كل المجموعات المعروضة) ──
@@ -6610,12 +6682,17 @@ function renderAttViewGrid(){
   dates=dates.slice().reverse();
 
   document.getElementById('avw-meta').innerHTML=`👤 عدد الطلاب: <b>${_normS.length}</b> &nbsp; · &nbsp; 📅 عدد الأيام: <b>${dates.length}</b>`;
-  if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; return; }
-  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; return; }
+  _avwRenderedIds=students.map(s=>s.id);
+  // نحتفظ بالتحديد بس للطلاب الظاهرين حالياً بالفلتر (لو طالب اتشال من العرض، نشيله من التحديد كمان)
+  _avwSelectedIds=new Set(Array.from(_avwSelectedIds).filter(id=>_avwRenderedIds.includes(id)));
+  if(!students.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا يوجد طلاب مطابقين</div>'; _avwUpdateSelBtn(); return; }
+  if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">لا توجد أيام حصص ضمن النطاق المختار</div>'; _avwUpdateSelBtn(); return; }
 
   const thStyle='color:#fff;font-weight:800;font-size:11px;white-space:nowrap;background:#1c2140;text-align:center;padding:6px 4px;';
   const nameColW='150px';
-  const thead = `<th style="${thStyle}position:sticky;right:0;background:var(--bg3);z-index:3;text-align:right;padding:6px 10px;width:${nameColW};min-width:${nameColW};max-width:${nameColW};">الطالب</th>`
+  const chkColW='36px';
+  const thead = `<th style="${thStyle}position:sticky;right:0;background:var(--bg3);z-index:3;padding:6px 2px;width:${chkColW};min-width:${chkColW};max-width:${chkColW};"><input type="checkbox" id="avw-check-all" onchange="_avwToggleAll(this.checked)" style="cursor:pointer;"></th>`
+    + `<th style="${thStyle}position:sticky;right:${chkColW};background:var(--bg3);z-index:3;text-align:right;padding:6px 10px;width:${nameColW};min-width:${nameColW};max-width:${nameColW};">الطالب</th>`
     + dates.map(d=>{
         const parts=d.split('-'); const dt=new Date(+parts[0],+parts[1]-1,+parts[2]);
         return `<th style="${thStyle}">${_AVW_DAY_SHORT[dt.getDay()]}<br><span style="font-size:9.5px;opacity:.8;">${parts[2]}/${parts[1]}</span></th>`;
@@ -6623,8 +6700,10 @@ function renderAttViewGrid(){
 
   const tbody = students.map(s=>{
     const cells=dates.map(d=>`<td style="text-align:center;padding:4px 3px;">${_avwBox(_avwCellStatus(s,d))}</td>`).join('');
+    const checked=_avwSelectedIds.has(s.id)?'checked':'';
     return `<tr>
-      <td title="${s.fname} ${s.lname}" style="position:sticky;right:0;background:var(--bg2);z-index:1;white-space:nowrap;font-weight:700;padding:6px 10px;border-left:1px solid var(--border);width:${nameColW};min-width:${nameColW};max-width:${nameColW};overflow:hidden;text-overflow:ellipsis;">${s.fname} ${s.lname}</td>
+      <td style="position:sticky;right:0;background:var(--bg2);z-index:1;text-align:center;padding:6px 2px;width:${chkColW};min-width:${chkColW};max-width:${chkColW};"><input type="checkbox" class="avw-row-chk" data-id="${s.id}" ${checked} onchange="_avwToggleRow('${s.id}',this.checked)" style="cursor:pointer;"></td>
+      <td title="${s.fname} ${s.lname}" style="position:sticky;right:${chkColW};background:var(--bg2);z-index:1;white-space:nowrap;font-weight:700;padding:6px 10px;border-left:1px solid var(--border);width:${nameColW};min-width:${nameColW};max-width:${nameColW};overflow:hidden;text-overflow:ellipsis;">${s.fname} ${s.lname}</td>
       ${cells}
     </tr>`;
   }).join('');
@@ -6633,6 +6712,7 @@ function renderAttViewGrid(){
     <thead><tr style="position:sticky;top:0;z-index:2;">${thead}</tr></thead>
     <tbody>${tbody}</tbody>
   </table>`;
+  _avwUpdateSelBtn();
 }
 // ── المشرف يقدر يسجّل/يعدّل حضور اليوم بس — ممنوع يفتح أو يعدّل تواريخ سابقة خالص ──
 function _isPastAttDateBlockedForSupervisor(date){
@@ -7609,7 +7689,7 @@ function renderGrades(){
   else if(sf==='asc') list.sort((a,b)=>a.score/a.outOf-b.score/b.outOf);
   else if(sf==='top10') list=list.sort((a,b)=>b.score/b.outOf-a.score/a.outOf).slice(0,10);
   else if(stuf) list.sort((a,b)=>new Date(b.date)-new Date(a.date));
-  tbody.innerHTML=list.map((g,i)=>{ const s=stu(g.studentId); if(!s)return ''; const pct=Math.round(g.score/g.outOf*100); const editBtns=g.locked?`<span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span>`:`<button class="btn btn-amber btn-xs" onclick="openEditGrade('${g.id}')">✏️</button><button class="btn btn-danger btn-xs" onclick="delGrade('${g.id}')" title="حذف الدرجة">🗑</button>`; return `<tr><td style="font-weight:700;color:var(--text2);">${i+1}</td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td><td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td><td style="font-size:11px;color:var(--text2);">${g.examTitle||'—'}</td><td><span class="badge ${grBadge(pct)}">${g.score}/${g.outOf}</span></td><td style="font-size:17px;font-weight:700;color:${grCol(pct)};">${grChar(pct)}</td><td style="font-size:11px;color:var(--text2);">${g.date}</td><td style="font-size:11px;color:var(--text2);">${g.note||'—'}</td><td style="display:flex;gap:3px;align-items:center;">${editBtns}<button class="btn btn-wa btn-xs" onclick="sendGradeWA('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendGradeTG('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">✈️</button></div></td></tr>`; }).join('')||`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3)"><div style="font-size:28px;margin-bottom:.5rem;">📋</div>${stuf?'لا توجد درجات لطالب مطابق لهذا البحث':`لا توجد درجات مسجلة${ef?` لهذا الامتحان${realCf?' في هذا الصف':''}`:''}`}<br><span style="font-size:11px;color:var(--text2);margin-top:.4rem;display:block;">${stuf?'جرّب اسماً أو باركود آخر':'اختر مجموعة محددة لعرض كشف كامل بكل الطلاب وإدخال درجاتهم'}</span></td></tr>`;
+  tbody.innerHTML=list.map((g,i)=>{ const s=stu(g.studentId); if(!s)return ''; const pct=Math.round(g.score/g.outOf*100); const editBtns=g.locked?`<span class="badge" style="background:rgba(79,124,255,.12);color:var(--accent);font-size:9.5px;padding:3px 8px;" title="درجة امتحان إلكتروني — مقفلة تلقائياً، لا يمكن تعديلها من داخل البرنامج">🔒 مقفلة</span><button class="btn btn-amber btn-xs" onclick="allowExamRetake('${g.studentId}','${g.examId||''}','${g.id}')" title="السماح بإعادة الاختبار — يحذف الدرجة ويفك القفل على جهاز الطالب فوراً">🔄</button>`:`<button class="btn btn-amber btn-xs" onclick="openEditGrade('${g.id}')">✏️</button><button class="btn btn-danger btn-xs" onclick="delGrade('${g.id}')" title="حذف الدرجة">🗑</button>`; return `<tr><td style="font-weight:700;color:var(--text2);">${i+1}</td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td><td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td><td style="font-size:11px;color:var(--text2);">${g.examTitle||'—'}</td><td><span class="badge ${grBadge(pct)}">${g.score}/${g.outOf}</span></td><td style="font-size:17px;font-weight:700;color:${grCol(pct)};">${grChar(pct)}</td><td style="font-size:11px;color:var(--text2);">${g.date}</td><td style="font-size:11px;color:var(--text2);">${g.note||'—'}</td><td style="display:flex;gap:3px;align-items:center;">${editBtns}<button class="btn btn-wa btn-xs" onclick="sendGradeWA('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">📱</button><button class="btn btn-tg btn-xs" onclick="sendGradeTG('${g.studentId}','${g.score}/${g.outOf}','${g.examTitle||''}')">✈️</button></div></td></tr>`; }).join('')||`<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3)"><div style="font-size:28px;margin-bottom:.5rem;">📋</div>${stuf?'لا توجد درجات لطالب مطابق لهذا البحث':`لا توجد درجات مسجلة${ef?` لهذا الامتحان${realCf?' في هذا الصف':''}`:''}`}<br><span style="font-size:11px;color:var(--text2);margin-top:.4rem;display:block;">${stuf?'جرّب اسماً أو باركود آخر':'اختر مجموعة محددة لعرض كشف كامل بكل الطلاب وإدخال درجاتهم'}</span></td></tr>`;
 }
 
 // ── تحديث التقدير فوراً عند الكتابة ──
@@ -7750,6 +7830,49 @@ function onGradeExamChange(){
   // ── فلتر الطلاب بعد تثبيت القيم ──
   filterGradeModalStudents();
 }
+/** السماح لطالب بإعادة اختبار إلكتروني معيّن:
+ *  - بيحذف الدرجة المقفلة من البرنامج ومن Firebase فوراً
+ *  - بيسجّل "تصريح إعادة" في schoolData/examRetakes بختم وقت
+ *  بوابة الطالب بتقرأ التصريح ده، ولو وقته أحدث من قفل التسليم المخزّن على جهاز
+ *  الطالب بتلغي القفل تلقائياً ويرجع الاختبار يظهر له "متاح" من تاني (فرصة واحدة جديدة). */
+async function allowExamRetake(studentId, examId, gradeId){
+  const st = DB.students.find(x=>x.id===studentId);
+  const ex = DB.exams.find(x=>x.id===examId);
+  const name = st ? (st.fname+' '+st.lname) : 'الطالب';
+  const exTitle = ex ? ex.title : 'هذا الاختبار';
+  if(!confirm(`السماح لـ ${name} بإعادة "${exTitle}"؟\n\n• هتتحذف درجته الحالية نهائياً\n• هيرجع الاختبار يظهر له متاح مرة واحدة جديدة`)) return;
+
+  const at = new Date().toISOString();
+  // ── محلياً ──
+  DB.grades = (DB.grades||[]).filter(g=>!(g && g.id===gradeId));
+  if(!Array.isArray(DB.examRetakes)) DB.examRetakes = [];
+  const prev = DB.examRetakes.find(r=>r && r.studentId===studentId && r.examId===examId);
+  if(prev){ prev.at = at; prev.revokedGradeId = gradeId; }
+  else DB.examRetakes.push({studentId, examId, at, revokedGradeId:gradeId});
+  save(); renderGrades();
+
+  // ── على Firebase فوراً (من غير انتظار المزامنة الدورية) عشان الطالب يقدر يعيد حالاً ──
+  try{
+    const ref = firebase.database().ref('schoolData');
+    await ref.child('grades').transaction(cur=>{
+      const arr = Array.isArray(cur) ? cur.slice() : (cur ? Object.values(cur) : []);
+      return arr.filter(g=>!(g && (g.id===gradeId || (g.studentId===studentId && g.examId===examId))));
+    });
+    await ref.child('examRetakes').transaction(cur=>{
+      const arr = Array.isArray(cur) ? cur.slice() : (cur ? Object.values(cur) : []);
+      const i = arr.findIndex(r=>r && r.studentId===studentId && r.examId===examId);
+      const rec = {studentId, examId, at, revokedGradeId:gradeId};
+      if(i>=0) arr[i]=rec; else arr.push(rec);
+      return arr;
+    });
+    await ref.child('__syncedAt').set(new Date().toISOString());
+    DB.__syncedAt = new Date().toISOString();
+    toast(`✅ تم السماح لـ ${name} بإعادة "${exTitle}" — الاختبار هيظهر له من تاني`);
+  }catch(e){
+    toast('⚠️ اتحذفت الدرجة محلياً، لكن تعذّر إبلاغ السيرفر الآن — هيتم مع المزامنة التالية','e');
+  }
+}
+
 function addGrade(){ const sid=document.getElementById('g-st').value, eid=document.getElementById('g-ex').value, score=+document.getElementById('g-sc').value, outOf=+document.getElementById('g-of').value||100; if(!sid||isNaN(score)){toast('أكمل البيانات','e');return;} const exam=DB.exams.find(e=>e.id===eid); if(exam && exam.type==='electronic'){ toast('🔒 هذا امتحان إلكتروني — الدرجة تُرصد تلقائياً من الامتحان أونلاين ولا يمكن إدخالها يدوياً','e'); return; } const existing = eid ? DB.grades.find(g=>g.studentId===sid && g.examId===eid && g.locked) : null; if(existing){ toast('🔒 توجد درجة مقفلة لهذا الطالب في هذا الامتحان','e'); return; } DB.grades.push({id:nid('g'),studentId:sid,examId:eid,examTitle:exam?exam.title:'يدوي',score,outOf,date:localDate(),note:document.getElementById('g-note').value}); pushNotif(sid,'grade','📝','درجة جديدة',`${exam?exam.title:'امتحان يدوي'}: ${score}/${outOf}`); save(); closeModal('add-grade-modal'); renderGrades(); toast('✅ تم حفظ الدرجة'); }
 function delGrade(id){
   const g=DB.grades.find(x=>x.id===id);
@@ -7810,28 +7933,67 @@ function _examVisibleNow(e){
   return true;
 }
 
-function renderExams(){
-  document.getElementById('exams-list').innerHTML=DB.exams.map(e=>{
-    const qs = e.questions||[];
-    const typeLbl = e.type==='electronic' ? '<span class="badge bg-b" style="font-size:9px;margin-right:4px;">💻 إلكتروني</span>' : '<span class="badge bg-a" style="font-size:9px;margin-right:4px;">📄 ورقي</span>';
-    const isScheduled = e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now();
-    const isEnded = e.visibleUntil && new Date(e.visibleUntil).getTime()<Date.now();
-    const isHiddenNoSchedule = e.type==='electronic' && !e.visibleFrom && !e.visibleUntil;
-    const scheduleLbl = isHiddenNoSchedule
-      ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(255,77,109,.15);color:var(--red);" title="حدد بداية ونهاية ظهور من زر التعديل عشان يظهر للطلاب">🚫 مخفي — لا توجد فترة ظهور محددة</span>`
-      : isScheduled ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(245,166,35,.15);color:var(--amber);">🕒 مجدول — يظهر ${new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}</span>` : (isEnded ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(255,77,109,.15);color:var(--red);">⏹️ انتهت فترة الظهور</span>` : '');
-    return `
-    <div style="padding:9px 11px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:7px;transition:all .14s;">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-        <div style="flex:1;cursor:pointer;" onclick="selExam('${e.id}')">
-          <div style="font-weight:700;font-size:13px;">${e.title}${typeLbl}${scheduleLbl}${e.terminated?'<span class="badge bg-r" style="margin-right:6px;font-size:9px;">⛔ منتهي</span>':''}</div>
-          <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${e.questionCount && e.questionCount<qs.length ? `${e.questionCount} من ${qs.length} سؤال (عشوائي لكل طالب)` : `${qs.length} أسئلة`}</div>
-          <div style="font-size:10.5px;color:var(--teal);margin-top:2px;">${(DB.examSessions||[]).filter(s=>s.examId===e.id).length} جلسة مكتملة</div>
-        </div>
-        <button class="btn btn-amber btn-xs" onclick="event.stopPropagation();editExam('${e.id}')" title="تعديل الامتحان">✏️ تعديل</button>
+let _examOpenCls = null; // معرف الصف المفتوح حالياً (اضيفت لتجميع الامتحانات حسب الصف الدراسي — أكورديون يفتح صف واحد بمرة)
+function toggleExamClsGroup(clsId){
+  _examOpenCls = (_examOpenCls===clsId) ? null : clsId;
+  renderExams();
+}
+function _examCardHTML(e){
+  const qs = e.questions||[];
+  const typeLbl = e.type==='electronic' ? '<span class="badge bg-b" style="font-size:9px;margin-right:4px;">💻 إلكتروني</span>' : '<span class="badge bg-a" style="font-size:9px;margin-right:4px;">📄 ورقي</span>';
+  const isScheduled = e.visibleFrom && new Date(e.visibleFrom).getTime()>Date.now();
+  const isEnded = e.visibleUntil && new Date(e.visibleUntil).getTime()<Date.now();
+  const isHiddenNoSchedule = e.type==='electronic' && !e.visibleFrom && !e.visibleUntil;
+  const scheduleLbl = isHiddenNoSchedule
+    ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(255,77,109,.15);color:var(--red);" title="حدد بداية ونهاية ظهور من زر التعديل عشان يظهر للطلاب">🚫 مخفي — لا توجد فترة ظهور محددة</span>`
+    : isScheduled ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(245,166,35,.15);color:var(--amber);">🕒 مجدول — يظهر ${new Date(e.visibleFrom).toLocaleString('ar-EG',{dateStyle:'medium',timeStyle:'short'})}</span>` : (isEnded ? `<span class="badge" style="font-size:9px;margin-right:4px;background:rgba(255,77,109,.15);color:var(--red);">⏹️ انتهت فترة الظهور</span>` : '');
+  return `
+  <div style="padding:9px 11px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);margin-bottom:7px;transition:all .14s;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+      <div style="flex:1;cursor:pointer;" onclick="selExam('${e.id}')">
+        <div style="font-weight:700;font-size:13px;">${e.title}${typeLbl}${scheduleLbl}${e.terminated?'<span class="badge bg-r" style="margin-right:6px;font-size:9px;">⛔ منتهي</span>':''}</div>
+        <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${e.questionCount && e.questionCount<qs.length ? `${e.questionCount} من ${qs.length} سؤال (عشوائي لكل طالب)` : `${qs.length} أسئلة`}</div>
+        <div style="font-size:10.5px;color:var(--teal);margin-top:2px;">${(DB.examSessions||[]).filter(s=>s.examId===e.id).length} جلسة مكتملة</div>
       </div>
+      <button class="btn btn-amber btn-xs" onclick="event.stopPropagation();editExam('${e.id}')" title="تعديل الامتحان">✏️ تعديل</button>
+    </div>
+  </div>`;
+}
+function renderExams(){
+  if(!DB.exams.length){
+    document.getElementById('exams-list').innerHTML='<div class="empty"><div class="empty-ic">📋</div><div>لا توجد امتحانات</div></div>';
+    return;
+  }
+  // ── تجميع الامتحانات حسب الصف الدراسي (classId) — الشاشة تعرض أسماء الصفوف فقط، وتفتح صف واحد لعرض امتحاناته ──
+  const groupsMap = new Map(); // classId(or '__none') -> [exams]
+  DB.exams.forEach(e=>{
+    const key = e.classId || '__none';
+    if(!groupsMap.has(key)) groupsMap.set(key,[]);
+    groupsMap.get(key).push(e);
+  });
+  // رتّب حسب ترتيب الصفوف في DB.classes، والصفوف غير المحددة في الآخر
+  const orderedKeys = [
+    ...DB.classes.map(c=>c.id).filter(id=>groupsMap.has(id)),
+    ...(groupsMap.has('__none') ? ['__none'] : [])
+  ];
+  document.getElementById('exams-list').innerHTML = orderedKeys.map(key=>{
+    const exams = groupsMap.get(key);
+    const cls = DB.classes.find(c=>c.id===key);
+    const clsName = cls ? cls.name : 'صف غير محدد';
+    const isOpen = _examOpenCls===key;
+    return `
+    <div style="margin-bottom:7px;">
+      <div onclick="toggleExamClsGroup('${key}')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 13px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:15px;">🏫</span>
+          <span style="font-weight:800;font-size:13.5px;">${clsName}</span>
+          <span class="badge bg-b" style="font-size:9px;">${exams.length} امتحان</span>
+        </div>
+        <span style="font-size:11px;color:var(--text2);transition:transform .15s;transform:rotate(${isOpen?90:0}deg);display:inline-block;">◀</span>
+      </div>
+      ${isOpen ? `<div style="padding:9px 4px 0 4px;">${exams.map(e=>_examCardHTML(e)).join('')}</div>` : ''}
     </div>`;
-  }).join('')||'<div class="empty"><div class="empty-ic">📋</div><div>لا توجد امتحانات</div></div>';
+  }).join('');
 }
 function editExam(id){
   const exam=DB.exams.find(e=>e.id===id); if(!exam)return;
@@ -8418,51 +8580,138 @@ function openQBankPicker(){
   const curExCls=document.getElementById('ex-cls')?.value||'';
   clsF.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   clsF.value=curExCls; // نفس صف الامتحان الحالي كبداية افتراضية لو محدد
-  const tags=[...new Set(DB.questionBank.map(q=>q.tag).filter(Boolean))];
-  document.getElementById('qbp-tag-f').innerHTML='<option value="">كل التصنيفات</option>'+tags.map(t=>`<option value="${t}">${t}</option>`).join('');
+  _qbpSel.clear();                       // نبدأ بتحديد فاضي في كل مرة تُفتح فيها النافذة
+  document.getElementById('qbp-tag-f').value='';
+  const lessonF=document.getElementById('qbp-lesson-f'); if(lessonF) lessonF.value='';
+  _qbpUpdateTags();                      // الوحدات (التصنيفات) حسب الصف المختار
+  _qbpUpdateLessons();
   renderQBankPicker();
   openModal('qbank-picker-modal');
 }
+/* ===== حالة التحديد في نافذة استيراد البنك =====
+ * بنخزّن الـ IDs المحددة في Set عشان التحديد ما يضيعش لما المستخدم يغيّر الفلتر
+ * (يقدر يختار من درس، يبدّل للدرس اللي بعده، والتحديد القديم يفضل محفوظ) */
+const _qbpSel = new Set();
+
+/** كل أسئلة البنك المطابقة للفلتر — لو جزء من الفلتر اتبعت كـ null يبقى متجاهَل */
+function _qbpPool(cf,tf,lf){
+  return (DB.questionBank||[]).filter(q=>(!cf||q.classId===cf)&&(!tf||q.tag===tf)&&(!lf||q.lesson===lf));
+}
+function _qbpFilters(){
+  return {
+    cf:document.getElementById('qbp-cls-f')?.value||'',
+    tf:document.getElementById('qbp-tag-f')?.value||'',
+    lf:document.getElementById('qbp-lesson-f')?.value||''
+  };
+}
+
+/** يحدّث قائمة "الوحدة / التصنيف" حسب الصف المختار فقط —
+ *  فتظهر وحدات الصف ده بس، ومعاها عدد أسئلة كل وحدة، ولو الوحدة المختارة
+ *  مش تابعة للصف الجديد بيرجع لـ"كل التصنيفات" */
+function _qbpUpdateTags(){
+  const tagF=document.getElementById('qbp-tag-f'); if(!tagF) return;
+  const cf=document.getElementById('qbp-cls-f')?.value||'';
+  const cur=tagF.value;
+  const pool=_qbpPool(cf,'','');
+  const tags=[...new Set(pool.map(q=>q.tag).filter(Boolean))];
+  const totalAll=pool.length;
+  tagF.innerHTML=`<option value="">كل التصنيفات (${totalAll})</option>`+
+    tags.map(t=>`<option value="${t}">${t} (${pool.filter(q=>q.tag===t).length})</option>`).join('');
+  tagF.value=tags.includes(cur)?cur:'';
+}
+
+/** يحدّث قائمة "الدرس" بناءً على الصف والوحدة المختارين، ومعاها عدد أسئلة كل درس */
+function _qbpUpdateLessons(){
+  const lessonF=document.getElementById('qbp-lesson-f'); if(!lessonF) return;
+  const cf=document.getElementById('qbp-cls-f')?.value||'', tf=document.getElementById('qbp-tag-f')?.value||'';
+  const cur=lessonF.value;
+  const pool=_qbpPool(cf,tf,'');
+  const lessons=[...new Set(pool.map(q=>q.lesson).filter(Boolean))];
+  lessonF.innerHTML=`<option value="">كل الدروس (${pool.length})</option>`+
+    lessons.map(l=>`<option value="${l}">${l} (${pool.filter(q=>q.lesson===l).length})</option>`).join('');
+  lessonF.value=lessons.includes(cur)?cur:'';
+}
+
+/** لوحة الإحصاء: إجمالي / محدد على مستوى الفلتر الحالي + تفصيل بكل درس */
+function renderQBankPickerStats(){
+  const box=document.getElementById('qbp-stats'); if(!box) return;
+  const {cf,tf,lf}=_qbpFilters();
+  const scope=_qbpPool(cf,tf,'');                 // كل دروس الوحدة/الصف الحالي
+  const shown=_qbpPool(cf,tf,lf);                 // الظاهر دلوقتي حسب الدرس المختار
+  const selIn=arr=>arr.filter(q=>_qbpSel.has(q.id)).length;
+  const lessons=[...new Set(scope.map(q=>q.lesson).filter(Boolean))];
+  const noLesson=scope.filter(q=>!q.lesson);
+  const card=(label,total,sel,active)=>`
+    <div style="background:${active?'rgba(79,124,255,.16)':'var(--glass2)'};border:1px solid ${active?'var(--accent)':'var(--border)'};border-radius:var(--rs);padding:.45rem .6rem;min-width:130px;">
+      <div style="font-size:10.5px;font-weight:700;color:var(--text2);margin-bottom:3px;">${label}</div>
+      <div style="font-size:11.5px;font-weight:700;">
+        <span>الكل: ${total}</span>
+        <span style="color:var(--accent);margin-inline-start:8px;">محدد: ${sel}</span>
+      </div>
+    </div>`;
+  box.innerHTML=`
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+      <span class="badge bg-b" style="font-size:10px;">📚 الظاهر الآن: ${shown.length}</span>
+      <span class="badge bg-a" style="font-size:10px;">✅ محدد من الظاهر: ${selIn(shown)}</span>
+      <span class="badge" style="font-size:10px;background:rgba(124,92,255,.15);color:#a78bfa;">🧮 إجمالي المحدد: ${_qbpSel.size}</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      ${lessons.map(l=>{const g=scope.filter(q=>q.lesson===l);return card('📖 '+l,g.length,selIn(g),lf===l);}).join('')}
+      ${noLesson.length?card('📖 بدون درس',noLesson.length,selIn(noLesson),false):''}
+    </div>`;
+}
+
+/** تسجيل/إلغاء تحديد سؤال واحد مع تحديث الإحصاء فورًا */
+function _qbpToggle(cb){
+  if(cb.checked) _qbpSel.add(cb.value); else _qbpSel.delete(cb.value);
+  renderQBankPickerStats();
+}
 
 function renderQBankPicker(){
-  const cf=document.getElementById('qbp-cls-f')?.value||'', tf=document.getElementById('qbp-tag-f')?.value||'';
-  const list=DB.questionBank.filter(q=>(!cf||q.classId===cf)&&(!tf||q.tag===tf));
+  const {cf,tf,lf}=_qbpFilters();
+  const list=_qbpPool(cf,tf,lf);
   document.getElementById('qbp-list').innerHTML=list.length ? list.map(q=>`
     <label style="display:flex;align-items:flex-start;gap:8px;background:var(--glass2);border:1px solid var(--border);border-radius:var(--rs);padding:.6rem;cursor:pointer;">
-      <input type="checkbox" class="qbp-check" value="${q.id}" style="margin-top:3px;">
+      <input type="checkbox" class="qbp-check" value="${q.id}" ${_qbpSel.has(q.id)?'checked':''} onchange="_qbpToggle(this)" style="margin-top:3px;">
       <div style="flex:1;">
         <div style="font-weight:700;font-size:12px;">${q.text}</div>
         <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
           ${q.classId?`<span class="badge bg-b" style="font-size:9px;">🏫 ${clsN(q.classId)||'—'}</span>`:''}
           ${q.tag?`<span class="badge bg-a" style="font-size:9px;">🏷️ ${q.tag}</span>`:''}
+          ${q.lesson?`<span class="badge" style="font-size:9px;background:rgba(124,92,255,.15);color:#a78bfa;">📖 ${q.lesson}</span>`:''}
         </div>
       </div>
     </label>`).join('') : '<div class="empty"><div class="empty-ic">🗂️</div><div>لا توجد أسئلة مطابقة</div></div>';
+  renderQBankPickerStats();
 }
 
-/** تحديد/إلغاء تحديد كل الأسئلة الظاهرة حالياً في نافذة استيراد البنك (حسب الفلتر المطبق) */
+/** تحديد/إلغاء تحديد كل الأسئلة الظاهرة حالياً (حسب الفلتر المطبق) */
 function qbpSelectAll(){
-  document.querySelectorAll('.qbp-check').forEach(cb=>cb.checked=true);
+  document.querySelectorAll('.qbp-check').forEach(cb=>{cb.checked=true;_qbpSel.add(cb.value);});
+  renderQBankPickerStats();
 }
 function qbpDeselectAll(){
-  document.querySelectorAll('.qbp-check').forEach(cb=>cb.checked=false);
+  document.querySelectorAll('.qbp-check').forEach(cb=>{cb.checked=false;_qbpSel.delete(cb.value);});
+  renderQBankPickerStats();
 }
 
 /** يضيف الأسئلة المحددة من البنك مباشرة في منطقة بناء أسئلة الامتحان (q-build)
  *  بنفس الطريقة اللي بتضاف بيها الأسئلة يدويًا عبر addQ() تمامًا */
 function importSelectedQBank(){
-  const checkedBoxes=[...document.querySelectorAll('.qbp-check:checked')];
-  if(!checkedBoxes.length){ toast('حدّد سؤالاً واحداً على الأقل','e'); return; }
-  checkedBoxes.forEach(cb=>{
-    const q=DB.questionBank.find(x=>x.id===cb.value); if(!q)return;
-    qCount++;
+  const ids=[..._qbpSel];
+  if(!ids.length){ toast('حدّد سؤالاً واحداً على الأقل','e'); return; }
+  let n=0;
+  ids.forEach(id=>{
+    const q=DB.questionBank.find(x=>x.id===id); if(!q)return;
+    qCount++; n++;
     const d=document.createElement('div'); d.id='qb'+qCount;
     d.style.cssText='background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:.7rem;margin-bottom:7px;';
     d.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:5px;"><span style="font-size:10.5px;color:var(--accent);font-weight:700;">سؤال ${qCount} <span style="color:var(--text2);font-weight:400;">(من البنك)</span></span><button class="btn btn-danger btn-xs" onclick="this.closest('[id]').remove()">✕</button></div><input class="fi" placeholder="نص السؤال..." data-f="t" value="${q.text.replace(/"/g,'&quot;')}" style="margin-bottom:7px;">${_qImageZoneHTML(q.image||'',q.imageSize||60)}${['أ','ب','ج','د'].map((l,i)=>`<div style="display:flex;gap:5px;align-items:center;margin-bottom:5px;"><input type="radio" name="cq${qCount}" value="${i}" ${i===q.correct?'checked':''}><span style="color:var(--accent);font-weight:700;font-size:11.5px;width:14px;">${l}</span><input class="fi" placeholder="${l}..." data-f="o${i}" value="${(q.options[i]||'').replace(/"/g,'&quot;')}" style="flex:1;"></div>`).join('')}`;
     document.getElementById('q-build').appendChild(d);
-    cb.checked=false; // نفضّي التحديد فقط بدل غلق الشاشة، عشان يقدر يختار أسئلة تانية من وحدة مختلفة
   });
-  toast(`✅ تم استيراد ${checkedBoxes.length} سؤال من البنك — تقدر تغيّر الفلتر وتستورد أسئلة تانية، والغلق يدوي من زر ✕`);
+  _qbpSel.clear();                 // نفضّي التحديد فقط بدل غلق الشاشة
+  renderQBankPicker();
+  toast(`✅ تم استيراد ${n} سؤال من البنك — تقدر تغيّر الفلتر وتستورد أسئلة تانية، والغلق يدوي من زر ✕`);
 }
 
 function sendAssignmentWA(aid){
