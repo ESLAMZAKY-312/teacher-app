@@ -298,10 +298,29 @@ function _getMcqDoneLocal(studentId, examId){
     return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
-/** درجة الطالب في امتحان معيّن: من السيرفر أولاً، وإلا من القفل المحلي */
+/** تصريح إعادة اختبار صادر من برنامج المعلم (schoolData/examRetakes) */
+function _retakeGrant(studentId, examId){
+  return (schoolData?.examRetakes||[]).find(r=>r && r.studentId===studentId && r.examId===examId) || null;
+}
+/** يمسح القفل المحلي (وأي درجة معلّقة) لامتحان سمح المعلم بإعادته */
+function _clearLocalLock(studentId, examId){
+  try{ localStorage.removeItem(_mcqDoneKey(studentId, examId)); }catch(e){}
+  try{ localStorage.removeItem('pendingGrade_'+studentId+'_'+examId); }catch(e){}
+  _pendingGrades = _pendingGrades.filter(g=>!(g && g.studentId===studentId && g.examId===examId));
+}
+/** درجة الطالب في امتحان معيّن: من السيرفر أولاً، وإلا من القفل المحلي.
+ *  لو المعلم أصدر تصريح إعادة أحدث من وقت التسليم، بنرجّع null (يعني الاختبار
+ *  يرجع متاح للطالب من جديد) وبنفك القفل المخزّن على الجهاز. */
 function _examGradeFor(studentId, examId, grades){
-  return (grades||[]).find(g=>g && g.studentId===studentId && g.examId===examId)
-      || _getMcqDoneLocal(studentId, examId);
+  const grant   = _retakeGrant(studentId, examId);
+  const grantAt = grant ? new Date(grant.at||0).getTime() : 0;
+  const server  = (grades||[]).find(g=>g && g.studentId===studentId && g.examId===examId);
+  if(server && !(grant && grant.revokedGradeId===server.id)) return server;
+  const local = _getMcqDoneLocal(studentId, examId);
+  if(!local) return null;
+  const lockAt = new Date(local.savedAt || local.date || 0).getTime();
+  if(grantAt && grantAt > lockAt){ _clearLocalLock(studentId, examId); return null; }
+  return local;
 }
 function _loadAllPendingGradesLocal(){
   const out = [];
@@ -783,7 +802,7 @@ function submitMcq(){
   }
   // ── قفل التسليم فوراً على الجهاز: من اللحظة دي الامتحان مش هيظهر تاني للطالب أبداً،
   //    ونتيجته محفوظة محلياً حتى لو النت قطع أو السيرفر اتأخر ──
-  _saveMcqDoneLocal(gradeRecord);
+  _saveMcqDoneLocal({...gradeRecord, savedAt:new Date().toISOString()});
   _pendingGrades.push(gradeRecord);
   // نخزنها في localStorage كمان، عشان لو الصفحة اتقفلت أو اتعمللها تحديث
   // قبل ما تتأكد على السيرفر، نلاقيها لما البرنامج يفتح تاني ونكمل حفظها.
@@ -1119,6 +1138,18 @@ db.ref('schoolData').on('value', snap => {
   // ── استرجاع أي درجات معلّقة من localStorage (بسبب قفل الصفحة/تحديثها قبل
   // ما الحفظ يتأكد في زيارة سابقة) وضمّها لقائمة الانتظار الحالية، ثم إعادة
   // محاولة حفظها. ده اللي بيمنع اختفاء الدرجة نهائيًا لو حصل قطع في النت. ──
+  // ── تصاريح إعادة الاختبار: لو المعلم سمح بإعادة امتحان، بنلغي أي محاولة حفظ
+  //    معلّقة لدرجته القديمة عشان ما ترجعش تتكتب على السيرفر بعد حذفها ──
+  (data.examRetakes||[]).forEach(r=>{
+    if(!r || !r.studentId || !r.examId) return;
+    const lock = _getMcqDoneLocal(r.studentId, r.examId);
+    const lockAt = lock ? new Date(lock.savedAt || lock.date || 0).getTime() : 0;
+    if(new Date(r.at||0).getTime() > lockAt){
+      try{ localStorage.removeItem('pendingGrade_'+r.studentId+'_'+r.examId); }catch(e){}
+      try{ localStorage.removeItem(_mcqDoneKey(r.studentId, r.examId)); }catch(e){}
+      _pendingGrades = _pendingGrades.filter(g=>!(g && g.studentId===r.studentId && g.examId===r.examId));
+    }
+  });
   const _localPending = _loadAllPendingGradesLocal();
   _localPending.forEach(pg=>{
     if(!pg || !pg.studentId || !pg.examId) return;
