@@ -410,6 +410,15 @@ function _grpDayNums(grpId){
 }
 
 function renderPortal(s){
+  // ── حماية أثناء الامتحان ──
+  // لو الطالب في نص امتحان شغّال دلوقتي، ممنوع نعيد رسم البوابة، لأن ده
+  // بيمسح شاشة الامتحان من تحته ويرجّعه لقائمة الامتحانات فجأة (كان بيحصل
+  // في كل مرة يوصل تحديث من Firebase — مثلاً لما المعلم يسجّل حضور أو درجة).
+  // بنأجّل التحديث بالكامل لحد ما يسلّم، وساعتها بيتنفّذ تلقائيًا.
+  if(_mcqExam){
+    _pendingPortalRender = s;
+    return;
+  }
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('portal-screen').style.display = 'block';
 
@@ -546,6 +555,8 @@ function renderFiles(s){
 
 // ══ امتحانات إلكترونية ══
 let _mcqExam=null, _mcqAnswers=[], _mcqIdx=0, _mcqTimer=null, _mcqSecs=0, _mcqQuestions=[];
+/** بيانات الطالب المؤجّلة لإعادة رسم البوابة بعد انتهاء الامتحان (لو وصل تحديث أثناءه) */
+let _pendingPortalRender=null;
 
 // ── نفس منطق اختيار/خلط الأسئلة المستخدم في برنامج الإدارة، عشان تجربة الطالب تكون متطابقة ──
 function _shuffleArr(arr){
@@ -876,6 +887,13 @@ function _endMcqExam(){
   document.getElementById('mcq-exam-wrap').style.display    = 'none';
   document.getElementById('mcq-pending').style.display      = '';
   document.getElementById('mcq-done-section').style.display = '';
+  // ── لو وصلت تحديثات من Firebase أثناء الامتحان واتأجّلت، نطبّقها دلوقتي ──
+  if(_pendingPortalRender){
+    const s = _pendingPortalRender;
+    _pendingPortalRender = null;
+    renderPortal(s); // بيرسم كل الأقسام بما فيها قسم الامتحانات
+    return;
+  }
   renderMcq(currentStu);
 }
 
