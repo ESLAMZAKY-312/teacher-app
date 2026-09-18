@@ -169,7 +169,7 @@ tbody tr:last-child td{border-bottom:none;}
           <thead><tr>
             <th>#</th>
             <th>📅 التاريخ</th>
-            <th>🕐 ميعاد المجموعة</th>
+            <th>🕐 الوقت</th>
             <th>⏱️ وقت الحضور</th>
             <th>الحالة</th>
           </tr></thead>
@@ -278,6 +278,30 @@ function _savePendingGradeLocal(g){
 }
 function _removePendingGradeLocal(g){
   try{ localStorage.removeItem(_pendingGradeKey(g)); }catch(e){}
+}
+// ── قفل دائم: الامتحان اللي الطالب سلّمه فعلاً (فرصة واحدة فقط) ──
+// ═══════════════════════════════════════════════════════════════════════
+// ليه ده منفصل عن pendingGrade_: القيد المعلّق بيتشال من localStorage أول ما
+// الدرجة تتأكد على السيرفر. لكن لو لأي سبب اختفت الدرجة من بيانات السيرفر بعد
+// كده (مثلاً برنامج المعلم كتب فوق schoolData بنسخة أقدم)، الامتحان كان بيرجع
+// يظهر "متاح" والطالب يقدر يمتحنه تاني. القفل ده بيتخزن مرة واحدة وقت التسليم
+// وما بيتمسحش أبداً، فالامتحان يفضل "مؤدّى" ونتيجته تفضل ظاهرة على الجهاز
+// حتى لو السيرفر اتأخر أو رجع نسخة قديمة.
+// ═══════════════════════════════════════════════════════════════════════
+function _mcqDoneKey(studentId, examId){ return 'mcqDone_'+studentId+'_'+examId; }
+function _saveMcqDoneLocal(rec){
+  try{ localStorage.setItem(_mcqDoneKey(rec.studentId, rec.examId), JSON.stringify(rec)); }catch(e){}
+}
+function _getMcqDoneLocal(studentId, examId){
+  try{
+    const raw = localStorage.getItem(_mcqDoneKey(studentId, examId));
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+/** درجة الطالب في امتحان معيّن: من السيرفر أولاً، وإلا من القفل المحلي */
+function _examGradeFor(studentId, examId, grades){
+  return (grades||[]).find(g=>g && g.studentId===studentId && g.examId===examId)
+      || _getMcqDoneLocal(studentId, examId);
 }
 function _loadAllPendingGradesLocal(){
   const out = [];
@@ -575,8 +599,9 @@ function renderMcq(s){
   });
   const grades  = schoolData?.grades || [];
 
-  const pending = allExamsBase.filter(e=>_examVisibleNow(e) && !grades.find(g=>g.studentId===s.id && g.examId===e.id));
-  const done    = allExamsBase.filter(e=> grades.find(g=>g.studentId===s.id && g.examId===e.id)); // بدون شرط فترة الظهور إطلاقًا
+  // ── امتحان يعتبر "مؤدّى" لو له درجة على السيرفر أو قفل تسليم محلي على الجهاز ──
+  const pending = allExamsBase.filter(e=>_examVisibleNow(e) && !_examGradeFor(s.id, e.id, grades));
+  const done    = allExamsBase.filter(e=> _examGradeFor(s.id, e.id, grades)); // بدون شرط فترة الظهور إطلاقًا
 
   // ── امتحانات متاحة ──
   const pendingEl = document.getElementById('mcq-pending');
@@ -601,14 +626,15 @@ function renderMcq(s){
   if(done.length){
     doneSection.style.display='block';
     doneEl.innerHTML = done.map(e=>{
-      const g   = grades.find(x=>x.studentId===s.id && x.examId===e.id);
+      const g   = _examGradeFor(s.id, e.id, grades);
+      const onServer = !!(grades||[]).find(x=>x && x.studentId===s.id && x.examId===e.id);
       const pct = g ? Math.round(g.score/g.outOf*100) : 0;
       const cls = pct>=85?'badge-green':pct>=60?'badge-amber':'badge-red';
       return '<div class="mcq-card" style="flex-direction:column;align-items:stretch;gap:10px;">'
         +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">'
         +'<div>'
         +'<div style="font-weight:800;font-size:13.5px;margin-bottom:3px;">'+e.title+'</div>'
-        +'<div style="font-size:11px;color:var(--text2);">📅 '+(g?.date||'—')+'</div>'
+        +'<div style="font-size:11px;color:var(--text2);">📅 '+(g?.date||'—')+(onServer?'':' &nbsp;·&nbsp; ⏳ جاري المزامنة')+'</div>'
         +'</div>'
         +'<div style="text-align:left;">'
         +'<span class="badge '+cls+'" style="font-size:13px;padding:5px 14px;">'+pct+'%</span>'
@@ -632,6 +658,13 @@ function renderMcq(s){
 function startMcqExam(examId){
   const e = (schoolData?.exams||[]).find(x=>x.id===examId);
   if(!e||!(e.questions||[]).filter(q=>q&&!q._placeholder).length) return;
+  // ── فرصة واحدة فقط: لو الطالب سلّم الامتحان ده قبل كده (درجة على السيرفر أو قفل محلي)
+  //    ما يقدرش يدخله تاني — بنرجّعه لقائمة النتائج ──
+  if(currentStu && _examGradeFor(currentStu.id, e.id, schoolData?.grades)){
+    toast('لقد أديت هذا الاختبار من قبل — نتيجتك موجودة في قسم النتائج','e');
+    renderMcq(currentStu);
+    return;
+  }
   _mcqExam      = e;
   _mcqQuestions = _buildStudentExamQuestions(e);
   _mcqAnswers   = new Array(_mcqQuestions.length).fill(null);
@@ -717,6 +750,7 @@ function submitMcq(){
     +'<div style="font-size:13px;color:var(--text2);margin-top:6px;">'+score+' / '+outOf+' إجابة صحيحة</div>'
     +'<span class="badge '+cls+'" style="margin-top:12px;font-size:13px;padding:6px 18px;">'+(pct>=85?'ممتاز':pct>=60?'جيد':'يحتاج مراجعة')+'</span>'
     +'<div id="mcq-save-status" style="margin-top:14px;font-size:11.5px;color:var(--text2);">⏳ جاري حفظ النتيجة...</div>'
+    +'<button onclick="_endMcqExam()" style="margin-top:16px;padding:11px 26px;border-radius:22px;border:none;background:linear-gradient(135deg,var(--accent),#7c5cff);color:#fff;font-family:Cairo,sans-serif;font-size:12.5px;font-weight:800;cursor:pointer;">عرض نتيجتي ←</button>'
     +'</div>';
   document.getElementById('mcq-next-btn').style.display   = 'none';
   document.getElementById('mcq-prev-btn').style.display   = 'none';
@@ -747,6 +781,9 @@ function submitMcq(){
       schoolData.grades.push(gradeRecord);
     }
   }
+  // ── قفل التسليم فوراً على الجهاز: من اللحظة دي الامتحان مش هيظهر تاني للطالب أبداً،
+  //    ونتيجته محفوظة محلياً حتى لو النت قطع أو السيرفر اتأخر ──
+  _saveMcqDoneLocal(gradeRecord);
   _pendingGrades.push(gradeRecord);
   // نخزنها في localStorage كمان، عشان لو الصفحة اتقفلت أو اتعمللها تحديث
   // قبل ما تتأكد على السيرفر، نلاقيها لما البرنامج يفتح تاني ونكمل حفظها.
@@ -754,7 +791,7 @@ function submitMcq(){
 
   _saveMcqGradeWithRetry(gradeRecord, 0);
 
-  setTimeout(()=>_endMcqExam(), 7000);
+  setTimeout(()=>{ if(_mcqExam) _endMcqExam(); }, 7000);
 }
 // ── حفظ درجة الامتحان الإلكتروني بأمان: استخدام transaction بدل قراءة-ثم-كتابة،
 //    لأن لو أكتر من طالب سلّم في نفس اللحظة، القراءة-ثم-الكتابة كانت بتخلي آخر واحد يكتب يمسح درجة اللي قبله
@@ -813,6 +850,7 @@ function _saveMcqGradeWithRetry(gradeRecord, attempt){
 }
 
 function _endMcqExam(){
+  if(!_mcqExam && document.getElementById('mcq-exam-wrap')?.style.display==='none') return;
   clearInterval(_mcqTimer);
   _mcqExam = null;
   _mcqQuestions = [];
@@ -897,7 +935,7 @@ function renderAtt(s){
     present:     {lbl:'حاضر',     cls:'badge-green',  ic:'✅'},
     absent:      {lbl:'غائب',     cls:'badge-red',    ic:'❌'},
     late:        {lbl:'متأخر',    cls:'badge-amber',  ic:'⏰'},
-    exceptional: {lbl:'حضور استثنائي', cls:'badge-blue',   ic:'⭐'},
+    exceptional: {lbl:'استثنائي', cls:'badge-blue',   ic:'⭐'},
     excused:     {lbl:'مستأذن',   cls:'badge-purple', ic:'🙋'},
   };
   tbody.innerHTML = records.map((r,i)=>{
@@ -905,8 +943,8 @@ function renderAtt(s){
     // تنسيق التاريخ للعربية
     let dateStr = r.date;
     try{ dateStr = new Date(r.date).toLocaleDateString('ar-EG',{weekday:'short',year:'numeric',month:'short',day:'numeric'}); }catch(e){}
-    // ميعاد المجموعة الثابت (من — إلى) — دايمًا جدول المجموعة الأسبوعي المحدد، بغض النظر عن وقت حضور الطالب الفعلي
-    const timeStrRaw = grp?.timeFrom ? grp.timeFrom+(grp.timeTo?'-'+grp.timeTo:'') : '—';
+    // الوقت (بنظام 12 ساعة)
+    const timeStrRaw = r.time || (grp?.timeFrom ? grp.timeFrom+(grp.timeTo?'-'+grp.timeTo:'') : '—');
     const timeStr = timeStrRaw==='—' ? timeStrRaw : _fmt12h(timeStrRaw);
     // وقت الحضور الفعلي المسجَّل للطالب (ساعة:دقيقة) — لو مش متسجّل بيتعرض "—"
     const checkInStr = r.time ? _fmt12h(r.time) : '—';
