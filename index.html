@@ -895,9 +895,9 @@ async function _loadFromFirebase(){
     <div class="th">
       <div class="tt">الدرجات</div>
       <div class="filt">
+        <select class="fs" style="width:120px" id="gr-cls-f" onchange="onGradeClassFilterChange()"><option value="">كل الصفوف</option></select>
+        <select class="fs" style="width:120px" id="gr-grp-f" onchange="onGradeGroupFilterChange()"><option value="">كل المجموعات</option></select>
         <select class="fs" style="width:160px" id="gr-ex-f" onchange="onGradeExamFilterChange()"><option value="">كل الامتحانات</option></select>
-        <select class="fs" style="width:120px" id="gr-cls-f" onchange="renderGrades()"><option value="">كل الصفوف</option></select>
-        <select class="fs" style="width:120px" id="gr-grp-f" onchange="renderGrades()"><option value="">كل المجموعات</option></select>
         <select class="fs" style="width:130px" id="gr-sort-f" onchange="renderGrades()"><option value="">الترتيب</option><option value="desc">الأعلى أولاً</option><option value="asc">الأقل أولاً</option><option value="top10">أوائل 10</option></select>
         <input class="fi" style="width:170px" id="gr-stu-f" placeholder="🔍 بحث بالاسم أو الباركود" oninput="renderGrades()">
         <button class="btn btn-wa btn-sm" onclick="sendGradesWA()">📱 إرسال واتساب</button><button class="btn btn-tg btn-sm" onclick="sendGradesTG()">✈️ إرسال تيليجرام</button>
@@ -2678,6 +2678,7 @@ async function _loadFromFirebase(){
       <div class="fg"><label class="fl">المدة (دقيقة)</label><input type="number" class="fi" id="ex-dur" value="30"></div>
       <div class="fg"><label class="fl">عرض النتيجة للطالب</label><select class="fs" id="ex-show-result"><option value="yes">نعم — يظهر للطالب النتيجة</option><option value="no">لا — تظهر فقط للمسؤول</option></select></div>
       <div class="fg"><label class="fl">عدد الأسئلة (اختياري)</label><input type="number" class="fi" id="ex-question-count" min="1" placeholder="اتركه فارغاً لعرض كل الأسئلة"><div style="font-size:10px;color:var(--text2);margin-top:3px;">لو حددت رقم أقل من إجمالي الأسئلة المضافة، هيتم اختيار هذا العدد عشوائيًا لكل طالب من إجمالي الأسئلة</div></div>
+      <div class="fg"><label class="fl">الدرجة النهائية (اختياري)</label><input type="number" class="fi" id="ex-final-grade" min="1" step="any" placeholder="اتركه فارغاً = عدد الأسئلة"><div style="font-size:10px;color:var(--text2);margin-top:3px;">كل سؤال بدرجة واحدة — لو سبتها فاضية تكون الدرجة النهائية = عدد الأسئلة اللي بيمتحنها الطالب. ولو كتبت رقم مختلف عن عدد الأسئلة، درجة الطالب هتتحسب بالتناسب معاه (مثال: 20 سؤال والدرجة النهائية 10 ← كل سؤال بنصف درجة)</div></div>
       <div class="fg" style="display:flex;gap:20px;flex-wrap:wrap;padding:.6rem .1rem;">
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="ex-randomize-q" style="width:16px;height:16px;"> 🔀 ترتيب عشوائي للأسئلة</label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="ex-randomize-opts" style="width:16px;height:16px;"> 🔀 ترتيب عشوائي للإجابات</label>
@@ -3988,6 +3989,7 @@ function popModal(id){
       if(document.getElementById('ex-randomize-q')) document.getElementById('ex-randomize-q').checked=false;
       if(document.getElementById('ex-randomize-opts')) document.getElementById('ex-randomize-opts').checked=false;
       if(document.getElementById('ex-question-count')) document.getElementById('ex-question-count').value='';
+      if(document.getElementById('ex-final-grade')) document.getElementById('ex-final-grade').value='';
       document.getElementById('q-build').innerHTML=''; qCount=0; addQ();
       document.getElementById('ex-edit-id').value='';
       document.getElementById('create-exam-title').innerHTML='إنشاء امتحان <button class="mc-btn" onclick="closeModal(\'create-exam-modal\')">✕</button>';
@@ -7451,47 +7453,48 @@ function sendDefaultAbsenceWA(){
 // GRADES
 // ================================================================
 function renderGrades(){
-  const ef=document.getElementById('gr-ex-f')?.value||'', cf=document.getElementById('gr-cls-f')?.value||'', gf=document.getElementById('gr-grp-f')?.value||'', sf=document.getElementById('gr-sort-f')?.value||'';
+  let ef=document.getElementById('gr-ex-f')?.value||'';
+  const cf=document.getElementById('gr-cls-f')?.value||'', gf=document.getElementById('gr-grp-f')?.value||'', sf=document.getElementById('gr-sort-f')?.value||'';
   const stuf=(document.getElementById('gr-stu-f')?.value||'').trim().toLowerCase();
   const matchesStuSearch = s => { if(!stuf) return true; if(!s) return false; const full=(s.fname+' '+(s.lname||'')).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); return full.includes(stuf) || bc.includes(stuf); };
 
-  // ── خانة الامتحانات ──
-  const esel=document.getElementById('gr-ex-f'); if(esel){ const v=esel.value; esel.innerHTML='<option value="">كل الامتحانات</option>'+DB.exams.map(e=>`<option value="${e.id}">${e.title}</option>`).join(''); esel.value=v; }
-
-  // ── لو في امتحان محدد: فلتر الصفوف والمجموعات حسبه ──
-  const exam = ef ? DB.exams.find(e=>e.id===ef) : null;
-  const examCls = exam?.classId || '';
-  // دعم توافقي: امتحانات قديمة فيها exam.group (نص) بدل exam.groups (مصفوفة)
-  const examGroupsArr = exam ? (Array.isArray(exam.groups) ? exam.groups : (exam.group && exam.group!=='الكل' ? [exam.group] : [])) : [];
-  const examGrp = examGroupsArr.length===1 ? examGroupsArr[0] : ''; // فلتر تلقائي بس لو مجموعة واحدة محددة
-
+  // ══ الترتيب الجديد للفلترة: الصف ← المجموعة ← الامتحان ══
+  // ── ١. خانة الصفوف (مستقلة — كل الصفوف دايماً متاحة) ──
   const csel=document.getElementById('gr-cls-f');
   if(csel){
-    if(exam){
-      const clsOptions = examCls ? DB.classes.filter(c=>c.id===examCls) : DB.classes;
-      csel.innerHTML='<option value="">كل الصفوف</option>'+clsOptions.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
-      if(examCls) csel.value=examCls;
-      else csel.value=cf||'';
-    } else {
-      csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
-      csel.value=cf||'';
-    }
+    csel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+    csel.value=cf||'';
   }
   const realCf = csel?.value || '';
 
+  // ── ٢. خانة المجموعات (تتفلتر حسب الصف المختار) ──
   const gsel=document.getElementById('gr-grp-f');
   if(gsel){
-    if(exam){
-      const grpOptions = DB.groups.filter(g=>(!examCls||g.classId===examCls)&&(!examGroupsArr.length||examGroupsArr.includes(g.id)));
-      gsel.innerHTML='<option value="">كل المجموعات</option>'+grpOptions.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
-      if(examGrp) gsel.value=examGrp;
-      else gsel.value=gf||'';
-    } else {
-      gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!realCf||g.classId===realCf).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
-      gsel.value=gf||'';
-    }
+    gsel.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!realCf||g.classId===realCf).map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+    gsel.value=gf||'';
   }
   const activeGf = gsel?.value || '';
+
+  // ── ٣. خانة الامتحانات (تتفلتر حسب الصف والمجموعة المختارين) ──
+  const esel=document.getElementById('gr-ex-f');
+  if(esel){
+    const examsFiltered = DB.exams.filter(e=>{
+      if(realCf && e.classId && e.classId!==realCf) return false;
+      if(activeGf){
+        // دعم توافقي: امتحانات قديمة فيها e.group (نص) بدل e.groups (مصفوفة)
+        const eGroups = Array.isArray(e.groups) ? e.groups : (e.group && e.group!=='الكل' ? [e.group] : []);
+        if(eGroups.length && !eGroups.includes(activeGf)) return false;
+      }
+      return true;
+    });
+    esel.innerHTML='<option value="">كل الامتحانات</option>'+examsFiltered.map(e=>`<option value="${e.id}">${e.title}</option>`).join('');
+    // لو الامتحان المختار سابقاً لم يعد ضمن القائمة بعد تغيير الصف/المجموعة، نصفّره
+    esel.value = examsFiltered.some(e=>e.id===ef) ? ef : '';
+  }
+  ef = esel?.value || '';
+
+  const exam = ef ? DB.exams.find(e=>e.id===ef) : null;
+  const examGroupsArr = exam ? (Array.isArray(exam.groups) ? exam.groups : (exam.group && exam.group!=='الكل' ? [exam.group] : [])) : [];
   const tbody = document.getElementById('gr-tbody');
 
   // ── شرط العرض: يجب اختيار الامتحان (إلا لو في بحث باسم/باركود طالب) ──
@@ -7499,8 +7502,8 @@ function renderGrades(){
     const gsb=document.getElementById('gr-stats-bar'); if(gsb){ gsb.style.display='none'; gsb.innerHTML=''; }
     tbody.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:3rem;color:var(--text3);">
       <div style="font-size:40px;margin-bottom:.75rem;">📊</div>
-      <div style="font-size:13px;font-weight:600;">اختر <b>الامتحان</b> أو ابحث باسم/باركود طالب لعرض الدرجات<br>
-      <span style="font-size:11px;font-weight:400;margin-top:.4rem;display:block;color:var(--text2);">سيتم تخصيص الصفوف والمجموعات تلقائياً</span></div>
+      <div style="font-size:13px;font-weight:600;">اختر <b>الصف</b> ثم <b>المجموعة</b> ثم <b>الامتحان</b> لعرض الدرجات<br>
+      <span style="font-size:11px;font-weight:400;margin-top:.4rem;display:block;color:var(--text2);">أو ابحث مباشرة باسم/باركود طالب</span></div>
     </td></tr>`;
     return;
   }
@@ -7767,11 +7770,19 @@ function _gradeInlineDelete(gid){
   DB.grades=DB.grades.filter(g=>g.id!==gid);
   save(); renderGrades(); toast('تم حذف الدرجة','e');
 }
-function onGradeExamFilterChange(){
-  // عند تغيير الامتحان: صفّر خانتَي الصف والمجموعة
-  // حتى تتعبأ تلقائياً بما يناسب الامتحان الجديد في renderGrades
-  const csel=document.getElementById('gr-cls-f'); if(csel) csel.value='';
+function onGradeClassFilterChange(){
+  // عند تغيير الصف: صفّر المجموعة والامتحان عشان يتعبّوا من جديد حسب الصف الجديد
   const gsel=document.getElementById('gr-grp-f'); if(gsel) gsel.value='';
+  const esel=document.getElementById('gr-ex-f'); if(esel) esel.value='';
+  renderGrades();
+}
+function onGradeGroupFilterChange(){
+  // عند تغيير المجموعة: صفّر الامتحان بس (الصف يفضل زي ما هو)
+  const esel=document.getElementById('gr-ex-f'); if(esel) esel.value='';
+  renderGrades();
+}
+function onGradeExamFilterChange(){
+  // الامتحان آخر خطوة في السلسلة — مش بيغيّر الصف ولا المجموعة
   renderGrades();
 }
 function filterGradeModalStudents(){
@@ -7953,7 +7964,7 @@ function _examCardHTML(e){
     <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
       <div style="flex:1;cursor:pointer;" onclick="selExam('${e.id}')">
         <div style="font-weight:700;font-size:13px;">${e.title}${typeLbl}${scheduleLbl}${e.terminated?'<span class="badge bg-r" style="margin-right:6px;font-size:9px;">⛔ منتهي</span>':''}</div>
-        <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${e.questionCount && e.questionCount<qs.length ? `${e.questionCount} من ${qs.length} سؤال (عشوائي لكل طالب)` : `${qs.length} أسئلة`}</div>
+        <div style="font-size:10.5px;color:var(--text2);margin-top:3px;">${e.date||'—'} · ${e.duration||0} دقيقة · ${e.questionCount && e.questionCount<qs.length ? `${e.questionCount} من ${qs.length} سؤال (عشوائي لكل طالب)` : `${qs.length} أسئلة`}${e.type==='electronic' && +e.finalGrade>0 ? ` · الدرجة النهائية ${e.finalGrade}` : ''}</div>
         <div style="font-size:10.5px;color:var(--teal);margin-top:2px;">${(DB.examSessions||[]).filter(s=>s.examId===e.id).length} جلسة مكتملة</div>
       </div>
       <button class="btn btn-amber btn-xs" onclick="event.stopPropagation();editExam('${e.id}')" title="تعديل الامتحان">✏️ تعديل</button>
@@ -8015,6 +8026,7 @@ function editExam(id){
   if(document.getElementById('ex-randomize-q')) document.getElementById('ex-randomize-q').checked = !!exam.randomizeQuestions;
   if(document.getElementById('ex-randomize-opts')) document.getElementById('ex-randomize-opts').checked = !!exam.randomizeOptions;
   if(document.getElementById('ex-question-count')) document.getElementById('ex-question-count').value = exam.questionCount||'';
+  if(document.getElementById('ex-final-grade')) document.getElementById('ex-final-grade').value = exam.finalGrade||'';
   // restore exam type badge
   const exType = exam.type || 'paper';
   if(document.getElementById('ex-type')) document.getElementById('ex-type').value = exType;
@@ -8227,7 +8239,9 @@ function saveExam(){
   const randomizeQuestions = document.getElementById('ex-randomize-q')?.checked || false;
   const randomizeOptions = document.getElementById('ex-randomize-opts')?.checked || false;
   const questionCount = +document.getElementById('ex-question-count')?.value || 0;
-  const baseData={title,classId:document.getElementById('ex-cls').value,groups:selectedGroups,duration:+document.getElementById('ex-dur').value||30,date:document.getElementById('ex-date').value,showResult,type:examType,outOf,visibleFrom:document.getElementById('ex-visible-from')?.value||'',visibleUntil:document.getElementById('ex-visible-until')?.value||'',randomizeQuestions,randomizeOptions,questionCount};
+  // الدرجة النهائية (للإلكتروني فقط) — فارغة/0 معناها: تساوي عدد الأسئلة (كل سؤال بدرجة)
+  const finalGrade = examType==='electronic' ? Math.max(0, Math.round((+document.getElementById('ex-final-grade')?.value||0)*100)/100) : 0;
+  const baseData={title,classId:document.getElementById('ex-cls').value,groups:selectedGroups,duration:+document.getElementById('ex-dur').value||30,date:document.getElementById('ex-date').value,showResult,type:examType,outOf,visibleFrom:document.getElementById('ex-visible-from')?.value||'',visibleUntil:document.getElementById('ex-visible-until')?.value||'',randomizeQuestions,randomizeOptions,questionCount,finalGrade};
   if(editId){
     const ex=DB.exams.find(e=>e.id===editId);
     if(ex){
@@ -15837,7 +15851,9 @@ function spRenderMCQ(){
         const permitRetake=DB.retakePermissions&&DB.retakePermissions.find(p=>p.examId===e.id&&p.studentId===s.id&&!p.used);
         const canTake=!session||permitRetake;
         const retakeReq=(DB.retakeRequests||[]).find(r=>r.examId===e.id&&r.studentId===s.id);
-        const pct=session?Math.round(session.score/e.questions.length*100):null;
+        const _n=_examQCount(e);
+        const pct=session?Math.round(session.score/_n*100):null;
+        const sv=session?_examScoreView(e,session.score,_n):null;
         return `<div style="background:rgba(255,255,255,.05);border:1px solid ${canTake?'rgba(79,124,255,.3)':'rgba(255,255,255,.08)'};border-radius:14px;padding:1rem;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.6rem;">
             <div>
@@ -15848,7 +15864,7 @@ function spRenderMCQ(){
             ${!session?`<span style="padding:3px 10px;border-radius:10px;font-size:10px;background:rgba(79,124,255,.15);color:#4f7cff;font-weight:700;">🆕 جديد</span>`:''}
             ${permitRetake?`<span style="padding:3px 10px;border-radius:10px;font-size:10px;background:rgba(245,166,35,.15);color:#f5a623;font-weight:700;">🔄 إعادة مسموح</span>`:''}
           </div>
-          ${session&&e.showResult!=='no'?`<div style="margin-bottom:.6rem;padding:.5rem .8rem;background:rgba(34,201,122,.07);border-radius:8px;display:flex;justify-content:space-between;"><span style="font-size:12px;color:rgba(255,255,255,.5);">نتيجتك السابقة:</span><span style="font-size:14px;font-weight:700;color:${grCol(pct)};">${grChar(pct)} — ${session.score}/${e.questions.length} (${pct}%)</span></div>`:''}
+          ${session&&e.showResult!=='no'?`<div style="margin-bottom:.6rem;padding:.5rem .8rem;background:rgba(34,201,122,.07);border-radius:8px;display:flex;justify-content:space-between;"><span style="font-size:12px;color:rgba(255,255,255,.5);">نتيجتك السابقة:</span><span style="font-size:14px;font-weight:700;color:${grCol(pct)};">${grChar(pct)} — ${sv.score}/${sv.max}</span></div>`:''}
           ${session&&e.showResult==='no'?`<div style="margin-bottom:.6rem;padding:.5rem .8rem;background:rgba(79,124,255,.07);border-radius:8px;font-size:11.5px;color:rgba(255,255,255,.4);">النتيجة غير متاحة — ستظهر بعد مراجعة المدرس</div>`:''}
           <div style="display:flex;gap:8px;">
             ${canTake?`<button onclick="spStartExam('${e.id}')" style="flex:1;padding:10px;border-radius:10px;background:linear-gradient(135deg,#4f7cff,#7c5cff);border:none;color:#fff;font-family:Cairo,sans-serif;font-size:13px;font-weight:700;cursor:pointer;">${session&&permitRetake?'🔄 إعادة الامتحان':'▶️ ابدأ الامتحان'}</button>`
@@ -15928,6 +15944,22 @@ function _buildStudentExamQuestions(exam){
     });
   }
   return qs;
+}
+
+/** عدد الأسئلة اللي بيمتحنها الطالب فعلياً: العدد المحدد (لو أقل من الإجمالي) وإلا كل الأسئلة */
+function _examQCount(exam){
+  const real=((exam&&exam.questions)||[]).filter(q=>q&&!q._placeholder).length;
+  const c=+(exam&&exam.questionCount)||0;
+  return (c>0 && c<real) ? c : real;
+}
+/** الدرجة المعروضة للطالب في الامتحان الإلكتروني (بدل النسبة المئوية):
+ *  كل سؤال = درجة واحدة، والمجموع = «الدرجة النهائية» لو محددة وإلا عدد الأسئلة.
+ *  لو الدرجة النهائية مختلفة عن عدد الأسئلة، الدرجة بتتحسب بالتناسب. */
+function _examScoreView(exam, correct, total){
+  const n = +total>0 ? +total : _examQCount(exam);
+  const F = (exam && +exam.finalGrade>0) ? +exam.finalGrade : n;
+  const score = n>0 ? Math.round((+correct||0)/n*F*100)/100 : 0;
+  return {score, max:F, correct:+correct||0, total:n};
 }
 
 function spStartExam(examId){
@@ -16016,19 +16048,20 @@ function spEndExam(){
   }
   let score=0; questions.forEach((q,i)=>{ if(ans[i]===q.correct)score++; });
   const pct=Math.round(score/total*100);
+  const sv=_examScoreView(exam,score,total);
   const sid=spCurrentStu.id;
   // Save session
   DB.examSessions.push({id:nid('ses'),examId:exam.id,studentId:sid,score,answers:{...ans},date:localDate()});
   // Save grade
   DB.grades.push({id:nid('g'),studentId:sid,examId:exam.id,examTitle:exam.title,score:score,outOf:total,date:localDate(),note:'امتحان أونلاين',locked:true,source:'online_exam'});
-  pushNotif(sid,'grade','💻','نتيجة امتحان إلكتروني',`${exam.title}: ${score}/${total} (${pct}%)`);
+  pushNotif(sid,'grade','💻','نتيجة امتحان إلكتروني',`${exam.title}: ${sv.score}/${sv.max}`);
   save();
   // Show result screen
   const showResult=exam.showResult!=='no';
   document.getElementById('sp-exam-content').innerHTML=`
     <div style="max-width:480px;margin:0 auto;text-align:center;padding-top:2rem;">
-      <div style="font-size:56px;font-weight:900;background:linear-gradient(135deg,#4f7cff,#00c9b1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.4rem;">${showResult?pct+'%':'—'}</div>
-      ${showResult?`<div style="font-size:16px;font-weight:700;color:rgba(255,255,255,.75);margin-bottom:.4rem;">الدرجة: ${score}/${total}</div>`:''}
+      <div style="font-size:56px;font-weight:900;background:linear-gradient(135deg,#4f7cff,#00c9b1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:.4rem;">${showResult?`${sv.score}<span style="font-size:26px;"> / ${sv.max}</span>`:'—'}</div>
+      ${showResult?`<div style="font-size:16px;font-weight:700;color:rgba(255,255,255,.75);margin-bottom:.4rem;">عدد الإجابات الصحيحة: ${score} من ${total}</div>`:''}
       ${showResult?`<div style="font-size:28px;font-weight:700;color:${grCol(pct)};margin-bottom:.75rem;">${grChar(pct)}</div>`:''}
       <div style="font-size:14px;color:rgba(255,255,255,.5);margin-bottom:1.5rem;">${showResult?(pct>=70?'🎉 ممتاز! أحسنت':pct>=50?'👍 جيد، استمر':'📚 تحتاج مراجعة'):'سيتم إعلامك بالنتيجة لاحقاً'}</div>
       ${showResult?`
