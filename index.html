@@ -14232,7 +14232,13 @@ function renderTrash(){
     const barcode=(t.data.barcode||'').toLowerCase();
     return name.includes(q)||barcode.includes(q);
   }):indexed;
-  document.getElementById('trash-body').innerHTML=filtered.length?filtered.map(({t,i})=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}${t.type==='student'&&t.data.barcode?' · 🏷️ '+t.data.barcode:''}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();renderTrash()">حذف نهائي</button></div>`).join(''):(q?'<div class="empty"><div class="empty-ic">🔍</div><div>لا توجد نتائج مطابقة</div></div>':'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>');
+  document.getElementById('trash-body').innerHTML=filtered.length?filtered.map(({t,i})=>`<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--border);"><span style="font-size:18px;">🗑️</span><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${t.type==='student'?t.data.fname+' '+t.data.lname:t.type}</div><div style="font-size:10px;color:var(--text2);">${t.type} · ${t.deletedAt}${t.type==='student'&&t.data.barcode?' · 🏷️ '+t.data.barcode:''}</div></div><button class="btn btn-success btn-xs" onclick="restoreTrash(${i})">استعادة</button><button class="btn btn-danger btn-xs" onclick="DB.trash.splice(${i},1);save();_resetTrashSearchAndRender()">حذف نهائي</button></div>`).join(''):(q?'<div class="empty"><div class="empty-ic">🔍</div><div>لا توجد نتائج مطابقة</div></div>':'<div class="empty"><div class="empty-ic">🗑️</div><div>سلة المحذوفات فارغة</div></div>');
+}
+function _resetTrashSearchAndRender(){
+  const qEl=document.getElementById('trash-search');
+  if(qEl) qEl.value='';
+  renderTrash();
+  if(qEl) qEl.focus();
 }
 function restoreTrash(i){
   const t=DB.trash[i];
@@ -14247,7 +14253,7 @@ function restoreTrash(i){
     }
     DB.students.push(t.data);
   }
-  DB.trash.splice(i,1); save(); toast('✅ تم الاستعادة'); renderTrash();
+  DB.trash.splice(i,1); save(); toast('✅ تم الاستعادة'); _resetTrashSearchAndRender();
 }
 function clearAll(){ openModal('selective-delete-modal'); renderSelectiveDelete(); }
 function renderSelectiveDelete(){
