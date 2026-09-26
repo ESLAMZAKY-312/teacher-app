@@ -148,6 +148,7 @@ html,body{height:100%;font-family:'Cairo',sans-serif;background:var(--bg);color:
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
 /* TABLE CARD */
 .tc{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;backdrop-filter:blur(8px);}
+.dash-date-sep td{position:sticky;top:-1px;z-index:2;background:var(--bg2);color:var(--text2);font-size:11px;font-weight:800;padding:6px 11px;border-bottom:1px solid var(--border);}
 .th{padding:.8rem 1rem;display:flex;align-items:center;gap:.65rem;border-bottom:1px solid var(--border);flex-wrap:wrap;}
 .tt{font-size:13.5px;font-weight:700;flex:1;}
 .filt{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}
@@ -639,7 +640,9 @@ async function _loadFromFirebase(){
   <div class="g2" style="margin-bottom:1rem;">
     <div class="tc">
       <div class="th"><div class="tt">أحدث الطلاب</div><button class="btn btn-secondary btn-sm" onclick="gpStudentsNewest()">الكل</button></div>
+      <div style="max-height:340px;overflow-y:auto;" id="dash-stu-scroll">
       <table><thead><tr><th>الطالب</th><th>الصف</th><th>الحضور</th><th>الرسوم</th></tr></thead><tbody id="dash-stu-tb"></tbody></table>
+      </div>
     </div>
     <div class="tc">
       <div class="th"><div class="tt">آخر الامتحانات</div><button class="btn btn-secondary btn-sm" onclick="gp('exams')">الكل</button></div>
@@ -4086,6 +4089,15 @@ function toggleTheme(){
 // ================================================================
 // DASHBOARD
 // ================================================================
+// ── تسمية عربية ليوم معيّن ضمن قسم "أحدث الطلاب": اليوم / أمس / اسم اليوم والتاريخ الكامل ──
+function _dashDateLabel(dstr){
+  if(!dstr) return 'بدون تاريخ تسجيل';
+  if(dstr===localDate()) return '🟢 اليوم — '+new Date(dstr+'T00:00:00').toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'});
+  const y=new Date(); y.setDate(y.getDate()-1);
+  const yStr=y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+  if(dstr===yStr) return 'أمس — '+new Date(dstr+'T00:00:00').toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'});
+  return new Date(dstr+'T00:00:00').toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+}
 function renderDashboard(){
   const today=localDate(), att=DB.attendance[today]||{};
   const activeStudents=DB.students.filter(s=>!isStuFinExcluded(s.id));
@@ -4120,12 +4132,19 @@ function renderDashboard(){
     <div class="mc mc-a"><div class="mi">📝</div><div class="mv">${avg||'—'}${avg?'%':''}</div><div class="ml">متوسط الدرجات</div><div class="mt2" style="color:var(--text2)">${activeGrades.length} درجة مسجلة</div></div>
     <div class="mc mc-r"><div class="mi">💳</div><div class="mv">${unpaidN}</div><div class="ml">غير مسددين هذا الشهر</div><div class="mt2" style="color:var(--red)">${fmtM(unpaidForTotal.reduce((a,s)=>a+stuUnpaidAmount(s),0))} متأخر</div></div>`;
 
-  // ── أحدث الطلاب: آخر 6 طلاب تمت إضافتهم فعلاً (آخر عناصر مُضافة للمصفوفة)، مش أول 6 بترتيب التخزين — بدون المستبعدين ──
-  document.getElementById('dash-stu-tb').innerHTML=activeStudents.slice(-6).reverse().map(s=>`
+  // ── أحدث الطلاب: كل الطلاب النشطين مجمّعين بحسب تاريخ التسجيل (s.date)، من الأحدث للأقدم، وكل يوم بعنوانه ──
+  const _byRegDate={};
+  activeStudents.forEach(s=>{ const d=s.date||''; (_byRegDate[d]=_byRegDate[d]||[]).push(s); });
+  const _sortedRegDates=Object.keys(_byRegDate).sort((a,b)=>(b||'').localeCompare(a||''));
+  document.getElementById('dash-stu-tb').innerHTML=_sortedRegDates.map(d=>{
+    const list=_byRegDate[d].slice().reverse(); // آخر من سُجّل في نفس اليوم يظهر أولاً
+    const rows=list.map(s=>`
     <tr><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><span style="font-weight:600;">${s.fname} ${s.lname}</span></div></td>
     <td style="font-size:11px;color:var(--text2)">${clsN(s.classId)}</td>
     <td><div class="pw" style="min-width:70px"><div class="pb"><div class="pf" style="width:${attPct(s.id)}%;background:${grCol(attPct(s.id))}"></div></div><span class="pl" style="color:${grCol(attPct(s.id))}">${attPct(s.id)}%</span></div></td>
     <td><span class="badge ${isPaid(s.id)?'bg-g':'bg-r'}">${isPaid(s.id)?'✅':'⏳'}</span></td></tr>`).join('');
+    return `<tr class="dash-date-sep"><td colspan="4">📅 ${_dashDateLabel(d)} <span style="opacity:.65;font-weight:600;">(${list.length})</span></td></tr>${rows}`;
+  }).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:1rem;">لا يوجد طلاب</td></tr>';
 
   document.getElementById('dash-exam-tb').innerHTML=DB.exams.slice(-4).reverse().map(e=>{ const gs=DB.grades.filter(g=>g.examId===e.id); const av=gs.length?Math.round(gs.reduce((a,b)=>a+Math.round(b.score/b.outOf*100),0)/gs.length):null; return `<tr><td style="font-weight:600;">${e.title}</td><td>${gs.length}</td><td>${av!==null?`<span class="badge ${grBadge(av)}">${av}%</span>`:'—'}</td></tr>`; }).join('')||'<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:1rem;">لا توجد امتحانات</td></tr>';
 
