@@ -1205,7 +1205,12 @@ async function _loadFromFirebase(){
       </div>
       <div id="sales-filter-stats" style="display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:700;color:var(--text2);background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:5px 10px;"></div>
       <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
-    </div><div class="scroll-fat" style="overflow:auto;max-height:480px;border:1px solid var(--border);border-radius:var(--rs);"><table style="min-width:760px;"><thead style="position:sticky;top:0;z-index:5;background:var(--bg2);"><tr><th>المنتج</th><th>الطالب</th><th style="text-align:center;width:52px;">الكمية</th><th style="width:80px;">الإيراد</th><th style="text-align:center;width:60px;">الدفع</th><th style="text-align:center;width:70px;">الاستلام</th><th style="width:78px;">التاريخ</th><th style="text-align:center;width:44px;">تعديل</th><th style="text-align:center;width:44px;">حذف</th></tr></thead><tbody id="sales-tbody"></tbody></table></div></div>
+    </div>
+    <div id="store-quick-roster" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--glass);max-height:280px;overflow-y:auto;">
+      <div style="font-size:11.5px;font-weight:700;color:var(--text2);margin-bottom:6px;" id="store-quick-roster-title"></div>
+      <div id="store-quick-roster-list"></div>
+    </div>
+    <div class="scroll-fat" style="overflow:auto;max-height:480px;border:1px solid var(--border);border-radius:var(--rs);"><table style="min-width:760px;"><thead style="position:sticky;top:0;z-index:5;background:var(--bg2);"><tr><th>المنتج</th><th>الطالب</th><th style="text-align:center;width:52px;">الكمية</th><th style="width:80px;">الإيراد</th><th style="text-align:center;width:60px;">الدفع</th><th style="text-align:center;width:70px;">الاستلام</th><th style="width:78px;">التاريخ</th><th style="text-align:center;width:44px;">تعديل</th><th style="text-align:center;width:44px;">حذف</th></tr></thead><tbody id="sales-tbody"></tbody></table></div></div>
   </div>
 </div>
 
@@ -11398,6 +11403,28 @@ function _onSalesClsFilterChange(){
 }
 const _debouncedRenderStore = debounce(renderStore, 280);
 
+/** تسجيل/تحديث حالة "استلام" أو "دفع" لطالب من قائمة "⚡ تسجيل سريع" في المتجر.
+ *  لو الطالب مالوش عملية بيع مسجّلة لهذا المنتج من قبل، بتتنشأ له عملية بكمية 1 بقيمة المنتج
+ *  مباشرة على حسابه (تدخل ضمن سجل مبيعاته ومتبقاته زي أي عملية بيع عادية).
+ *  ولو المعلم لغى العلامتين معاً (مش دافع ومش مستلم) يتم حذف العملية بدل ما تفضل سجل فاضي بلا فايدة. */
+function toggleQuickSaleFlag(sid, pid, flag, checked){
+  const p=DB.products.find(x=>x.id===pid); if(!p) return;
+  let sale=DB.sales.find(x=>x.studentId===sid && x.productId===pid);
+  if(!sale){
+    sale={id:nid('sl'),productId:pid,productName:p.name,qty:1,total:p.price,paidAmount:0,studentId:sid,studentName:stuN(sid),date:localDate(),paid:false,received:false};
+    DB.sales.push(sale);
+  }
+  sale[flag]=checked;
+  sale.paidAmount=sale.paid?sale.total:0;
+  if(!sale.paid && !sale.received){
+    DB.sales=DB.sales.filter(x=>x.id!==sale.id);
+    save(); renderStore();
+    toast('↩️ تم إلغاء تسجيل المنتج لهذا الطالب');
+    return;
+  }
+  save(); renderStore();
+  toast(`${checked?'✅':'↩️'} تم تحديث حالة "${flag==='paid'?'الدفع':'الاستلام'}" لـ ${stuN(sid)}`);
+}
 function renderStore(){
   document.getElementById('products-grid').innerHTML=DB.products.map(p=>`
     <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.9rem;text-align:center;position:relative;">
@@ -11451,6 +11478,34 @@ function renderStore(){
   const fStuQ=(document.getElementById('sales-filter-stu')?.value||'').trim().toLowerCase();
   const fPaid=document.getElementById('sales-filter-paid')?.value||'';
   const fReceived=document.getElementById('sales-filter-received')?.value||'';
+  // ── تسجيل سريع: لما يتحدد منتج + (صف أو مجموعة) يظهر رول بكل الطلاب المطابقين وجنب كل واحد فيهم خانتي "استلام"/"دفع" ──
+  // تحديد أي منهم بيسجّل/يحدّث/يحذف عملية بيع بكمية 1 لهذا الطالب من غير ما يحتاج المعلم يفتح نافذة "بيع" لكل طالب لوحده
+  const rosterEl=document.getElementById('store-quick-roster');
+  if(rosterEl){
+    if(fProd && (fCls||fGrp)){
+      const rp=DB.products.find(x=>x.id===fProd);
+      let rosterStudents=DB.students.filter(s=>(!fCls||s.classId===fCls)&&(!fGrp||s.groupId===fGrp));
+      if(fStuQ) rosterStudents=rosterStudents.filter(s=>(s.fname+' '+s.lname).toLowerCase().includes(fStuQ));
+      document.getElementById('store-quick-roster-title').textContent=`⚡ تسجيل سريع — ${rp?rp.icon+' '+rp.name:''} (${rosterStudents.length} طالب)`;
+      document.getElementById('store-quick-roster-list').innerHTML=rosterStudents.map(s=>{
+        const rsale=DB.sales.find(x=>x.studentId===s.id && x.productId===fProd);
+        const rPaid=!!(rsale&&rsale.paid), rRecv=!!(rsale&&rsale.received);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 4px;border-bottom:1px dashed var(--border);">
+          <div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
+          <span style="flex:1;font-size:12px;font-weight:600;">${s.fname} ${s.lname}</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);cursor:pointer;">
+            <input type="checkbox" ${rRecv?'checked':''} onchange="toggleQuickSaleFlag('${s.id}','${fProd}','received',this.checked)" style="width:15px;height:15px;accent-color:var(--green);cursor:pointer;">استلام
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);cursor:pointer;">
+            <input type="checkbox" ${rPaid?'checked':''} onchange="toggleQuickSaleFlag('${s.id}','${fProd}','paid',this.checked)" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">دفع
+          </label>
+        </div>`;
+      }).join('')||'<div style="text-align:center;color:var(--text3);padding:.75rem;font-size:12px;">لا يوجد طلاب مطابقين لهذا الاختيار</div>';
+      rosterEl.style.display='block';
+    } else {
+      rosterEl.style.display='none';
+    }
+  }
   const filteredSales=DB.sales.filter(s=>{
     if(fProd && s.productId!==fProd) return false;
     if(fCls || fGrp || fStuQ){
