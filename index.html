@@ -870,17 +870,22 @@ async function _loadFromFirebase(){
     <div>
       <div class="sh">
         <h2>حضور الطلاب</h2>
-        <input type="date" class="fi" id="att-date" style="width:150px" onchange="renderAttGrid()">
+        <input type="date" class="fi" id="att-date" style="width:150px" onchange="renderAttGrid();_refreshAttSearchCardOnDateChange();">
         <select class="fs" style="width:130px" id="att-cls" onchange="attFilterGroup()"><option value="">كل الصفوف</option></select>
         <select class="fs" style="width:140px" id="att-grp" onchange="renderAttGrid();_updateCountdownBar();"><option value="">كل المجموعات</option></select>
         <button class="btn btn-success btn-sm" onclick="bulkMarkGroupPresent()" title="تسجيل حضور كل طلاب المجموعة دفعة واحدة، مع إمكانية تعديل أي طالب بعدها">👥 حضور جماعي</button>
         <button class="btn btn-secondary btn-sm" onclick="openAttViewModal()">👁️ عرض</button>
         <button class="btn btn-danger btn-sm" onclick="closeAttendance()" title="تطبيق الغياب على من لم يسجل">🔒 إغلاق الحضور</button>
         <button class="btn btn-wa btn-sm" onclick="openAbsenceNotifyModal()">📱 إشعار الغياب</button><button class="btn btn-tg btn-sm" onclick="sendDefaultAbsenceTG()">✈️ تيليجرام الغياب</button>
+        <div style="position:relative;width:200px;">
+          <input class="fi" id="att-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:100%;" oninput="_attSearchInput()" onkeydown="if(event.key==='Enter'){_attSearchEnter();}" onblur="setTimeout(()=>{const b=document.getElementById('att-search-results'); if(b) b.style.display='none';},200)" autocomplete="off">
+          <div id="att-search-results" style="display:none;position:absolute;top:100%;right:0;width:360px;max-width:calc(100vw - 40px);background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);margin-top:4px;max-height:70vh;overflow-x:hidden;overflow-y:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4);"></div>
+        </div>
         <div id="auto-close-countdown" style="display:none;align-items:center;gap:6px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:var(--red);">
           <span>⏱</span><span id="acc-text">إغلاق تلقائي خلال —</span>
         </div>
       </div>
+      <div id="att-search-picked" style="display:none;margin-bottom:.9rem;"></div>
       <div style="display:flex;gap:7px;margin-bottom:.9rem;">
         <span class="badge bg-g" id="att-p">حاضر: 0</span>
         <span class="badge bg-r" id="att-a">غائب: 0</span>
@@ -1188,7 +1193,13 @@ async function _loadFromFirebase(){
     <div class="tc"><div class="th" style="flex-wrap:wrap;gap:8px;">
       <div class="tt">سجل المبيعات</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
-        <select class="fs" id="sales-filter-product" style="width:150px;" onchange="renderStore()"><option value="">كل المنتجات</option></select>
+        <div style="position:relative;width:150px;" id="prod-filter-wrap">
+          <button type="button" class="fs" id="prod-filter-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:4px;background:var(--glass2);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-family:inherit;font-size:13px;" onclick="_toggleProdFilterMenu(event)">
+            <span id="prod-filter-btn-label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">كل المنتجات</span><span style="font-size:9px;flex:none;">▾</span>
+          </button>
+          <select id="sales-filter-product" style="display:none;" onchange="renderStore()"><option value="">كل المنتجات</option></select>
+          <div id="prod-filter-menu" onscroll="document.querySelectorAll('.prod-flyout').forEach(f=>f.remove())" style="display:none;position:absolute;top:calc(100% + 4px);right:0;z-index:70;min-width:210px;max-height:320px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 10px 30px rgba(0,0,0,.5);"></div>
+        </div>
         <select class="fs" id="sales-filter-cls" style="width:140px;" onchange="_onSalesClsFilterChange()"><option value="">كل الصفوف</option></select>
         <select class="fs" id="sales-filter-grp" style="width:140px;" onchange="renderStore()"><option value="">كل المجموعات</option></select>
         <input class="fi" id="sales-filter-stu" placeholder="🔍 اسم الطالب..." style="width:150px;" oninput="_debouncedRenderStore()">
@@ -6537,6 +6548,240 @@ function closeAttendance(){
 function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',excused:'🙋 مستأذن',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',unknown:'— غير محدد'}[st]||''; }
 
 // ══════════════════════════════════════════════
+// 🔍 بحث سريع عن طالب بالاسم أو الباركود في صفحة الحضور — لعرض حضوره باليوم المختار وتعديله مباشرة
+// ══════════════════════════════════════════════
+function _attSearchInput(){
+  const inp=document.getElementById('att-search');
+  const box=document.getElementById('att-search-results');
+  if(!inp||!box) return;
+  const qf=(inp.value||'').trim().toLowerCase();
+  if(!qf){ box.innerHTML=''; box.style.display='none'; return; }
+  const matches=DB.students.filter(s=>{
+    const bc=(s.barcode||s.id||'').toLowerCase();
+    const name=(s.fname+' '+s.lname).toLowerCase();
+    return bc.includes(qf) || name.includes(qf);
+  }).slice(0,8);
+  box.innerHTML = matches.length ? matches.map(s=>`
+    <div onmousedown="_pickAttSearchResult('${s.id}')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);text-align:right;">
+      <div style="font-size:12.5px;font-weight:700;white-space:normal;word-break:break-word;">${s.fname} ${s.lname}</div>
+      <div style="font-size:10.5px;color:var(--text2);white-space:normal;word-break:break-word;margin-top:1px;">${clsN(s.classId)} — ${grpN(s.groupId)}</div>
+    </div>`).join('') : '<div style="padding:10px 12px;font-size:11.5px;color:var(--text2);">لا يوجد طالب مطابق</div>';
+  box.style.display='block';
+}
+/** ضغط Enter في خانة البحث: تطابق دقيق بالباركود يفتح فورًا، وإلا لو نتيجة واحدة بس بالاسم تتفتح هي كمان */
+function _attSearchEnter(){
+  const inp=document.getElementById('att-search');
+  const qf=(inp?.value||'').trim().toLowerCase(); if(!qf) return;
+  const exact=DB.students.find(s=>(s.barcode||s.id||'').toLowerCase()===qf);
+  if(exact){ _pickAttSearchResult(exact.id); return; }
+  const matches=DB.students.filter(s=>{
+    const bc=(s.barcode||s.id||'').toLowerCase();
+    const name=(s.fname+' '+s.lname).toLowerCase();
+    return bc.includes(qf) || name.includes(qf);
+  });
+  if(matches.length===1) _pickAttSearchResult(matches[0].id);
+}
+function _pickAttSearchResult(sid){
+  const inp=document.getElementById('att-search'); if(inp) inp.value='';
+  const box=document.getElementById('att-search-results');
+  if(box){ box.innerHTML=''; box.style.display='none'; }
+  _renderAttSearchCard(sid);
+}
+/** يرسم كارت نتيجة البحث: اسم الطالب + حالة حضوره في التاريخ المختار حالياً (att-date) + أزرار تعديل الحالة مباشرة */
+function _renderAttSearchCard(sid){
+  const s=stu(sid); const wrap=document.getElementById('att-search-picked'); if(!s||!wrap) return;
+  const date=document.getElementById('att-date')?.value||localDate();
+  const st=(DB.attendance[date]&&DB.attendance[date][sid])||'unknown';
+  const isExc=isStuFinExcluded(sid);
+  const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'}[st]||'var(--border)');
+  const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'}[st]||'var(--card)');
+  // ── أول مرة (أو طالب جديد): نبني الهيكل = كارت اليوم + لوحة الفترة الزمنية ──
+  if(!wrap.querySelector('#att-sc-card') || wrap.dataset.sid!==sid){
+    wrap.innerHTML='<div id="att-sc-card"></div><div id="att-range-panel"></div>';
+    wrap.dataset.sid=sid;
+    _attRangeInit(sid);
+  }
+  wrap.dataset.sid=sid;
+  wrap.style.display='block';
+  document.getElementById('att-sc-card').innerHTML=`<div style="position:relative;background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.7rem .8rem;display:flex;align-items:center;gap:10px;">
+    <button onclick="_clearAttSearchCard()" title="إغلاق" style="position:absolute;top:6px;left:6px;width:18px;height:18px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;">✕</button>
+    <div class="av av40" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:12.5px;font-weight:700;">${s.fname} ${s.lname}${isExc?' <span style="font-size:9px;font-weight:800;color:var(--red);">⛔ مستبعد</span>':''}</div>
+      <div style="font-size:10px;color:var(--text2);">${clsN(s.classId)} — ${grpN(s.groupId)} · ${date}</div>
+      <div style="font-size:10.5px;margin-top:2px;">${isExc?'⛔ مستبعد':attLbl(st)}</div>
+    </div>
+    <div style="display:flex;gap:3px;flex-shrink:0;">
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='present'?'rgba(34,201,122,.2)':'transparent'};color:${st==='present'?'var(--green)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','present')">✅</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='late'?'rgba(245,166,35,.2)':'transparent'};color:${st==='late'?'var(--amber)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','late')">⏰</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='excused'?'rgba(124,92,255,.2)':'transparent'};color:${st==='excused'?'#7c5cff':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','excused')" title="استئذان">🙋</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='absent'?'rgba(255,77,109,.2)':'transparent'};color:${st==='absent'?'var(--red)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','absent')">❌</button>
+    </div>
+  </div>`;
+  _renderAttRangeList(sid);
+}
+
+// ══════════════════════════════════════════════
+// 📆 فترة زمنية لحضور الطالب (تظهر عند البحث عن طالب) — عرض كل الأيام + تعديل أي يوم
+// ══════════════════════════════════════════════
+let _attRange={from:'',to:'',all:false};
+const _ATT_DAY_FULL=['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+function _attFmt(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0'); }
+function _attParse(d){ const p=(d||'').split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+function _attShiftDays(dateStr,n){ const dt=_attParse(dateStr); dt.setDate(dt.getDate()+n); return _attFmt(dt); }
+
+function _attRangeInit(sid){
+  const today=localDate();
+  _attRange={from:_attShiftDays(today,-29),to:today,all:false};
+  const panel=document.getElementById('att-range-panel'); if(!panel) return;
+  if(document.body.dataset.role==='supervisor'){
+    panel.innerHTML='<div style="margin-top:.6rem;font-size:11px;color:var(--text2);text-align:center;padding:.6rem;border:1px dashed var(--border);border-radius:var(--r);">🔒 عرض وتعديل حضور الفترات السابقة متاح للمدير فقط</div>';
+    return;
+  }
+  const btn='padding:3px 9px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;font-size:10.5px;font-weight:600;';
+  panel.innerHTML=`<div style="margin-top:.6rem;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.7rem .8rem;">
+    <div style="font-size:12px;font-weight:800;margin-bottom:.55rem;">📆 سجل الحضور خلال فترة</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:.5rem;">
+      <div><label class="fl" style="font-size:10px;">من</label><input type="date" class="fi" id="att-rng-from" style="width:140px;" onchange="_attRangeChanged()"></div>
+      <div><label class="fl" style="font-size:10px;">إلى</label><input type="date" class="fi" id="att-rng-to" style="width:140px;" onchange="_attRangeChanged()"></div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;padding-bottom:3px;">
+        <button style="${btn}" onclick="_attRangePreset('7')">آخر 7 أيام</button>
+        <button style="${btn}" onclick="_attRangePreset('30')">آخر 30 يوم</button>
+        <button style="${btn}" onclick="_attRangePreset('month')">هذا الشهر</button>
+        <button style="${btn}" onclick="_attRangePreset('90')">آخر 3 شهور</button>
+        <button style="${btn}" onclick="_attRangePreset('all')">كل السجل</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);cursor:pointer;margin-bottom:.5rem;">
+      <input type="checkbox" id="att-rng-all" onchange="_attRangeChanged()"> إظهار كل أيام الفترة (حتى الأيام اللي مش من جدول المجموعة)
+    </label>
+    <div id="att-range-sum" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.5rem;"></div>
+    <div id="att-range-list" style="max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--rs);"></div>
+  </div>`;
+  document.getElementById('att-rng-from').value=_attRange.from;
+  document.getElementById('att-rng-to').value=_attRange.to;
+  document.getElementById('att-rng-from').max=today;
+  document.getElementById('att-rng-to').max=today;
+}
+function _attRangeChanged(){
+  const f=document.getElementById('att-rng-from')?.value, t=document.getElementById('att-rng-to')?.value;
+  if(f) _attRange.from=f; if(t) _attRange.to=t;
+  _attRange.all=!!document.getElementById('att-rng-all')?.checked;
+  const sid=document.getElementById('att-search-picked')?.dataset.sid; if(sid) _renderAttRangeList(sid);
+}
+function _attRangePreset(k){
+  const sid=document.getElementById('att-search-picked')?.dataset.sid; if(!sid) return;
+  const today=localDate(); let from=today;
+  if(k==='7') from=_attShiftDays(today,-6);
+  else if(k==='30') from=_attShiftDays(today,-29);
+  else if(k==='90') from=_attShiftDays(today,-89);
+  else if(k==='month') from=today.slice(0,8)+'01';
+  else if(k==='all'){
+    const s=stu(sid); const ds=Object.keys(DB.attendance).filter(d=>DB.attendance[d] && DB.attendance[d][sid]!==undefined).sort();
+    from = ds[0] || (s&&s.date) || _attShiftDays(today,-29);
+  }
+  _attRange.from=from; _attRange.to=today;
+  document.getElementById('att-rng-from').value=from; document.getElementById('att-rng-to').value=today;
+  _renderAttRangeList(sid);
+}
+function _attRangeBtns(sid,d,st){
+  const defs=[['present','✅','var(--green)','rgba(34,201,122,.2)','حاضر'],['late','⏰','var(--amber)','rgba(245,166,35,.2)','متأخر'],['excused','🙋','#7c5cff','rgba(124,92,255,.2)','مستأذن'],['absent','❌','var(--red)','rgba(255,77,109,.2)','غائب']];
+  const vis=st==='exceptional'?'present':st;
+  return defs.map(([k,ic,col,bg,t])=>`<button title="${t}" onclick="setAttForDate('${sid}','${d}','${k}')" style="padding:3px 7px;border-radius:5px;border:1px solid var(--border);background:${vis===k?bg:'transparent'};color:${vis===k?col:'var(--text2)'};cursor:pointer;font-size:12px;">${ic}</button>`).join('')
+    + `<button title="إلغاء التسجيل (غير محدد)" onclick="cancelAttForDate('${sid}','${d}')" style="padding:3px 7px;border-radius:5px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);cursor:pointer;font-size:11px;">↩</button>`;
+}
+function _renderAttRangeList(sid){
+  const list=document.getElementById('att-range-list'); const sum=document.getElementById('att-range-sum');
+  const s=stu(sid); if(!list||!s) return;
+  const prevScroll=list.scrollTop;
+  let {from,to,all}=_attRange; const today=localDate();
+  if(!from||!to||from>to){ list.innerHTML='<div style="padding:1.2rem;text-align:center;color:var(--text2);font-size:12px;">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; if(sum) sum.innerHTML=''; return; }
+  if(to>today) to=today;
+  if(_attShiftDays(to,-365)>from){ from=_attShiftDays(to,-365); toast('ℹ️ الحد الأقصى للعرض سنة واحدة — تم تقصير البداية','i'); }
+  const META={
+    present:{l:'✅ حاضر',c:'var(--green)'}, exceptional:{l:'✅ حضور استثنائي',c:'var(--green)'},
+    late:{l:'⏰ متأخر',c:'var(--amber)'}, excused:{l:'🙋 مستأذن',c:'#7c5cff'},
+    absent:{l:'❌ غائب',c:'var(--red)'}, none:{l:'— غير محدد',c:'var(--text3)'}
+  };
+  const cnt={present:0,late:0,excused:0,absent:0,none:0};
+  const rows=[];
+  const end=_attParse(to);
+  for(let dt=_attParse(from); dt<=end; dt.setDate(dt.getDate()+1)){
+    const d=_attFmt(dt);
+    const rec=DB.attendance[d] && DB.attendance[d][sid];
+    const hasRec=!!rec && rec!=='none' && rec!=='unknown';
+    const dayNums=_grpDayNums(_grpIdOnDate(s,d));
+    const isClassDay=dayNums ? dayNums.has(dt.getDay()) : false;
+    if(!all && !isClassDay && !hasRec) continue;
+    const st=hasRec?rec:'none';
+    // يوم حصة قبل تاريخ التحاق الطالب ومفيهوش سجل: مايتحسبش "غير محدد"
+    const beforeJoin = !hasRec && s.date && d<s.date;
+    if(beforeJoin && !all) continue;
+    if(st==='exceptional') cnt.present++; else if(cnt[st]!==undefined && !(st==='none'&&(!isClassDay||beforeJoin))) cnt[st]++;
+    const m=META[st];
+    const time=DB.attendance[d] && DB.attendance[d][sid+'_time'];
+    const isToday=d===today;
+    rows.push({d,dt:new Date(dt),st,m,time,isClassDay,isToday,beforeJoin});
+  }
+  rows.reverse(); // الأحدث أولاً
+  const chip=(t,c,bg)=>`<span style="font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:12px;background:${bg};color:${c};">${t}</span>`;
+  if(sum) sum.innerHTML=chip('✅ حاضر: '+cnt.present,'var(--green)','rgba(34,201,122,.12)')+chip('⏰ متأخر: '+cnt.late,'var(--amber)','rgba(245,166,35,.12)')+chip('🙋 مستأذن: '+cnt.excused,'#7c5cff','rgba(124,92,255,.12)')+chip('❌ غائب: '+cnt.absent,'var(--red)','rgba(255,77,109,.12)')+chip('— غير محدد: '+cnt.none,'var(--text2)','rgba(150,150,170,.12)');
+  if(!rows.length){ list.innerHTML='<div style="padding:1.2rem;text-align:center;color:var(--text2);font-size:12px;">لا توجد أيام حصص أو سجلات ضمن هذه الفترة — فعّل "إظهار كل أيام الفترة" لو عايز تسجّل في يوم تاني</div>'; return; }
+  list.innerHTML=rows.map(r=>{
+    const p=r.d.split('-');
+    const note = !r.isClassDay ? ' · <span style="color:var(--amber);">خارج الجدول</span>' : (r.beforeJoin?' · <span style="color:var(--text3);">قبل الالتحاق</span>':'');
+    return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 9px;border-bottom:1px solid var(--border);border-right:3px solid ${r.m.c};${r.isToday?'background:rgba(79,124,255,.06);':''}">
+      <div style="min-width:96px;">
+        <div style="font-size:12px;font-weight:700;">${p[2]}/${p[1]}/${p[0]}${r.isToday?' <span style="font-size:9px;color:var(--accent);">اليوم</span>':''}</div>
+        <div style="font-size:10px;color:var(--text2);">${_ATT_DAY_FULL[r.dt.getDay()]}${note}</div>
+      </div>
+      <div style="flex:1;min-width:90px;font-size:11.5px;font-weight:700;color:${r.m.c};">${r.m.l}${r.time?` <span style="font-weight:500;font-size:10px;color:var(--text2);">🕒 ${r.time}</span>`:''}</div>
+      <div style="display:flex;gap:3px;flex-shrink:0;">${_attRangeBtns(sid,r.d,r.st)}</div>
+    </div>`;
+  }).join('');
+  list.scrollTop=prevScroll;
+}
+/** تعديل حالة حضور الطالب في أي تاريخ (من لوحة الفترة) */
+function setAttForDate(sid,date,status){
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
+  if(status==='present' && _isExceptionalDay(sid,date)) status='exceptional';
+  if(!DB.attendance[date]) DB.attendance[date]={};
+  DB.attendance[date][sid]=status;
+  if(date===localDate()) DB.attendance[date][sid+'_time']=localTime(); else delete DB.attendance[date][sid+'_time'];
+  save();
+  const s=stu(sid);
+  if(s){
+    const L={present:'حضور',exceptional:'حضور استثنائي',absent:'غياب',late:'تأخير',excused:'استئذان'};
+    const I={present:'✅',exceptional:'⭐',absent:'❌',late:'⏰',excused:'🙋'};
+    pushNotif(sid,'attendance',I[status]||'📅',`تسجيل ${L[status]||status}`,`تم تسجيل ${L[status]||status} ${s.fname} ${s.lname} بتاريخ ${date}`);
+  }
+  _afterAttDateEdit(sid,date);
+  toast(`✅ تم تعديل حالة ${date}`);
+}
+function cancelAttForDate(sid,date){
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
+  if(DB.attendance[date]){ delete DB.attendance[date][sid]; delete DB.attendance[date][sid+'_time']; }
+  save();
+  _afterAttDateEdit(sid,date);
+  toast('↩️ تم إلغاء التسجيل — رجع "غير محدد"','i');
+}
+function _afterAttDateEdit(sid,date){
+  renderTodayLog();
+  // لو اليوم المعدَّل هو نفس التاريخ المختار فوق → حدّث الشبكة وكارت الطالب كمان
+  if(document.getElementById('att-date')?.value===date){ renderAttGrid(); }
+  _renderAttSearchCard(sid);
+}
+
+function _clearAttSearchCard(){
+  const wrap=document.getElementById('att-search-picked');
+  if(wrap){ wrap.style.display='none'; wrap.innerHTML=''; delete wrap.dataset.sid; }
+}
+function _refreshAttSearchCardOnDateChange(){
+  const wrap=document.getElementById('att-search-picked');
+  if(wrap && wrap.dataset.sid) _renderAttSearchCard(wrap.dataset.sid);
+}
+
+// ══════════════════════════════════════════════
 // 👁️ عرض الحضور — شبكة أيام × طلاب بصناديق ملوّنة
 // ══════════════════════════════════════════════
 function openAttViewModal(){
@@ -6770,17 +7015,22 @@ function setAtt(sid,status){
     renderTodayLog();
   }
   const card=document.getElementById('ac-'+sid);
-  const bcs={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',exceptional:'rgba(34,201,122,.4)'};
-  const bgs={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',exceptional:'rgba(34,201,122,.04)'};
-  card.style.borderColor=bcs[status]||'var(--border)'; card.style.background=bgs[status]||'var(--card)';
-  document.getElementById('as-'+sid).textContent=attLbl(status);
-  const btns=card.querySelectorAll('button');
-  const sts=['present','late','excused','absent'];
-  const cols={present:'var(--green)',late:'var(--amber)',excused:'#7c5cff',absent:'var(--red)'};
-  const bgmap={present:'rgba(34,201,122,.2)',late:'rgba(245,166,35,.2)',excused:'rgba(124,92,255,.2)',absent:'rgba(255,77,109,.2)'};
-  // "حضور استثنائي" بيتعرض شكله زي زرار "حاضر" (اللون الأخضر) لأنه في الأساس حضور فعلي
-  const _visSt = status==='exceptional' ? 'present' : status;
-  btns.forEach((b,i)=>{ b.style.background=sts[i]===_visSt?bgmap[_visSt]:'transparent'; b.style.color=sts[i]===_visSt?cols[_visSt]:'var(--text2)'; });
+  if(card){
+    const bcs={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',exceptional:'rgba(34,201,122,.4)'};
+    const bgs={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',exceptional:'rgba(34,201,122,.04)'};
+    card.style.borderColor=bcs[status]||'var(--border)'; card.style.background=bgs[status]||'var(--card)';
+    document.getElementById('as-'+sid).textContent=attLbl(status);
+    const btns=card.querySelectorAll('button');
+    const sts=['present','late','excused','absent'];
+    const cols={present:'var(--green)',late:'var(--amber)',excused:'#7c5cff',absent:'var(--red)'};
+    const bgmap={present:'rgba(34,201,122,.2)',late:'rgba(245,166,35,.2)',excused:'rgba(124,92,255,.2)',absent:'rgba(255,77,109,.2)'};
+    // "حضور استثنائي" بيتعرض شكله زي زرار "حاضر" (اللون الأخضر) لأنه في الأساس حضور فعلي
+    const _visSt = status==='exceptional' ? 'present' : status;
+    btns.forEach((b,i)=>{ b.style.background=sts[i]===_visSt?bgmap[_visSt]:'transparent'; b.style.color=sts[i]===_visSt?cols[_visSt]:'var(--text2)'; });
+  }
+  // ── تحديث كارت نتيجة البحث السريع لو هو المفتوح حالياً لنفس الطالب ──
+  const searchCard=document.getElementById('att-search-picked');
+  if(searchCard && searchCard.dataset.sid===sid) _renderAttSearchCard(sid);
   const gf=document.getElementById('att-grp')?.value||''; updateAttCounts(DB.students.filter(s=>!gf||s.groupId===gf));
 }
 // ── زر (إلغاء) في كل خانة طالب بشبكة الحضور: يمسح أي إجراء (حضور/غياب/تأخير/استئذان) تم عليه
@@ -11425,6 +11675,76 @@ function toggleQuickSaleFlag(sid, pid, flag, checked){
   save(); renderStore();
   toast(`${checked?'✅':'↩️'} تم تحديث حالة "${flag==='paid'?'الدفع':'الاستلام'}" لـ ${stuN(sid)}`);
 }
+/** فتح/إغلاق قائمة فلتر المنتج المخصصة (صفوف دراسية، وبالمرور بالماوس على أي صف يظهر فلاي-أوت بمنتجاته) */
+function _toggleProdFilterMenu(e){
+  if(e) e.stopPropagation();
+  const menu=document.getElementById('prod-filter-menu'); if(!menu) return;
+  document.querySelectorAll('.prod-flyout').forEach(f=>f.remove());
+  if(menu.style.display==='block'){ menu.style.display='none'; return; }
+  _buildProdFilterMenu();
+  menu.style.display='block';
+}
+/** بناء المستوى الأول من قائمة فلتر المنتج: صف بكل مادة/صف دراسي له منتجات، + بند "عام" للمنتجات بلا صف، + "كل المنتجات" */
+function _buildProdFilterMenu(){
+  const menu=document.getElementById('prod-filter-menu'); if(!menu) return;
+  const curVal=document.getElementById('sales-filter-product')?.value||'';
+  const byClass={};
+  DB.products.forEach(p=>{ const k=p.classId||'__none__'; (byClass[k]=byClass[k]||[]).push(p); });
+  const rowStyle='display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;cursor:pointer;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--border);';
+  let html=`<div class="pf-row" style="${rowStyle}${!curVal?'background:var(--glass2);color:var(--accent);':''}" onclick="_selectProdFilter('')">🗂️ كل المنتجات</div>`;
+  DB.classes.forEach(c=>{
+    const items=byClass[c.id]||[];
+    if(!items.length) return;
+    html+=`<div class="pf-row" style="${rowStyle}" onmouseenter="_openProdFlyout(this,'${c.id}')" onmouseover="this.style.background='var(--glass2)'" onmouseleave="this.style.background='transparent'">
+      <span>📚 ${c.name}</span><span style="display:flex;align-items:center;gap:4px;color:var(--text2);font-size:10.5px;"><span>${items.length}</span><span>◂</span></span>
+    </div>`;
+  });
+  const noneItems=byClass['__none__']||[];
+  if(noneItems.length){
+    html+=`<div class="pf-row" style="${rowStyle}border-bottom:none;" onmouseenter="_openProdFlyout(this,'__none__')" onmouseover="this.style.background='var(--glass2)'" onmouseleave="this.style.background='transparent'">
+      <span>📦 عام (بدون صف)</span><span style="display:flex;align-items:center;gap:4px;color:var(--text2);font-size:10.5px;"><span>${noneItems.length}</span><span>◂</span></span>
+    </div>`;
+  }
+  menu.innerHTML=html;
+}
+/** فتح فلاي-أوت منتجات الصف اللي الماوس واقف عليه. بيتحط على body بموضع ثابت (fixed) مش جوه القائمة
+ *  نفسها، عشان ما يتقصش بسبب خاصية التمرير الرأسي للقائمة (اللي كانت بتحول أي فيض أفقي لسكرول جانبي). */
+function _openProdFlyout(rowEl, classKey){
+  document.querySelectorAll('.prod-flyout').forEach(f=>f.remove());
+  const byClass={};
+  DB.products.forEach(p=>{ const k=p.classId||'__none__'; (byClass[k]=byClass[k]||[]).push(p); });
+  const items=byClass[classKey]||[];
+  const curVal=document.getElementById('sales-filter-product')?.value||'';
+  const fly=document.createElement('div');
+  fly.className='prod-flyout';
+  fly.innerHTML=items.map(p=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:12.5px;font-weight:600;border-bottom:1px solid var(--border);${curVal===p.id?'background:var(--glass2);color:var(--accent);':''}" onclick="_selectProdFilter('${p.id}')" onmouseover="this.style.background='var(--glass2)'" onmouseout="this.style.background='${curVal===p.id?'var(--glass2)':'transparent'}'"><span style="font-size:16px;">${p.icon}</span><span style="flex:1;">${p.name}</span><span style="color:var(--green);font-size:11px;">${fmtM(p.price)}</span></div>`).join('')||'<div style="padding:10px;color:var(--text3);font-size:12px;text-align:center;">لا توجد منتجات</div>';
+  const r=rowEl.getBoundingClientRect();
+  const flyWidth=210, gap=4;
+  let left=r.left-flyWidth-gap;
+  if(left<4) left=Math.min(r.right+gap, window.innerWidth-flyWidth-4);
+  fly.style.cssText=`position:fixed;top:${r.top}px;left:${Math.max(4,left)}px;width:${flyWidth}px;max-height:300px;overflow-y:auto;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:9999;`;
+  document.body.appendChild(fly);
+  requestAnimationFrame(()=>{
+    const fr=fly.getBoundingClientRect();
+    if(fr.bottom>window.innerHeight-8) fly.style.top=Math.max(8,window.innerHeight-8-fr.height)+'px';
+  });
+}
+/** اختيار منتج من القائمة/الفلاي-أوت: تحديث القيمة الفعلية + تسمية الزر، وإغلاق كل القوائم، وإعادة رسم المتجر */
+function _selectProdFilter(pid){
+  const sel=document.getElementById('sales-filter-product');
+  if(sel) sel.value=pid;
+  const menu=document.getElementById('prod-filter-menu');
+  if(menu) menu.style.display='none';
+  document.querySelectorAll('.prod-flyout').forEach(f=>f.remove());
+  renderStore();
+}
+document.addEventListener('click',function(e){
+  const menu=document.getElementById('prod-filter-menu');
+  if(menu && menu.style.display==='block' && !e.target.closest('#prod-filter-wrap')){
+    menu.style.display='none';
+    document.querySelectorAll('.prod-flyout').forEach(f=>f.remove());
+  }
+});
 function renderStore(){
   document.getElementById('products-grid').innerHTML=DB.products.map(p=>`
     <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.9rem;text-align:center;position:relative;">
@@ -11462,6 +11782,13 @@ function renderStore(){
     const prevVal=prodFilterEl.value;
     prodFilterEl.innerHTML='<option value="">كل المنتجات</option>'+DB.products.map(p=>`<option value="${p.id}">${p.icon} ${p.name}</option>`).join('');
     if([...prodFilterEl.options].some(o=>o.value===prevVal)) prodFilterEl.value=prevVal;
+  }
+  // ── مزامنة نص زر فلتر المنتج المخصص (القائمة/الفلاي-أوت) مع القيمة الفعلية المحفوظة في السيلكت المخفي ──
+  const prodBtnLbl=document.getElementById('prod-filter-btn-label');
+  if(prodBtnLbl){
+    const pv=prodFilterEl?.value||'';
+    const pp=pv?DB.products.find(x=>x.id===pv):null;
+    prodBtnLbl.textContent = pp ? `${pp.icon} ${pp.name}` : 'كل المنتجات';
   }
   // ── تعبئة فلتر الصف ──
   const clsFilterEl=document.getElementById('sales-filter-cls');
