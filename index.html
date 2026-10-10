@@ -461,6 +461,7 @@ function _startFirebaseListener(){
     _idbSet('etp3', DB).catch(()=>{});
     // إعادة رسم الواجهة
     _invalidateCache();
+    try{ _honorAutoRefresh(); }catch(e){}
     if(typeof renderAll === 'function') renderAll();
     else if(typeof gp === 'function'){
       const cur = document.querySelector('.page[style*="block"]')?.id?.replace('page-','') || 'dashboard';
@@ -770,7 +771,19 @@ async function _loadFromFirebase(){
     <button class="tab-btn" onclick="switchHonor('points',this)">⭐ النقاط المكتسبة</button>
     <button class="tab-btn" onclick="switchHonor('rewards',this)">🎁 متجر المكافآت</button>
   </div>
-  <div id="honor-academic"><div id="honor-academic-grid" class="g3" style="gap:.7rem;"></div></div>
+  <div id="honor-academic">
+    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem;">
+      <span style="font-size:12px;color:var(--text2);">الترتيب بناءً على:</span>
+      <select class="fs" id="honor-range" onchange="setHonorRange(this.value)" style="width:170px">
+        <option value="1">آخر امتحان</option>
+        <option value="3">آخر 3 امتحانات</option>
+        <option value="5">آخر 5 امتحانات</option>
+        <option value="all">كل الامتحانات والدرجات</option>
+      </select>
+      <span id="honor-exams-note" style="font-size:11px;color:var(--text2);"></span>
+    </div>
+    <div id="honor-academic-grid" class="g3" style="gap:.7rem;"></div>
+  </div>
   <div id="honor-points" style="display:none;"><div class="tc"><div class="th"><div class="tt">النقاط المكتسبة</div><button class="btn btn-primary btn-sm" onclick="openModal('add-points-modal')">+ إضافة نقاط</button></div><table><thead><tr><th>#</th><th>الطالب</th><th>النقاط</th><th>السبب</th><th>التاريخ</th></tr></thead><tbody id="pts-tbody"></tbody></table></div></div>
   <div id="honor-rewards" style="display:none;"><div class="sh"><h2>متجر المكافآت</h2><button class="btn btn-primary btn-sm" onclick="openModal('add-reward-modal')">+ مكافأة جديدة</button></div><div id="rewards-grid" class="g3" style="gap:.7rem;"></div></div>
 </div>
@@ -1218,7 +1231,10 @@ async function _loadFromFirebase(){
       <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
     </div>
     <div id="store-quick-roster" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--glass);max-height:280px;overflow-y:auto;">
-      <div style="font-size:11.5px;font-weight:700;color:var(--text2);margin-bottom:6px;" id="store-quick-roster-title"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+        <div style="font-size:11.5px;font-weight:700;color:var(--text2);" id="store-quick-roster-title"></div>
+        <button class="btn btn-sm" type="button" onclick="quickCompleteTaken()" title="يحدد الاستلام والدفع معاً لكل طالب مسجّل عليه هذا المنتج في القائمة الحالية" style="font-size:11px;padding:4px 10px;">✔ استكمال الاستلام والدفع لمن أخذ المنتج</button>
+      </div>
       <div id="store-quick-roster-list"></div>
     </div>
     <div class="scroll-fat" style="overflow:auto;max-height:480px;border:1px solid var(--border);border-radius:var(--rs);"><table style="min-width:760px;"><thead style="position:sticky;top:0;z-index:5;background:var(--bg2);"><tr><th>المنتج</th><th>الطالب</th><th style="text-align:center;width:52px;">الكمية</th><th style="width:80px;">الإيراد</th><th style="text-align:center;width:60px;">الدفع</th><th style="text-align:center;width:70px;">الاستلام</th><th style="width:78px;">التاريخ</th><th style="text-align:center;width:44px;">تعديل</th><th style="text-align:center;width:44px;">حذف</th></tr></thead><tbody id="sales-tbody"></tbody></table></div></div>
@@ -3563,6 +3579,7 @@ let _countdownTimer = null; // مؤقت عرض العد التنازلي
 function save(){
   DB.__lastSave = Date.now();
   _invalidateCache();
+  try{ _honorAutoRefresh(); }catch(e){}
   _saveDirty = true;
 
   // ── ١. حفظ محلي فوري في IndexedDB ──
@@ -6436,21 +6453,59 @@ function editBehEntry(id){
 // ================================================================
 // HONOR
 // ================================================================
-function renderHonor(){ switchHonor('academic',document.querySelector('#honor-tabs .active')); }
-function switchHonor(tab,btn){
-  document.querySelectorAll('#honor-tabs .tab-btn').forEach(b=>b.classList.remove('active')); btn?.classList.add('active');
-  ['academic','points','rewards'].forEach(t=>document.getElementById('honor-'+t).style.display=t===tab?'block':'none');
-  if(tab==='academic'){
-    const ranked=DB.students.map(s=>({s,avg:stuAvg(s.id)||0})).filter(x=>x.avg>0).sort((a,b)=>b.avg-a.avg).slice(0,12);
-    document.getElementById('honor-academic-grid').innerHTML=ranked.map((x,i)=>`
+// ── لوحة الشرف: تعتمد على آخر الامتحانات المضافة وتتحدث تلقائياً مع كل امتحان/درجة جديدة ──
+let _honorRange=(function(){ try{ return localStorage.getItem('etp_honor_range')||'3'; }catch(e){ return '3'; } })();
+function setHonorRange(v){ _honorRange=v; try{ localStorage.setItem('etp_honor_range',v); }catch(e){} renderHonorAcademic(); }
+function _honorEsc(t){ return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function renderHonorAcademic(){
+  const grid=document.getElementById('honor-academic-grid'); if(!grid) return;
+  const sel=document.getElementById('honor-range'); if(sel) sel.value=_honorRange;
+  const note=document.getElementById('honor-exams-note');
+  const gradedIds=new Set((DB.grades||[]).filter(g=>g.examId).map(g=>g.examId));
+  const graded=(DB.exams||[]).filter(e=>gradedIds.has(e.id));            // بترتيب الإضافة (الأقدم → الأحدث)
+  const allMode=_honorRange==='all';
+  const exams=allMode?graded:graded.slice(-(parseInt(_honorRange,10)||3));
+  let ranked;
+  if(allMode){
+    ranked=DB.students.map(s=>({s,avg:stuAvg(s.id)||0,n:(DB.grades||[]).filter(g=>g.studentId===s.id).length})).filter(x=>x.avg>0);
+  } else {
+    const ids=new Set(exams.map(e=>e.id)), per={};
+    (DB.grades||[]).forEach(g=>{                                          // آخر درجة للطالب في كل امتحان
+      if(!g.examId||!ids.has(g.examId)||!(g.outOf>0)) return;
+      (per[g.studentId]=per[g.studentId]||{})[g.examId]=Math.round(g.score/g.outOf*100);
+    });
+    ranked=DB.students.map(s=>{ const m=per[s.id]; if(!m) return null; const v=Object.values(m); return {s,avg:Math.round(v.reduce((a,b)=>a+b,0)/v.length),n:v.length}; }).filter(x=>x&&x.avg>0);
+  }
+  ranked.sort((a,b)=>b.avg-a.avg||b.n-a.n).splice(12);
+  // امتحانات أُضيفت بعد آخر امتحان له درجات ولسه درجاتها ما اتسجلتش
+  const lastIdx=graded.length?DB.exams.findIndex(e=>e.id===graded[graded.length-1].id):-1;
+  const pending=(DB.exams||[]).slice(lastIdx+1).filter(e=>!gradedIds.has(e.id));
+  if(note){
+    note.innerHTML=(allMode?'📊 كل الدرجات المسجلة':(exams.length?'📋 '+exams.map(e=>_honorEsc(e.title)).join(' • '):''))
+      +(pending.length?' &nbsp;<span style="color:var(--amber);">⏳ بانتظار الدرجات: '+pending.map(e=>_honorEsc(e.title)).join('، ')+'</span>':'');
+  }
+  grid.innerHTML=ranked.map((x,i)=>`
       <div class="honor-card"><div class="honor-rank">${['🥇','🥈','🥉'][i]||''}</div>
         <div class="av av48" style="margin:0 auto 7px;background:${x.s.color}20;color:${x.s.color}">${x.s.fname[0]}</div>
         <div style="font-weight:700;font-size:12.5px;">${x.s.fname} ${x.s.lname}</div>
         <div style="font-size:10px;color:var(--text2);margin-top:2px;">${clsN(x.s.classId)}</div>
         <div style="font-size:22px;font-weight:700;margin-top:7px;color:${grCol(x.avg)};">${x.avg}%</div>
         <span class="badge ${grBadge(x.avg)}" style="margin-top:3px;">${grChar(x.avg)}</span>
+        ${(!allMode&&exams.length>1)?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">${x.n} من ${exams.length} امتحانات</div>`:''}
       </div>`).join('')||'<div class="empty"><div>لا توجد درجات بعد</div></div>';
-  }
+}
+// تحديث تلقائي للوحة لو مفتوحة وحصل أي حفظ (امتحان جديد / درجة جديدة / مزامنة من جهاز آخر)
+let _honorRT=null;
+function _honorAutoRefresh(){
+  if(!document.getElementById('page-honor')?.classList.contains('active')) return;
+  if(document.getElementById('honor-academic')?.style.display==='none') return;
+  clearTimeout(_honorRT); _honorRT=setTimeout(renderHonorAcademic,150);
+}
+function renderHonor(){ switchHonor('academic',document.querySelector('#honor-tabs .active')); }
+function switchHonor(tab,btn){
+  document.querySelectorAll('#honor-tabs .tab-btn').forEach(b=>b.classList.remove('active')); btn?.classList.add('active');
+  ['academic','points','rewards'].forEach(t=>document.getElementById('honor-'+t).style.display=t===tab?'block':'none');
+  if(tab==='academic') renderHonorAcademic();
   if(tab==='points'){
     const pts=DB.students.map(s=>({s,pts:stuPts(s.id)})).sort((a,b)=>b.pts-a.pts);
     document.getElementById('pts-tbody').innerHTML=pts.map((x,i)=>`<tr><td><b>${i+1}</b></td><td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${x.s.color}20;color:${x.s.color}">${x.s.fname[0]}</div><span style="font-weight:600;">${x.s.fname} ${x.s.lname}</span></div></td><td><span class="badge bg-a">⭐ ${x.pts}</span></td><td style="font-size:11px;color:var(--text2);">${DB.points.filter(p=>p.studentId===x.s.id).slice(-1)[0]?.reason||'—'}</td><td style="font-size:11px;color:var(--text2);">${DB.points.filter(p=>p.studentId===x.s.id).slice(-1)[0]?.date||'—'}</td>`).join('');
@@ -7756,6 +7811,104 @@ function _examClassIds(e){
   }
   return [...set];
 }
+// ══════════════════════════════════════════════
+// 📤 تصدير كشف الدرجات: الأوائل / أدّى الامتحان / المتخلفون — PDF و Excel
+// ══════════════════════════════════════════════
+function _gradeExportData(){
+  const ef=document.getElementById('gr-ex-f')?.value||'';
+  const cf=document.getElementById('gr-cls-f')?.value||'';
+  const gf=document.getElementById('gr-grp-f')?.value||'';
+  const exam=DB.exams.find(e=>e.id===ef);
+  if(!exam||!cf) return null;
+  const exGroups=Array.isArray(exam.groups)?exam.groups:(exam.group&&exam.group!=='الكل'?[exam.group]:[]);
+  const students=DB.students.filter(s=>s.classId===cf && (gf ? s.groupId===gf : (!exGroups.length||exGroups.includes(s.groupId))));
+  const rows=students.map(s=>{
+    const g=DB.grades.find(x=>x.studentId===s.id&&x.examId===ef)||null;
+    return {s,g,ratio:g?g.score/g.outOf:null,pct:g?Math.round(g.score/g.outOf*100):null,
+      name:((s.fname||'')+' '+(s.lname||'')).trim(),exc:isStuFinExcluded(s.id)};
+  });
+  return {exam,cf,gf,rows};
+}
+function _gradeExportSheet(kind,d){
+  const byName=(a,b)=>a.name.localeCompare(b.name,'ar');
+  const took=d.rows.filter(r=>r.g), missed=d.rows.filter(r=>!r.g);
+  const scope=clsN(d.cf)+(d.gf?' — '+grpN(d.gf):'');
+  const base={sub:`${d.exam.title} — ${scope}`};
+  if(kind==='tops'){
+    const sorted=took.slice().sort((a,b)=>b.ratio-a.ratio||byName(a,b));
+    const cut=sorted.length>10?sorted[9].ratio:null;
+    const list=cut===null?sorted:sorted.filter(r=>r.ratio>=cut);
+    return {...base,sheet:'الأوائل',file:'الأوائل',title:'🏆 الأوائل',note:'أعلى 10 درجات مع احتساب المتعادلين في آخر مركز',
+      headers:['الترتيب','الطالب','الصف','المجموعة','الدرجة','من','النسبة %','التقدير'],
+      rows:list.map(r=>[1+sorted.filter(x=>x.ratio>r.ratio).length,r.name,clsN(r.s.classId),grpN(r.s.groupId),r.g.score,r.g.outOf,r.pct,grChar(r.pct)])};
+  }
+  if(kind==='took'){
+    return {...base,sheet:'أدّوا الامتحان',file:'أدّوا_الامتحان',title:'✅ الطلاب الذين أدّوا الامتحان',note:'',
+      headers:['م','الطالب','الصف','المجموعة','الدرجة','من','النسبة %','التقدير','التاريخ','ملاحظة'],
+      rows:took.slice().sort(byName).map((r,i)=>[i+1,r.name,clsN(r.s.classId),grpN(r.s.groupId),r.g.score,r.g.outOf,r.pct,grChar(r.pct),r.g.date||'',r.g.note||''])};
+  }
+  return {...base,sheet:'المتخلفون',file:'المتخلفون',title:'⏳ المتخلفون عن الامتحان',note:'',
+    headers:['م','الطالب','الصف','المجموعة','هاتف الطالب','هاتف ولي الأمر','ملاحظة'],
+    rows:missed.slice().sort(byName).map((r,i)=>[i+1,r.name,clsN(r.s.classId),grpN(r.s.groupId),r.s.phone||'',r.s.parentPhone||'',r.exc?'مستبعد (غياب متكرر)':''])};
+}
+function exportGradeList(kind,fmt){
+  const d=_gradeExportData();
+  if(!d){ toast('اختر الصف والامتحان أولاً','e'); return; }
+  const sh=_gradeExportSheet(kind,d);
+  if(!sh.rows.length){ toast('لا توجد بيانات في هذه القائمة','i'); return; }
+  const safeTitle=String(d.exam.title||'').replace(/[\\/:*?"<>|]/g,'').trim();
+  const fname=`${sh.file}_${safeTitle}_${localDate()}`;
+  if(fmt==='xlsx'){
+    if(typeof XLSX==='undefined'){ toast('مكتبة Excel لم تُحمَّل — تأكد من الاتصال بالإنترنت','e'); return; }
+    const aoa=[[sh.title.replace(/^\S+\s/,'')+' — '+sh.sub],[sh.note||''],[],sh.headers,...sh.rows];
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=sh.headers.map((h,i)=>({wch:Math.min(34,Math.max(String(h).length+2,...sh.rows.map(r=>String(r[i]??'').length+2)))}));
+    ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:sh.headers.length-1}},{s:{r:1,c:0},e:{r:1,c:sh.headers.length-1}}];
+    const wb=XLSX.utils.book_new(); wb.Workbook={Views:[{RTL:true}]};
+    XLSX.utils.book_append_sheet(wb,ws,sh.sheet);
+    XLSX.writeFile(wb,fname+'.xlsx');
+    toast('📊 تم تصدير ملف Excel');
+    return;
+  }
+  const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const html=`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${esc(fname)}</title><style>
+    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;margin:24px;color:#111;}
+    .org{font-size:12px;color:#666;margin-bottom:2px;} h1{font-size:19px;margin:0 0 4px;} .sub{font-size:12.5px;color:#444;margin-bottom:3px;} .note{font-size:11px;color:#777;margin-bottom:12px;}
+    table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;} th,td{border:1px solid #b9bfcc;padding:6px 8px;text-align:right;}
+    th{background:#e9edf6;} tbody tr:nth-child(even) td{background:#f8f9fc;}
+    .ft{margin-top:10px;font-size:11px;color:#666;}
+    @media print{body{margin:10mm;} thead{display:table-header-group;} tr{page-break-inside:avoid;}}
+  </style></head><body>
+    ${DB.settings&&DB.settings.name?`<div class="org">${esc(DB.settings.name)}</div>`:''}
+    <h1>${esc(sh.title)}</h1><div class="sub">${esc(sh.sub)}</div><div class="note">${esc(sh.note)}</div>
+    <table><thead><tr>${sh.headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${sh.rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <div class="ft">العدد: ${sh.rows.length} — تاريخ الطباعة: ${esc(localDate())}</div>
+    <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`;
+  const w=window.open('','_blank');
+  if(!w){ toast('اسمح بالنوافذ المنبثقة (Pop-ups) لتصدير PDF','e'); return; }
+  w.document.write(html); w.document.close();
+}
+function toggleGradeExportMenu(ev){
+  ev.stopPropagation();
+  const old=document.getElementById('gr-export-menu'); if(old){ old.remove(); return; }
+  const d=_gradeExportData(); if(!d){ toast('اختر الصف والامتحان أولاً','e'); return; }
+  const items=[['tops','🏆 الأوائل'],['took','✅ أدّى الامتحان'],['missed','⏳ المتخلفون']]
+    .map(([k,l])=>({k,l,n:_gradeExportSheet(k,d).rows.length}));
+  const r=ev.currentTarget.getBoundingClientRect();
+  const menu=document.createElement('div'); menu.id='gr-export-menu';
+  const left=Math.max(8,Math.min(r.left,window.innerWidth-268));
+  menu.style.cssText=`position:fixed;top:${r.bottom+6}px;left:${left}px;width:260px;z-index:9999;background:var(--bg2,#14161f);border:1px solid var(--border2,#33384d);border-radius:12px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.45);`;
+  const b='padding:4px 9px;border-radius:7px;border:1px solid var(--border,#33384d);background:transparent;color:var(--text,#fff);cursor:pointer;font-size:11px;font-family:inherit;';
+  menu.innerHTML=items.map(it=>`<div style="padding:8px 8px;border-bottom:1px solid var(--border,#2a2f42);${it.n?'':'opacity:.5;'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:12px;font-weight:700;"><span>${it.l}</span><span style="font-size:10.5px;color:var(--text2,#9aa);">${it.n} طالب</span></div>
+      <div style="display:flex;gap:6px;"><button style="${b}" onclick="exportGradeList('${it.k}','pdf')">📄 PDF</button><button style="${b}" onclick="exportGradeList('${it.k}','xlsx')">📊 Excel</button></div>
+    </div>`).join('');
+  menu.lastElementChild.style.borderBottom='none';
+  document.body.appendChild(menu);
+  setTimeout(()=>document.addEventListener('click',function _c(e){ if(!menu.contains(e.target)||e.target.tagName==='BUTTON'){ menu.remove(); document.removeEventListener('click',_c); } }),0);
+}
+
 function renderGrades(){
   let ef=document.getElementById('gr-ex-f')?.value||'';
   const cf=document.getElementById('gr-cls-f')?.value||'', gf=document.getElementById('gr-grp-f')?.value||'', sf=document.getElementById('gr-sort-f')?.value||'';
@@ -7974,6 +8127,7 @@ function renderGrades(){
           ${ungraded>0?`· ⏳ <b style="color:var(--amber)">${ungraded}</b> لم يُدخَّل بعد`:''}
           ${avg!==null?`· متوسط: <b style="color:${grCol(avg)}">${avg}%</b>`:''}
           · <span style="color:var(--accent);font-weight:700;">${sortLabel}</span>
+          <span style="display:inline-block;margin-right:10px;vertical-align:middle;"><button class="btn btn-secondary btn-sm" onclick="toggleGradeExportMenu(event)" style="font-size:11px;">📤 تصدير ▾</button></span>
         </div>
         <div>
           ${isElecExam
@@ -11706,6 +11860,24 @@ const _debouncedRenderStore = debounce(renderStore, 280);
  *  لو الطالب مالوش عملية بيع مسجّلة لهذا المنتج من قبل، بتتنشأ له عملية بكمية 1 بقيمة المنتج
  *  مباشرة على حسابه (تدخل ضمن سجل مبيعاته ومتبقاته زي أي عملية بيع عادية).
  *  ولو المعلم لغى العلامتين معاً (مش دافع ومش مستلم) يتم حذف العملية بدل ما تفضل سجل فاضي بلا فايدة. */
+/** يحدد "استلام" و"دفع" معاً لكل طالب في القائمة الحالية (حسب فلاتر الصف/المجموعة/الاسم) له عملية بيع مسجّلة للمنتج المختار */
+function quickCompleteTaken(){
+  const fProd=document.getElementById('sales-filter-product')?.value||'';
+  const fCls=document.getElementById('sales-filter-cls')?.value||'';
+  const fGrp=document.getElementById('sales-filter-grp')?.value||'';
+  const fStuQ=(document.getElementById('sales-filter-stu')?.value||'').trim().toLowerCase();
+  if(!fProd||!(fCls||fGrp)) return;
+  const p=DB.products.find(x=>x.id===fProd); if(!p) return;
+  const ids=new Set(DB.students.filter(s=>(!fCls||s.classId===fCls)&&(!fGrp||s.groupId===fGrp)&&(!fStuQ||(s.fname+' '+s.lname).toLowerCase().includes(fStuQ))).map(s=>s.id));
+  const todo=DB.sales.filter(x=>x.productId===fProd&&ids.has(x.studentId)&&(x.paid!==true||x.received!==true));
+  const taken=DB.sales.filter(x=>x.productId===fProd&&ids.has(x.studentId)).length;
+  if(!taken){ toast('⚠️ لا يوجد طلاب مسجّل عليهم هذا المنتج في القائمة الحالية'); return; }
+  if(!todo.length){ toast('✅ كل من أخذ المنتج مسجّل له الاستلام والدفع بالفعل'); return; }
+  if(!confirm(`سيتم تحديد "استلام" و"دفع" لعدد ${todo.length} طالب من ${taken} أخذوا "${p.name}". متابعة؟`)) return;
+  todo.forEach(x=>{ x.received=true; x.paid=true; x.paidAmount=x.total; });
+  save(); renderStore();
+  toast(`✅ تم استكمال الاستلام والدفع لـ ${todo.length} طالب`);
+}
 function toggleQuickSaleFlag(sid, pid, flag, checked){
   const p=DB.products.find(x=>x.id===pid); if(!p) return;
   let sale=DB.sales.find(x=>x.studentId===sid && x.productId===pid);
