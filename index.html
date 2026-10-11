@@ -781,6 +781,11 @@ async function _loadFromFirebase(){
         <option value="all">كل الامتحانات والدرجات</option>
       </select>
       <span id="honor-exams-note" style="font-size:11px;color:var(--text2);"></span>
+      <div style="display:flex;gap:6px;margin-right:auto;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" type="button" onclick="document.getElementById('honor-img-up').click()">🖼️ استيراد صورة</button>
+        <button class="btn btn-primary btn-sm" type="button" onclick="openHonorExport()">📤 تصدير على الصورة</button>
+        <input type="file" id="honor-img-up" accept="image/*" style="display:none" onchange="honorImgLoad(this)">
+      </div>
     </div>
     <div id="honor-academic-grid" class="g3" style="gap:.7rem;"></div>
   </div>
@@ -1228,7 +1233,7 @@ async function _loadFromFirebase(){
         </select>
       </div>
       <div id="sales-filter-stats" style="display:none;align-items:center;gap:8px;font-size:11.5px;font-weight:700;color:var(--text2);background:var(--glass);border:1px solid var(--border);border-radius:var(--rs);padding:5px 10px;"></div>
-      <button class="btn btn-primary btn-sm" onclick="openSalesPrintModal()">🖨️ طباعة</button>
+      <button class="btn btn-primary btn-sm" onclick="openSalesExportModal()">📤 تصدير</button>
     </div>
     <div id="store-quick-roster" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--glass);max-height:280px;overflow-y:auto;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
@@ -1739,6 +1744,65 @@ async function _loadFromFirebase(){
 </div><!-- /app -->
 
 <!-- Sales Print Modal -->
+<div class="modal-ov" id="honor-export-modal">
+  <div class="modal" style="max-width:700px;">
+    <div class="mtt">🏆 تصدير لوحة الشرف على صورة <button class="mc-btn" onclick="closeModal('honor-export-modal')">✕</button></div>
+    <div style="text-align:center;margin-bottom:.8rem;">
+      <div id="hx-stage" style="position:relative;margin:0 auto;background:#222;border-radius:8px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none;">
+        <img id="hx-img" alt="" draggable="false" style="display:block;width:100%;height:auto;pointer-events:none;">
+        <div id="hx-box" dir="rtl" style="position:absolute;transform:translate(-50%,-50%);cursor:move;white-space:nowrap;padding:4px 10px;border:1.5px dashed rgba(255,255,255,.8);border-radius:6px;background:rgba(0,0,0,.08);font-family:Cairo,sans-serif;"></div>
+      </div>
+      <div style="font-size:10.5px;color:var(--text2);margin-top:5px;">📌 اسحب القائمة أو اضغط على الصورة لتحديد مكانها</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.8rem;">
+      <div class="fg" style="margin:0;"><label class="fl">عدد الطلاب</label>
+        <select class="fs" id="hx-count" onchange="_hxChange()"><option>3</option><option>5</option><option>10</option><option>12</option><option>15</option><option>20</option></select></div>
+      <div class="fg" style="margin:0;"><label class="fl">المحاذاة</label>
+        <select class="fs" id="hx-align" onchange="_hxChange()"><option value="center">وسط</option><option value="right">يمين</option><option value="left">يسار</option></select></div>
+      <div class="fg" style="margin:0;"><label class="fl">حجم الخط</label>
+        <input type="range" id="hx-fs" min="1.5" max="8" step="0.1" value="3.2" oninput="_hxChange()" style="width:100%;"></div>
+      <div class="fg" style="margin:0;"><label class="fl">لون الخط</label>
+        <input type="color" class="fi" id="hx-color" value="#1a1a2e" oninput="_hxChange()" style="height:35px;padding:2px 4px;"></div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:1rem;font-size:12px;color:var(--text2);">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-bold" checked onchange="_hxChange()" style="accent-color:var(--accent);">غامق</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-shadow" onchange="_hxChange()" style="accent-color:var(--accent);">ظل</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-cls" checked onchange="_hxChange()" style="accent-color:var(--accent);">الصف</label>
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-pct" checked onchange="_hxChange()" style="accent-color:var(--accent);">النسبة</label>
+    </div>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;">
+      <button class="btn btn-primary" style="flex:1;min-width:130px;" onclick="honorExportImage('png')">🖼️ تصدير PNG</button>
+      <button class="btn btn-primary" style="flex:1;min-width:130px;" onclick="honorExportImage('pdf')">📄 تصدير PDF</button>
+    </div>
+    <div class="fa" style="margin-top:.8rem;">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('honor-img-up').click()">🔄 تغيير الصورة</button>
+      <button class="btn btn-danger btn-sm" onclick="honorImgDelete()">🗑️ حذف الصورة</button>
+      <button class="btn btn-secondary" onclick="closeModal('honor-export-modal')">إغلاق</button>
+    </div>
+  </div>
+</div>
+<div class="modal-ov" id="sales-export-modal">
+  <div class="modal" style="max-width:430px;">
+    <div class="mtt">📤 تصدير سجل المبيعات <button class="mc-btn" onclick="closeModal('sales-export-modal')">✕</button></div>
+    <div id="sales-export-summary" style="background:var(--glass);border:1px solid var(--border2);border-radius:var(--rs);padding:.85rem 1rem;margin-bottom:1rem;font-size:12px;line-height:1.9;"></div>
+    <div style="border:1px solid var(--border2);border-radius:var(--rs);padding:.8rem 1rem;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-bottom:.6rem;">
+        <div style="font-size:12px;font-weight:700;">📋 البيانات المراد تصديرها</div>
+        <div style="display:flex;gap:6px;">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="sxSetAllCols(true)">✅ تحديد الكل</button>
+          <button type="button" class="btn btn-danger btn-xs" onclick="sxSetAllCols(false)">✕ إلغاء الكل</button>
+        </div>
+      </div>
+      <div id="sx-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:.45rem .8rem;"></div>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:.6rem;">يتم التصدير حسب الفلاتر المختارة حالياً في سجل المبيعات، ومرتباً: الصف ← المجموعة ← اسم الطالب.</div>
+    <div style="display:flex;gap:.6rem;">
+      <button class="btn btn-primary" style="flex:1;" onclick="exportSalesLog('pdf')">📄 تصدير PDF</button>
+      <button class="btn btn-secondary" style="flex:1;" onclick="exportSalesLog('xlsx')">📊 تصدير Excel</button>
+    </div>
+    <div class="fa" style="margin-top:.8rem;"><button class="btn btn-secondary" onclick="closeModal('sales-export-modal')">إلغاء</button></div>
+  </div>
+</div>
 <div class="modal-ov" id="sales-print-modal">
   <div class="modal" style="max-width:560px;">
     <div class="mtt">🖨️ طباعة سجل المبيعات <button class="mc-btn" onclick="closeModal('sales-print-modal')">✕</button></div>
@@ -6282,10 +6346,10 @@ const BEH_POS=[
   '🙋 مبادرة وإبداع','💬 تعبير واضح','🧹 نظافة ومظهر لائق'
 ];
 const BEH_NEG=[
-  '🗣 كثير الكلام','📱 استخدام الهاتف','⏰ تأخير','📘 عدم حل الواجب',
+  '🗣 كثير الكلام','📱 استخدام الهاتف','⏰ تأخير','📘 عدم حل الواجب','📓 الواجب غير مكتمل',
   '😴 قلة التركيز','😤 مشاغب','✏️ نقص أدوات','💤 نوم في الحصة',
   '🍔 أكل في الحصة','🚪 خروج دون إذن','📋 الغش','❌ عدم دقة الواجب',
-  '🤷 مهمل','🤬 سوء الأدب','🤫 سخرية من الزملاء','😠 عدم احترام المعلم'
+  '🤷 مهمل','🤬 سوء الأدب','🤫 سخرية من الزملاء','😠 عدم احترام المعلم','🙅 عدم احترام الحصة'
 ];
 let selBeh=[];
 
@@ -6457,10 +6521,7 @@ function editBehEntry(id){
 let _honorRange=(function(){ try{ return localStorage.getItem('etp_honor_range')||'3'; }catch(e){ return '3'; } })();
 function setHonorRange(v){ _honorRange=v; try{ localStorage.setItem('etp_honor_range',v); }catch(e){} renderHonorAcademic(); }
 function _honorEsc(t){ return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function renderHonorAcademic(){
-  const grid=document.getElementById('honor-academic-grid'); if(!grid) return;
-  const sel=document.getElementById('honor-range'); if(sel) sel.value=_honorRange;
-  const note=document.getElementById('honor-exams-note');
+function _honorCompute(){
   const gradedIds=new Set((DB.grades||[]).filter(g=>g.examId).map(g=>g.examId));
   const graded=(DB.exams||[]).filter(e=>gradedIds.has(e.id));            // بترتيب الإضافة (الأقدم → الأحدث)
   const allMode=_honorRange==='all';
@@ -6476,7 +6537,15 @@ function renderHonorAcademic(){
     });
     ranked=DB.students.map(s=>{ const m=per[s.id]; if(!m) return null; const v=Object.values(m); return {s,avg:Math.round(v.reduce((a,b)=>a+b,0)/v.length),n:v.length}; }).filter(x=>x&&x.avg>0);
   }
-  ranked.sort((a,b)=>b.avg-a.avg||b.n-a.n).splice(12);
+  ranked.sort((a,b)=>b.avg-a.avg||b.n-a.n);
+  return {ranked,exams,graded,gradedIds,allMode};
+}
+function renderHonorAcademic(){
+  const grid=document.getElementById('honor-academic-grid'); if(!grid) return;
+  const sel=document.getElementById('honor-range'); if(sel) sel.value=_honorRange;
+  const note=document.getElementById('honor-exams-note');
+  const {ranked:all,exams,graded,gradedIds,allMode}=_honorCompute();
+  const ranked=all.slice(0,12);
   // امتحانات أُضيفت بعد آخر امتحان له درجات ولسه درجاتها ما اتسجلتش
   const lastIdx=graded.length?DB.exams.findIndex(e=>e.id===graded[graded.length-1].id):-1;
   const pending=(DB.exams||[]).slice(lastIdx+1).filter(e=>!gradedIds.has(e.id));
@@ -6500,6 +6569,136 @@ function _honorAutoRefresh(){
   if(!document.getElementById('page-honor')?.classList.contains('active')) return;
   if(document.getElementById('honor-academic')?.style.display==='none') return;
   clearTimeout(_honorRT); _honorRT=setTimeout(renderHonorAcademic,150);
+}
+// ═══ تصدير لوحة الشرف على صورة مستوردة من الجهاز (PNG / PDF) ═══
+let _hxImg=null;                       // الصورة المضغوطة (Data URL)
+try{ _hxImg=localStorage.getItem('etp_honor_img')||null; }catch(e){}
+const _HX_DEF={x:50,y:50,fs:3.2,color:'#1a1a2e',bold:true,shadow:false,align:'center',count:'5',cls:true,pct:true};
+let _hxSet=Object.assign({},_HX_DEF);
+try{ Object.assign(_hxSet,JSON.parse(localStorage.getItem('etp_honor_exp')||'{}')); }catch(e){}
+
+function honorImgLoad(input){
+  const file=input.files&&input.files[0]; input.value='';
+  if(!file) return;
+  if(!/^image\//.test(file.type)){ toast('اختر ملف صورة','e'); return; }
+  const fr=new FileReader();
+  fr.onload=ev=>{
+    const im=new Image();
+    im.onload=()=>{
+      // ضغط الصورة (أطول ضلع ≤ 2000px) لتخفيف الحجم وحفظها محلياً
+      const k=Math.min(1,2000/Math.max(im.naturalWidth,im.naturalHeight));
+      const cv=document.createElement('canvas'); cv.width=Math.round(im.naturalWidth*k); cv.height=Math.round(im.naturalHeight*k);
+      const c=cv.getContext('2d'); c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height); c.drawImage(im,0,0,cv.width,cv.height);
+      _hxImg=cv.toDataURL('image/jpeg',0.9);
+      let kept=true; try{ localStorage.setItem('etp_honor_img',_hxImg); }catch(e){ kept=false; }
+      toast(kept?'✅ تم استيراد الصورة':'✅ تم استيراد الصورة (لن تُحفظ بعد إغلاق الصفحة)');
+      openHonorExport();
+    };
+    im.onerror=()=>toast('تعذّر قراءة الصورة','e');
+    im.src=ev.target.result;
+  };
+  fr.readAsDataURL(file);
+}
+function honorImgDelete(){
+  if(!confirm('حذف الصورة المستوردة؟')) return;
+  _hxImg=null; try{ localStorage.removeItem('etp_honor_img'); }catch(e){}
+  closeModal('honor-export-modal'); toast('🗑️ تم حذف الصورة');
+}
+function _hxLines(st){
+  const list=_honorCompute().ranked.slice(0,+st.count||5);
+  return list.map((x,i)=>{
+    const m=['🥇','🥈','🥉'][i]||((i+1)+'.');
+    return m+' '+x.s.fname+' '+x.s.lname+(st.cls?' — '+clsN(x.s.classId):'')+(st.pct?' — '+x.avg+'%':'');
+  });
+}
+function openHonorExport(){
+  if(!_hxImg){ document.getElementById('honor-img-up').click(); return; }
+  if(!_honorCompute().ranked.length){ toast('لا توجد درجات لعرضها في لوحة الشرف','e'); return; }
+  const g=id=>document.getElementById(id);
+  g('hx-count').value=String(_hxSet.count); g('hx-align').value=_hxSet.align; g('hx-fs').value=_hxSet.fs; g('hx-color').value=_hxSet.color;
+  g('hx-bold').checked=!!_hxSet.bold; g('hx-shadow').checked=!!_hxSet.shadow; g('hx-cls').checked=!!_hxSet.cls; g('hx-pct').checked=!!_hxSet.pct;
+  const img=g('hx-img');
+  img.onload=()=>{ _hxLayout(); };
+  img.src=_hxImg;
+  openModal('honor-export-modal');
+  requestAnimationFrame(_hxLayout);
+}
+function _hxLayout(){
+  const stage=document.getElementById('hx-stage'), img=document.getElementById('hx-img'); if(!stage||!img||!img.naturalWidth) return;
+  const aspect=img.naturalWidth/img.naturalHeight;
+  const maxW=Math.min(640,(stage.parentElement.clientWidth||640));
+  stage.style.width=Math.max(160,Math.min(maxW,window.innerHeight*0.5*aspect))+'px';
+  _hxRenderBox();
+}
+function _hxRenderBox(){
+  const stage=document.getElementById('hx-stage'), box=document.getElementById('hx-box'); if(!stage||!box) return;
+  const st=_hxSet, w=stage.clientWidth||300;
+  box.style.left=st.x+'%'; box.style.top=st.y+'%';
+  box.style.fontSize=(st.fs/100*w)+'px'; box.style.lineHeight='1.7';
+  box.style.color=st.color; box.style.fontWeight=st.bold?'900':'400';
+  box.style.textAlign=st.align; box.style.textShadow=st.shadow?'0 2px 6px rgba(0,0,0,.8)':'none';
+  box.innerHTML=_hxLines(st).map(t=>`<div>${_honorEsc(t)}</div>`).join('');
+}
+function _hxChange(){
+  const g=id=>document.getElementById(id);
+  Object.assign(_hxSet,{count:g('hx-count').value,align:g('hx-align').value,fs:+g('hx-fs').value||3.2,color:g('hx-color').value,
+    bold:g('hx-bold').checked,shadow:g('hx-shadow').checked,cls:g('hx-cls').checked,pct:g('hx-pct').checked});
+  try{ localStorage.setItem('etp_honor_exp',JSON.stringify(_hxSet)); }catch(e){}
+  _hxRenderBox();
+}
+// سحب القائمة/الضغط على الصورة لتحديد المكان (يعمل بالماوس واللمس)
+(function(){
+  let drag=false, offX=0, offY=0;
+  const move=e=>{
+    const stage=document.getElementById('hx-stage'); if(!stage) return;
+    const r=stage.getBoundingClientRect();
+    _hxSet.x=+Math.min(98,Math.max(2,(e.clientX-offX-r.left)/r.width*100)).toFixed(2);
+    _hxSet.y=+Math.min(98,Math.max(2,(e.clientY-offY-r.top)/r.height*100)).toFixed(2);
+    _hxRenderBox();
+  };
+  document.addEventListener('pointerdown',e=>{
+    const stage=document.getElementById('hx-stage'); if(!stage||!stage.contains(e.target)) return;
+    const box=document.getElementById('hx-box'), r=stage.getBoundingClientRect();
+    drag=true; offX=0; offY=0;
+    if(box.contains(e.target)){ offX=e.clientX-(r.left+_hxSet.x/100*r.width); offY=e.clientY-(r.top+_hxSet.y/100*r.height); }
+    move(e); e.preventDefault();
+  });
+  document.addEventListener('pointermove',e=>{ if(drag) move(e); });
+  document.addEventListener('pointerup',()=>{ if(!drag) return; drag=false; try{ localStorage.setItem('etp_honor_exp',JSON.stringify(_hxSet)); }catch(e){} });
+})();
+async function _hxCompose(){
+  const st=_hxSet, lines=_hxLines(st);
+  const im=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=_hxImg; });
+  const W=im.naturalWidth, H=im.naturalHeight;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const c=cv.getContext('2d'); c.drawImage(im,0,0,W,H);
+  const fs=st.fs/100*W, lh=fs*1.7, wt=st.bold?900:400;
+  try{ await document.fonts.load(`${wt} ${fs}px Cairo`,'ابج'); }catch(e){}
+  c.font=`${wt} ${fs}px Cairo, sans-serif`; c.direction='rtl'; c.textBaseline='middle'; c.textAlign='left'; c.fillStyle=st.color;
+  if(st.shadow){ c.shadowColor='rgba(0,0,0,.8)'; c.shadowBlur=fs*.2; c.shadowOffsetY=fs*.06; }
+  const widths=lines.map(t=>c.measureText(t).width), bw=Math.max(...widths);
+  const cx=st.x/100*W, cy=st.y/100*H, top=cy-(lines.length*lh)/2+lh/2, left=cx-bw/2;
+  lines.forEach((t,i)=>{
+    const x=st.align==='center'?cx-widths[i]/2:(st.align==='right'?left+bw-widths[i]:left);
+    c.fillText(t,x,top+i*lh);
+  });
+  return cv;
+}
+async function honorExportImage(fmt){
+  if(!_hxImg) return;
+  let cv; try{ cv=await _hxCompose(); }catch(e){ toast('تعذّر تجهيز الصورة','e'); return; }
+  const name='لوحة_الشرف_'+localDate();
+  if(fmt==='png'){
+    cv.toBlob(b=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name+'.png'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast('🖼️ تم تصدير الصورة'); },'image/png');
+    return;
+  }
+  const w=window.open('','_blank');
+  if(!w){ toast('اسمح بالنوافذ المنبثقة (Pop-ups) لتصدير PDF','e'); return; }
+  const wmm=cv.width<=cv.height?210:Math.round(210*cv.width/cv.height), hmm=cv.width<=cv.height?Math.round(210*cv.height/cv.width):210;
+  w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>${name}</title>
+  <style>@page{size:${wmm}mm ${hmm}mm;margin:0}html,body{margin:0;padding:0}img{display:block;width:${wmm}mm;height:${hmm}mm}</style></head>
+  <body><img src="${cv.toDataURL('image/jpeg',0.92)}"><script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
+  w.document.close();
 }
 function renderHonor(){ switchHonor('academic',document.querySelector('#honor-tabs .active')); }
 function switchHonor(tab,btn){
@@ -11270,7 +11469,8 @@ function renderRevenue(){
   const tmRev=paid.filter(p=>p.month===tm).reduce((a,b)=>a+b.amount,0);
   const lmRev=paid.filter(p=>p.month===lmS).reduce((a,b)=>a+b.amount,0);
   const totalExp=DB.expenses.reduce((a,b)=>a+b.amount,0);
-  const storeRev=DB.sales.reduce((a,b)=>a+b.total,0);
+  const _salePaidAmt=(x)=> saleAmountPaid(x); // المدفوع فعلاً من عملية البيع
+  const storeRev=DB.sales.reduce((a,b)=>a+_salePaidAmt(b),0);
   const totalRev=paid.reduce((a,b)=>a+b.amount,0)+storeRev;
   // ── الدخل المتوقع: إجمالي رسوم كل الطلاب (غير المستبعدين) للشهر الحالي، مع اعتبار
   // حالات الدفع الخاصة (إعفاء/خصم إخوة/مبلغ مخصص) بدل الرسم القياسي — يعكس القيمة الفعلية المتوقع تحصيلها ──
@@ -11290,7 +11490,7 @@ function renderRevenue(){
   const filteredExp   = fromD||toD ? DB.expenses.filter(e=>_inRange(e.date))     : DB.expenses;
   const filteredSales = fromD||toD ? DB.sales.filter(s=>_inRange(s.date))        : DB.sales;
 
-  const rangeRev  = filteredPaid.reduce((a,b)=>a+b.amount,0) + filteredSales.reduce((a,b)=>a+b.total,0);
+  const rangeRev  = filteredPaid.reduce((a,b)=>a+b.amount,0) + filteredSales.reduce((a,b)=>a+_salePaidAmt(b),0);
   const rangeExp  = filteredExp.reduce((a,b)=>a+b.amount,0);
   const rangeNet  = rangeRev - rangeExp;
   // الإخوة تُحسب كشخص واحد في "عدد الطلاب" — مش كل أخ بعدّه لوحده
@@ -11303,7 +11503,7 @@ function renderRevenue(){
     <div class="mc mc-r"><div class="mi">📤</div><div class="mv">${fmtM(rangeExp)}</div><div class="ml">مصروفات الفترة</div></div>
     <div class="mc ${rangeNet>=0?'mc-g':'mc-r'}"><div class="mi">💵</div><div class="mv">${fmtM(rangeNet)}</div><div class="ml">صافي الفترة</div></div>
     <div class="mc mc-b"><div class="mi">📋</div><div class="mv">${filteredPaid.length}</div><div class="ml">عدد الدفعات</div></div>
-    <div class="mc mc-t"><div class="mi">🛒</div><div class="mv">${fmtM(filteredSales.reduce((a,b)=>a+b.total,0))}</div><div class="ml">إيراد المتجر</div></div>
+    <div class="mc mc-t"><div class="mi">🛒</div><div class="mv">${fmtM(filteredSales.reduce((a,b)=>a+_salePaidAmt(b),0))}</div><div class="ml">إيراد المتجر</div></div>
     <div class="mc mc-p"><div class="mi">👥</div><div class="mv">${rangePaidStudents.length}</div><div class="ml">عدد الطلاب</div></div>` : `
     <div class="mc mc-g"><div class="mi">📅</div><div class="mv">${fmtM(todRev)}</div><div class="ml">إيرادات اليوم</div></div>
     <div class="mc mc-b"><div class="mi">📆</div><div class="mv">${fmtM(tmRev)}</div><div class="ml">الشهر الحالي</div></div>
@@ -11315,13 +11515,21 @@ function renderRevenue(){
 
   // ── label الفترة ──
   const lbl=document.getElementById('rev-period-label');
-  if(lbl) lbl.textContent=hasFilter?`${fromD||'البداية'} → ${toD||'اليوم'} (${filteredPaid.length} دفعة)`:'';
+  if(lbl) lbl.textContent=hasFilter?`${fromD||'البداية'} → ${toD||'اليوم'} (${filteredPaid.length} دفعة${filteredSales.length?' + '+filteredSales.length+' عملية متجر':''})`:'';
 
   // ── سجل الإيرادات ──
   // ── سجل الإيرادات: ترتيب تنازلي دائماً حسب التاريخ (الأحدث أولاً) — وليس فقط بترتيب الإضافة ──
-  document.getElementById('rev-list').innerHTML=filteredPaid.slice().reverse()
+  const _revRows=[
+    ...filteredPaid.map(p=>({date:p.date||'',amount:p.amount,sid:p.studentId,sub:`${p.month} · ${p.date}`,sale:false})),
+    ...filteredSales.filter(x=>_salePaidAmt(x)>0).map(x=>{
+      const rem=(+x.total||0)-_salePaidAmt(x);
+      return {date:x.date||'',amount:_salePaidAmt(x),sid:x.studentId,name:x.studentId?stuN(x.studentId):(x.studentName||'عميل عام'),
+        sub:`🛒 ${x.productName||'منتج'}${(x.qty>1)?' × '+x.qty:''} · ${x.date}${rem>0?' · متبقي '+fmtM(rem):''}`,sale:true};
+    })
+  ];
+  document.getElementById('rev-list').innerHTML=_revRows.reverse()
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-    .map(p=>{ const s=stu(p.studentId); return `<div style="display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);gap:8px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${stuN(p.studentId)}</div><div style="font-size:10px;color:var(--text2);">${p.month} · ${p.date}</div></div><div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div></div>`; }).join('')||'<div class="empty"><div>لا توجد إيرادات في هذه الفترة</div></div>';
+    .map(r=>{ const s=r.sid?stu(r.sid):null; return `<div style="display:flex;align-items:center;padding:9px 11px;border-bottom:1px solid var(--border);gap:8px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${r.sale?'🛒':(s?s.fname[0]:'?')}</div><div style="flex:1;"><div style="font-weight:600;font-size:12.5px;">${r.sale?r.name:stuN(r.sid)}</div><div style="font-size:10px;color:var(--text2);">${r.sub}</div></div><div style="font-weight:700;color:var(--green);">${fmtM(r.amount)}</div></div>`; }).join('')||'<div class="empty"><div>لا توجد إيرادات في هذه الفترة</div></div>';
 
   // ── المصروفات ──
   // ── المصروفات: ترتيب تنازلي دائماً حسب التاريخ (الأحدث أولاً) ──
@@ -11863,17 +12071,13 @@ const _debouncedRenderStore = debounce(renderStore, 280);
 /** يحدد "استلام" و"دفع" معاً لكل طالب في القائمة الحالية (حسب فلاتر الصف/المجموعة/الاسم) له عملية بيع مسجّلة للمنتج المختار */
 function quickCompleteTaken(){
   const fProd=document.getElementById('sales-filter-product')?.value||'';
-  const fCls=document.getElementById('sales-filter-cls')?.value||'';
-  const fGrp=document.getElementById('sales-filter-grp')?.value||'';
-  const fStuQ=(document.getElementById('sales-filter-stu')?.value||'').trim().toLowerCase();
-  if(!fProd||!(fCls||fGrp)) return;
   const p=DB.products.find(x=>x.id===fProd); if(!p) return;
-  const ids=new Set(DB.students.filter(s=>(!fCls||s.classId===fCls)&&(!fGrp||s.groupId===fGrp)&&(!fStuQ||(s.fname+' '+s.lname).toLowerCase().includes(fStuQ))).map(s=>s.id));
-  const todo=DB.sales.filter(x=>x.productId===fProd&&ids.has(x.studentId)&&(x.paid!==true||x.received!==true));
-  const taken=DB.sales.filter(x=>x.productId===fProd&&ids.has(x.studentId)).length;
-  if(!taken){ toast('⚠️ لا يوجد طلاب مسجّل عليهم هذا المنتج في القائمة الحالية'); return; }
+  const ids=new Set(_quickRosterList().map(s=>s.id));
+  const mine=DB.sales.filter(x=>x.productId===fProd&&ids.has(x.studentId));
+  const todo=mine.filter(x=>x.paid!==true||x.received!==true);
+  if(!mine.length){ toast('⚠️ لا يوجد طلاب مسجّل عليهم هذا المنتج في القائمة الحالية'); return; }
   if(!todo.length){ toast('✅ كل من أخذ المنتج مسجّل له الاستلام والدفع بالفعل'); return; }
-  if(!confirm(`سيتم تحديد "استلام" و"دفع" لعدد ${todo.length} طالب من ${taken} أخذوا "${p.name}". متابعة؟`)) return;
+  if(!confirm(`سيتم تحديد "استلام" و"دفع" لعدد ${todo.length} طالب من ${mine.length} أخذوا "${p.name}". متابعة؟`)) return;
   todo.forEach(x=>{ x.received=true; x.paid=true; x.paidAmount=x.total; });
   save(); renderStore();
   toast(`✅ تم استكمال الاستلام والدفع لـ ${todo.length} طالب`);
@@ -12032,12 +12236,11 @@ function renderStore(){
   if(rosterEl){
     if(fProd && (fCls||fGrp)){
       const rp=DB.products.find(x=>x.id===fProd);
-      let rosterStudents=DB.students.filter(s=>(!fCls||s.classId===fCls)&&(!fGrp||s.groupId===fGrp));
-      if(fStuQ) rosterStudents=rosterStudents.filter(s=>(s.fname+' '+s.lname).toLowerCase().includes(fStuQ));
+      const rosterStudents=_quickRosterList();
       document.getElementById('store-quick-roster-title').textContent=`⚡ تسجيل سريع — ${rp?rp.icon+' '+rp.name:''} (${rosterStudents.length} طالب)`;
       document.getElementById('store-quick-roster-list').innerHTML=rosterStudents.map(s=>{
-        const rsale=DB.sales.find(x=>x.studentId===s.id && x.productId===fProd);
-        const rPaid=!!(rsale&&rsale.paid), rRecv=!!(rsale&&rsale.received);
+        const _qs=_quickRosterState(s.id,fProd);
+        const rPaid=_qs.paid, rRecv=_qs.recv;
         return `<div style="display:flex;align-items:center;gap:8px;padding:5px 4px;border-bottom:1px dashed var(--border);">
           <div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
           <span style="flex:1;font-size:12px;font-weight:600;">${s.fname} ${s.lname}</span>
@@ -12054,22 +12257,7 @@ function renderStore(){
       rosterEl.style.display='none';
     }
   }
-  const filteredSales=DB.sales.filter(s=>{
-    if(fProd && s.productId!==fProd) return false;
-    if(fCls || fGrp || fStuQ){
-      const st=s.studentId?stu(s.studentId):null;
-      if(!st) return false; // عميل عام بدون طالب مربوط — يُستبعد لو فيه فلترة بالصف/المجموعة/الاسم
-      if(fCls && st.classId!==fCls) return false;
-      if(fGrp && st.groupId!==fGrp) return false;
-      if(fStuQ && !((st.fname+' '+st.lname).toLowerCase().includes(fStuQ))) return false;
-    }
-    const paid=s.paid!==false, received=s.received!==false;
-    if(fPaid==='paid' && !paid) return false;
-    if(fPaid==='unpaid' && paid) return false;
-    if(fReceived==='received' && !received) return false;
-    if(fReceived==='unreceived' && received) return false;
-    return true;
-  });
+  const filteredSales=_filterSalesByPage();
   document.getElementById('sales-tbody').innerHTML=filteredSales.slice().reverse().map(s=>{
     const p=DB.products.find(x=>x.id===s.productId);
     const stuLabel=s.studentId?stuN(s.studentId):'عميل عام';
@@ -12089,17 +12277,42 @@ function renderStore(){
   const statsBoxEl=document.getElementById('sales-filter-stats');
   if(statsBoxEl){
     if(fProd || fCls || fGrp || fStuQ || fPaid || fReceived){
-      const totQty=filteredSales.reduce((a,b)=>a+b.qty,0);
-      const totRev=filteredSales.reduce((a,b)=>a+b.total,0);
-      const totRem=filteredSales.reduce((a,b)=>a+saleRemaining(b),0);
-      const unpaidCount=filteredSales.filter(s=>s.paid===false).length;
+      const sep='<span style="color:var(--border2);">|</span>';
       const prodLabel=fProd?(DB.products.find(p=>p.id===fProd)?.name||''):'';
+      const parts=[];
+      if(prodLabel) parts.push(`<span style="color:var(--text);">${_honorEsc(prodLabel)}</span>`);
+      if(fProd && (fCls||fGrp)){
+        // قائمة التسجيل السريع ظاهرة → الإحصائيات على نفس الطلاب الظاهرين بعد تطبيق كل الفلاتر (منتج/صف/مجموعة/اسم/دفع/استلام)
+        const rl=_quickRosterList().map(st=>_quickRosterState(st.id,fProd));
+        const nRecv=rl.filter(x=>x.recv).length, nPaid=rl.filter(x=>x.paid).length;
+        const recs=rl.filter(x=>x.rs).map(x=>x.rs);
+        const qty=recs.reduce((a,b)=>a+(+b.qty||0),0);
+        const paidAmt=recs.reduce((a,b)=>a+saleAmountPaid(b),0);
+        const rem=recs.reduce((a,b)=>a+saleRemaining(b),0);
+        parts.push(`<span>👥 ${rl.length} طالب</span>`);
+        parts.push(`<span style="color:var(--green);">✅ ${nRecv} مستلم</span><span style="color:var(--amber);">⏳ ${rl.length-nRecv} غير مستلم</span>`);
+        parts.push(`<span style="color:var(--accent);">💰 ${nPaid} مدفوع</span><span style="color:var(--amber);">⏳ ${rl.length-nPaid} غير مدفوع</span>`);
+        parts.push(`<span>📦 ${qty} وحدة</span>`);
+        parts.push(`<span style="color:var(--green);">💵 محصّل ${fmtM(paidAmt)}</span>`);
+        if(rem>0) parts.push(`<span style="color:var(--amber);">🔶 متبقي ${fmtM(rem)}</span>`);
+      } else {
+        const nRecv=filteredSales.filter(x=>x.received!==false).length;
+        const nPaid=filteredSales.filter(x=>saleRemaining(x)<=0).length;
+        const totQty=filteredSales.reduce((a,b)=>a+(+b.qty||0),0);
+        const totRev=filteredSales.reduce((a,b)=>a+(+b.total||0),0);
+        const paidAmt=filteredSales.reduce((a,b)=>a+saleAmountPaid(b),0);
+        const totRem=filteredSales.reduce((a,b)=>a+saleRemaining(b),0);
+        parts.push(`<span>🧾 ${filteredSales.length} عملية</span>`);
+        parts.push(`<span style="color:var(--green);">✅ ${nRecv} مستلم</span><span style="color:var(--amber);">⏳ ${filteredSales.length-nRecv} غير مستلم</span>`);
+        parts.push(`<span style="color:var(--accent);">💰 ${nPaid} مدفوع</span><span style="color:var(--amber);">⏳ ${filteredSales.length-nPaid} غير مدفوع</span>`);
+        parts.push(`<span>📦 ${totQty} وحدة</span>`);
+        parts.push(`<span style="color:var(--green);">💵 إجمالي ${fmtM(totRev)}</span>`);
+        parts.push(`<span style="color:var(--green);">محصّل ${fmtM(paidAmt)}</span>`);
+        if(totRem>0) parts.push(`<span style="color:var(--amber);">🔶 متبقي ${fmtM(totRem)}</span>`);
+      }
       statsBoxEl.style.display='flex';
-      statsBoxEl.innerHTML=`${prodLabel?`<span style="color:var(--text);">${prodLabel}</span><span style="color:var(--border2);">|</span>`:''}`
-        +`<span>📦 ${totQty} وحدة</span><span style="color:var(--border2);">|</span>`
-        +`<span style="color:var(--green);">💰 ${fmtM(totRev)}</span>`
-        +`${totRem>0?`<span style="color:var(--border2);">|</span><span style="color:var(--amber);">🔶 متبقي ${fmtM(totRem)}</span>`:''}`
-        +`${unpaidCount?`<span style="color:var(--border2);">|</span><span style="color:var(--amber);">⏳ ${unpaidCount} غير مدفوع</span>`:''}`;
+      statsBoxEl.style.flexWrap='wrap';
+      statsBoxEl.innerHTML=parts.join(sep);
     } else {
       statsBoxEl.style.display='none';
       statsBoxEl.innerHTML='';
@@ -13978,6 +14191,168 @@ function printExamReport(eid){
 let _spmSelectedProds=null; // null = all
 let _spmSelectedStus=null;  // null = all
 
+// ═══ تصدير سجل المبيعات (PDF / Excel) حسب فلاتر السجل الظاهرة في الصفحة ═══
+// ── قائمة التسجيل السريع: تتأثر بكل فلاتر السجل (المنتج + الصف + المجموعة + الاسم + حالة الدفع + حالة الاستلام) ──
+function _quickRosterState(sid,pid){
+  const rs=DB.sales.find(x=>x.studentId===sid && x.productId===pid);
+  return {rs, paid:!!rs && rs.paid!==false, recv:!!rs && rs.received!==false};
+}
+function _quickRosterList(){
+  const f=_salesPageFilters();
+  if(!f.prod || !(f.cls||f.grp)) return [];
+  let list=DB.students.filter(s=>(!f.cls||s.classId===f.cls)&&(!f.grp||s.groupId===f.grp));
+  if(f.stu) list=list.filter(s=>(s.fname+' '+s.lname).toLowerCase().includes(f.stu));
+  return list.filter(s=>{
+    const st=_quickRosterState(s.id,f.prod);
+    if(f.paid==='paid' && !st.paid) return false;
+    if(f.paid==='unpaid' && st.paid) return false;
+    if(f.recv==='received' && !st.recv) return false;
+    if(f.recv==='unreceived' && st.recv) return false;
+    return true;
+  });
+}
+function _salesPageFilters(){
+  const g=id=>document.getElementById(id)?.value||'';
+  return {prod:g('sales-filter-product'),cls:g('sales-filter-cls'),grp:g('sales-filter-grp'),
+          stu:g('sales-filter-stu').trim().toLowerCase(),paid:g('sales-filter-paid'),recv:g('sales-filter-received')};
+}
+function _filterSalesByPage(){
+  const f=_salesPageFilters();
+  return DB.sales.filter(s=>{
+    if(f.prod && s.productId!==f.prod) return false;
+    if(f.cls || f.grp || f.stu){
+      const st=s.studentId?stu(s.studentId):null;
+      if(!st) return false; // عميل عام بدون طالب مربوط — يُستبعد لو فيه فلترة بالصف/المجموعة/الاسم
+      if(f.cls && st.classId!==f.cls) return false;
+      if(f.grp && st.groupId!==f.grp) return false;
+      if(f.stu && !((st.fname+' '+st.lname).toLowerCase().includes(f.stu))) return false;
+    }
+    const paid=s.paid!==false, received=s.received!==false;
+    if(f.paid==='paid' && !paid) return false;
+    if(f.paid==='unpaid' && paid) return false;
+    if(f.recv==='received' && !received) return false;
+    if(f.recv==='unreceived' && received) return false;
+    return true;
+  });
+}
+// تعريف الأعمدة القابلة للاختيار (الترتيب هنا = ترتيب الأعمدة في الملف الناتج)
+const _SX_COLS=[
+  {k:'prod',h:'المنتج'},{k:'stu',h:'الطالب'},{k:'cls',h:'الصف'},{k:'grp',h:'المجموعة'},
+  {k:'qty',h:'الكمية',num:1},{k:'total',h:'الإجمالي',num:1,money:1},{k:'paid',h:'المدفوع',num:1,money:1},{k:'rem',h:'المتبقي',num:1,money:1},
+  {k:'pay',h:'حالة الدفع'},{k:'recv',h:'الاستلام'},{k:'date',h:'التاريخ'}
+];
+// ترتيب ظهور خانات الاختيار في المودال
+const _SX_MAIN=['stu','cls','grp','prod','recv','pay'];
+const _SX_EXTRA=['qty','total','paid','rem','date'];
+function _sxRenderCols(){
+  const box=document.getElementById('sx-cols'); if(!box) return;
+  const item=k=>{ const c=_SX_COLS.find(x=>x.k===k);
+    return `<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="sx-col-${k}" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">${c.h==='الطالب'?'اسم الطالب':c.h==='الدفع'?'حالة الدفع':c.h}</label>`; };
+  box.innerHTML=_SX_MAIN.map(item).join('')
+    +`<div style="grid-column:1/-1;border-top:1px dashed var(--border);margin:2px 0;font-size:10.5px;color:var(--text2);padding-top:5px;">بيانات إضافية</div>`
+    +_SX_EXTRA.map(item).join('');
+}
+function sxSetAllCols(v){ _SX_COLS.forEach(c=>{ const el=document.getElementById('sx-col-'+c.k); if(el) el.checked=v; }); }
+function _sxSelectedKeys(){
+  return _SX_COLS.filter(c=>document.getElementById('sx-col-'+c.k)?.checked).map(c=>c.k);
+}
+function _salesExportData(keys){
+  const f=_salesPageFilters();
+  const cols=_SX_COLS.filter(c=>!keys||keys.includes(c.k));
+  const roster=!!(f.prod && (f.cls||f.grp));   // لو قائمة التسجيل السريع ظاهرة → هي القائمة المُصدَّرة (بنفس ترتيبها وفلاترها)
+  let full;
+  if(roster){
+    const prodName=DB.products.find(y=>y.id===f.prod)?.name||'—';
+    full=_quickRosterList().map(s=>{
+      const st=_quickRosterState(s.id,f.prod), x=st.rs, has=!!x;
+      const total=has?(+x.total||0):'', rem=has?saleRemaining(x):'', paidAmt=has?saleAmountPaid(x):'';
+      return {prod:prodName, stu:s.fname+' '+s.lname, cls:clsN(s.classId), grp:grpN(s.groupId),
+              qty:has?(+x.qty||1):'', total, paid:paidAmt, rem,
+              pay:st.paid?'مدفوع':((has&&paidAmt>0)?'مدفوع جزئياً':'غير مدفوع'), recv:st.recv?'مستلم':'غير مستلم', date:has?(x.date||''):'',_c:s.classId,_g:s.groupId};
+    });
+  } else {
+    full=_filterSalesByPage().slice().reverse().map(x=>{      // نفس ترتيب الجدول (الأحدث أولاً)
+      const p=DB.products.find(y=>y.id===x.productId), st=x.studentId?stu(x.studentId):null;
+      const total=+x.total||0, rem=saleRemaining(x), paidAmt=saleAmountPaid(x);
+      return {prod:p?.name||x.productName||'—', stu:st?(st.fname+' '+st.lname):(x.studentName||'عميل عام'), cls:st?clsN(st.classId):'—', grp:st?grpN(st.groupId):'—',
+              qty:+x.qty||1, total, paid:paidAmt, rem, pay:rem<=0?'مدفوع':(paidAmt>0?'مدفوع جزئياً':'غير مدفوع'), recv:x.received!==false?'مستلم':'غير مستلم', date:x.date||'', _c:st?.classId, _g:st?.groupId};
+    });
+  }
+  // ── ترتيب الملف: الصف ← المجموعة (بترتيبها في البرنامج) ← اسم الطالب ──
+  const _ci=id=>{ const i=DB.classes.findIndex(c=>c.id===id); return i<0?9999:i; };
+  const _gi=id=>{ const i=DB.groups.findIndex(g=>g.id===id); return i<0?9999:i; };
+  full.sort((a,b)=>_ci(a._c)-_ci(b._c)||_gi(a._g)-_gi(b._g)||String(a.stu).localeCompare(String(b.stu),'ar',{numeric:true})||String(b.date||'').localeCompare(String(a.date||'')));
+  const _n=v=>(+v||0);
+  const tot={qty:full.reduce((a,r)=>a+_n(r.qty),0), total:full.reduce((a,r)=>a+_n(r.total),0), paid:full.reduce((a,r)=>a+_n(r.paid),0), rem:full.reduce((a,r)=>a+_n(r.rem),0)};
+  const nRecv=full.filter(r=>r.recv==='مستلم').length, nPaid=full.filter(r=>r.pay==='مدفوع').length;
+  const info=[];
+  if(f.prod) info.push('المنتج: '+(DB.products.find(y=>y.id===f.prod)?.name||''));
+  if(f.cls) info.push('الصف: '+(DB.classes.find(c=>c.id===f.cls)?.name||''));
+  if(f.grp) info.push('المجموعة: '+(DB.groups.find(g=>g.id===f.grp)?.name||''));
+  if(f.stu) info.push('الاسم: '+f.stu);
+  if(f.paid) info.push(f.paid==='paid'?'💰 مدفوع':'⏳ غير مدفوع');
+  if(f.recv) info.push(f.recv==='received'?'✅ مستلم':'⏳ غير مستلم');
+  return {cols,headers:cols.map(c=>c.h),rows:full.map(r=>cols.map(c=>r[c.k])),count:full.length,tot,info,roster,nRecv,nPaid};
+}
+function openSalesExportModal(){
+  _sxRenderCols();
+  const d=_salesExportData();
+  document.getElementById('sales-export-summary').innerHTML=
+    `<div><b>الفلاتر:</b> ${d.info.length?d.info.map(_honorEsc).join(' · '):'بدون فلاتر (كل السجل)'}</div>`+
+    (d.roster
+      ? `<div><b>القائمة الظاهرة:</b> كشف الطلاب (${d.count} طالب) &nbsp;|&nbsp; <b>مستلم:</b> ${d.nRecv} &nbsp;|&nbsp; <b>مدفوع:</b> ${d.nPaid}</div>`
+      : `<div><b>عدد العمليات:</b> ${d.count} &nbsp;|&nbsp; <b>الوحدات:</b> ${d.tot.qty}</div>`)+
+    `<div><b>الإجمالي:</b> ${fmtM(d.tot.total)} &nbsp;|&nbsp; <b>المدفوع:</b> ${fmtM(d.tot.paid)} &nbsp;|&nbsp; <b>المتبقي:</b> ${fmtM(d.tot.rem)}</div>`;
+  openModal('sales-export-modal');
+}
+function exportSalesLog(fmt){
+  const keys=_sxSelectedKeys();
+  if(!keys.length){ toast('اختر عموداً واحداً على الأقل للتصدير','e'); return; }
+  const d=_salesExportData(keys);
+  if(!d.count){ toast('لا توجد بيانات مطابقة للفلتر الحالي','e'); return; }
+  const ttl=d.roster?'كشف الاستلام والدفع':'سجل المبيعات';
+  const prodName=(_salesPageFilters().prod && DB.products.find(y=>y.id===_salesPageFilters().prod)?.name)||'كل المنتجات';
+  const fname=(ttl+'_'+prodName+'_'+localDate()).replace(/[\\/:*?"<>|\s]+/g,'_');
+  const totKeys=['qty','total','paid','rem'];
+  const labelIdx=d.cols.findIndex(c=>!totKeys.includes(c.k));        // العمود الذي يحمل كلمة "الإجمالي"
+  const totRow=d.cols.map((c,i)=> totKeys.includes(c.k)?d.tot[c.k]:(i===labelIdx?'الإجمالي':''));
+  if(fmt==='xlsx'){
+    if(typeof XLSX==='undefined'){ toast('مكتبة Excel لم تُحمَّل — تأكد من الاتصال بالإنترنت','e'); return; }
+    const aoa=[[ttl+(d.info.length?' — '+d.info.join(' · '):'')],[],d.headers,...d.rows,[],totRow];
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=d.headers.map((h,i)=>({wch:Math.min(34,Math.max(String(h).length+2,...d.rows.map(r=>String(r[i]??'').length+2)))}));
+    if(d.headers.length>1) ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:d.headers.length-1}}];
+    const wb=XLSX.utils.book_new(); wb.Workbook={Views:[{RTL:true}]};
+    XLSX.utils.book_append_sheet(wb,ws,ttl);
+    XLSX.writeFile(wb,fname+'.xlsx');
+    closeModal('sales-export-modal'); toast('📊 تم تصدير ملف Excel'); return;
+  }
+  // PDF: نافذة طباعة منسقة (اختر "حفظ كـ PDF" من نافذة الطباعة) — نفس أسلوب باقي تصديرات PDF في البرنامج
+  const w=window.open('','_blank');
+  if(!w){ toast('اسمح بالنوافذ المنبثقة (Pop-ups) لتصدير PDF','e'); return; }
+  const logo=DB.settings.logo?`<img src="${DB.settings.logo}" style="height:40px;object-fit:contain;border-radius:7px;">`:_honorEsc(DB.settings.name||'');
+  const tr=d.rows.map(r=>`<tr>${r.map((c,i)=>{ const col=d.cols[i]; return `<td${col.k==='qty'?' style="text-align:center"':''}>${_honorEsc(c)}${(col.money&&c!=='')?' ج':''}</td>`; }).join('')}</tr>`).join('');
+  const sumParts=d.roster?[`عدد الطلاب: ${d.count}`,`مستلم: ${d.nRecv}`,`مدفوع: ${d.nPaid}`]:[`عدد العمليات: ${d.count}`];
+  if(keys.includes('qty')) sumParts.push(`الوحدات: ${d.tot.qty}`);
+  if(keys.includes('total')) sumParts.push(`الإجمالي: ${d.tot.total} ج`);
+  if(keys.includes('paid')) sumParts.push(`المدفوع: ${d.tot.paid} ج`);
+  if(keys.includes('rem')) sumParts.push(`المتبقي: ${d.tot.rem} ج`);
+  w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>${_honorEsc(fname)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Cairo,sans-serif;background:#fff;color:#111;padding:18px 22px;}
+  .header{background:linear-gradient(135deg,#1a1f45,#2d1f6e);color:#fff;border-radius:12px;padding:14px 18px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;}
+  .title{font-size:18px;font-weight:900;}.sub{font-size:11px;opacity:.8;margin-top:3px;}
+  table{width:100%;border-collapse:collapse;font-size:11px;}th{background:#eef0fb;padding:7px 6px;text-align:right;border:1px solid #d5d8ee;}td{padding:6px;border:1px solid #e3e5f2;}tr:nth-child(even) td{background:#fafbff;}
+  .total{margin-top:12px;font-weight:800;font-size:13px;display:flex;gap:22px;flex-wrap:wrap;}.footer{margin-top:14px;font-size:10px;color:#888;text-align:center;}
+  @media print{thead{display:table-header-group;}tr{page-break-inside:avoid;}}</style></head><body>
+  <div class="header"><div><div class="title">🛒 ${ttl}</div><div class="sub">${_honorEsc(d.info.join(' · ')||'كل السجل')} · ${_honorEsc(DB.settings.name||'')}</div></div><div>${logo}</div></div>
+  <table><thead><tr>${d.headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${tr}</tbody></table>
+  <div class="total">${sumParts.map(t=>`<span>${t}</span>`).join('')}</div>
+  <div class="footer">تاريخ التصدير: ${new Date().toLocaleDateString('ar-EG')}</div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script></body></html>`);
+  w.document.close();
+  closeModal('sales-export-modal');
+}
 function openSalesPrintModal(){
   // reset
   _spmSelectedProds=null;
