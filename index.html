@@ -738,7 +738,7 @@ async function _loadFromFirebase(){
         <div class="fg" style="position:relative;">
           <label class="fl">الطالب</label>
           <input class="fi" id="beh-st-search" placeholder="🔍 ابحث بالاسم أو الكود..." autocomplete="off"
-                 oninput="behStSearchInput()" onfocus="behStSearchInput()" onblur="setTimeout(()=>{_behStAutoResolve();document.getElementById('beh-st-dd').style.display='none';},150)">
+                 oninput="behStSearchInput()" onkeydown="behStKey(event)" onfocus="behStSearchInput()" onblur="setTimeout(()=>{_behStAutoResolve();document.getElementById('beh-st-dd').style.display='none';},150)">
           <input type="hidden" id="beh-st">
           <div id="beh-st-dd" style="display:none;position:absolute;top:100%;right:0;left:0;z-index:50;max-height:260px;overflow-y:auto;background:var(--bg3,#181c2e);border:1px solid var(--border,#333);border-radius:10px;margin-top:4px;box-shadow:0 8px 24px rgba(0,0,0,.55);"></div>
         </div>
@@ -773,13 +773,12 @@ async function _loadFromFirebase(){
   </div>
   <div id="honor-academic">
     <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-bottom:.8rem;">
-      <span style="font-size:12px;color:var(--text2);">الترتيب بناءً على:</span>
-      <select class="fs" id="honor-range" onchange="setHonorRange(this.value)" style="width:170px">
-        <option value="1">آخر امتحان</option>
-        <option value="3">آخر 3 امتحانات</option>
-        <option value="5">آخر 5 امتحانات</option>
-        <option value="all">كل الامتحانات والدرجات</option>
-      </select>
+      <span style="font-size:12px;color:var(--text2);">الصف:</span>
+      <select class="fs" id="honor-f-cls" onchange="setHonorFilter('cls',this.value)" style="width:150px"></select>
+      <span style="font-size:12px;color:var(--text2);">المجموعة:</span>
+      <select class="fs" id="honor-f-grp" onchange="setHonorFilter('grp',this.value)" style="width:150px"></select>
+      <span style="font-size:12px;color:var(--text2);">الامتحان:</span>
+      <select class="fs" id="honor-range" onchange="setHonorRange(this.value)" style="width:200px"></select>
       <span id="honor-exams-note" style="font-size:11px;color:var(--text2);"></span>
       <div style="display:flex;gap:6px;margin-right:auto;flex-wrap:wrap;">
         <button class="btn btn-secondary btn-sm" type="button" onclick="document.getElementById('honor-img-up').click()">🖼️ استيراد صورة</button>
@@ -1750,21 +1749,70 @@ async function _loadFromFirebase(){
     <div style="text-align:center;margin-bottom:.8rem;">
       <div id="hx-stage" style="position:relative;margin:0 auto;background:#222;border-radius:8px;overflow:hidden;touch-action:none;cursor:crosshair;user-select:none;">
         <img id="hx-img" alt="" draggable="false" style="display:block;width:100%;height:auto;pointer-events:none;">
-        <div id="hx-box" dir="rtl" style="position:absolute;transform:translate(-50%,-50%);cursor:move;white-space:nowrap;padding:4px 10px;border:1.5px dashed rgba(255,255,255,.8);border-radius:6px;background:rgba(0,0,0,.08);font-family:Cairo,sans-serif;"></div>
+        <div id="hx-items" style="position:absolute;inset:0;"></div>
       </div>
-      <div style="font-size:10.5px;color:var(--text2);margin-top:5px;">📌 اسحب القائمة أو اضغط على الصورة لتحديد مكانها</div>
+      <div style="font-size:10.5px;color:var(--text2);margin-top:5px;">📌 كل اسم صندوق نص مستقل: اضغط عليه لتحديده، اسحبه لتحريكه، واسحب المقابض على أطرافه لتغيير أبعاده</div>
     </div>
+
+    <div id="hx-sel" style="display:none;border:1px solid var(--accent);border-radius:var(--rs);padding:.7rem .9rem;margin-bottom:.8rem;background:rgba(79,124,255,.06);">
+      <div style="font-size:12px;font-weight:700;margin-bottom:.5rem;">✏️ صندوق النص: <span id="hx-sel-name" style="color:var(--accent);"></span></div>
+
+      <div style="font-size:11px;color:var(--text2);margin-bottom:.35rem;">📐 أبعاد الصندوق</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.6rem;align-items:end;margin-bottom:.5rem;">
+        <div class="fg" style="margin:0;"><label class="fl">العرض <span id="hx-iw-v" style="font-weight:400;color:var(--text2);"></span></label>
+          <input type="range" id="hx-iw" min="3" max="100" step="0.5" oninput="_hxSizeChange()" style="width:100%;"></div>
+        <div class="fg" style="margin:0;"><label class="fl">الارتفاع <span id="hx-ih-v" style="font-weight:400;color:var(--text2);"></span></label>
+          <input type="range" id="hx-ih" min="3" max="100" step="0.5" oninput="_hxSizeChange()" style="width:100%;"></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.7rem;">
+        <button type="button" class="btn btn-secondary btn-xs" onclick="_hxShape('square')">▢ مربع</button>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="_hxShape('wide')">▭ مستطيل أفقي</button>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="_hxShape('tall')">▯ مستطيل رأسي</button>
+        <button type="button" class="btn btn-secondary btn-xs" onclick="_hxShape('auto')">⟲ حجم تلقائي</button>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:var(--text2);margin-right:6px;"><input type="checkbox" id="hx-lock" onchange="_hxItemChange()" style="accent-color:var(--accent);">🔒 تثبيت النسبة عند سحب الأركان</label>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;align-items:end;">
+        <div class="fg" style="margin:0;"><label class="fl">حجم الخط <span id="hx-ifs-note" style="font-weight:400;color:var(--text2);"></span></label>
+          <input type="range" id="hx-ifs" min="1.5" max="8" step="0.1" oninput="_hxItemChange()" style="width:100%;"></div>
+        <div class="fg" style="margin:0;"><label class="fl">اللون</label>
+          <input type="color" class="fi" id="hx-icolor" oninput="_hxItemChange()" style="height:35px;padding:2px 4px;"></div>
+        <div class="fg" style="margin:0;"><label class="fl">الدوران <span id="hx-irot-v" style="color:var(--text2);font-weight:400;"></span></label>
+          <input type="range" id="hx-irot" min="-45" max="45" step="1" oninput="_hxItemChange()" style="width:100%;"></div>
+        <div class="fg" style="margin:0;"><label class="fl">محاذاة النص داخل الصندوق</label>
+          <select class="fs" id="hx-ita" onchange="_hxItemChange()"><option value="center">وسط</option><option value="right">يمين</option><option value="left">يسار</option></select></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:.6rem;font-size:12px;color:var(--text2);align-items:center;">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-ifit" onchange="_hxItemChange()" style="accent-color:var(--accent);">ملاءمة الخط تلقائياً مع الصندوق</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-ibold" onchange="_hxItemChange()" style="accent-color:var(--accent);">غامق</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-ishadow" onchange="_hxItemChange()" style="accent-color:var(--accent);">ظل</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-ihide" onchange="_hxItemChange()" style="accent-color:var(--accent);">إخفاء</label>
+        <span style="margin-right:auto;display:flex;gap:6px;">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="_hxItemReset()">↩️ للافتراضي</button>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="_hxSelect(null)">إلغاء التحديد</button>
+        </span>
+      </div>
+    </div>
+
+    <div style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:.4rem;">⚙️ الإعدادات العامة (تنطبق على الأسماء غير المخصّصة)</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;margin-bottom:.8rem;">
       <div class="fg" style="margin:0;"><label class="fl">عدد الطلاب</label>
-        <select class="fs" id="hx-count" onchange="_hxChange()"><option>3</option><option>5</option><option>10</option><option>12</option><option>15</option><option>20</option></select></div>
-      <div class="fg" style="margin:0;"><label class="fl">المحاذاة</label>
+        <div style="display:flex;align-items:stretch;gap:4px;">
+          <button type="button" class="btn btn-secondary" onclick="_hxCount(-1)" style="padding:0 12px;font-size:16px;font-weight:700;">−</button>
+          <input type="number" class="fi" id="hx-count" min="1" step="1" value="5" oninput="_hxChange()" onchange="_hxCountFix()" style="text-align:center;min-width:0;">
+          <button type="button" class="btn btn-secondary" onclick="_hxCount(1)" style="padding:0 12px;font-size:16px;font-weight:700;">+</button>
+        </div></div>
+      <div class="fg" style="margin:0;"><label class="fl">المحاذاة (الترتيب التلقائي)</label>
         <select class="fs" id="hx-align" onchange="_hxChange()"><option value="center">وسط</option><option value="right">يمين</option><option value="left">يسار</option></select></div>
-      <div class="fg" style="margin:0;"><label class="fl">حجم الخط</label>
+      <div class="fg" style="margin:0;"><label class="fl">حجم الخط الافتراضي</label>
         <input type="range" id="hx-fs" min="1.5" max="8" step="0.1" value="3.2" oninput="_hxChange()" style="width:100%;"></div>
-      <div class="fg" style="margin:0;"><label class="fl">لون الخط</label>
+      <div class="fg" style="margin:0;"><label class="fl">اللون الافتراضي</label>
         <input type="color" class="fi" id="hx-color" value="#1a1a2e" oninput="_hxChange()" style="height:35px;padding:2px 4px;"></div>
+      <div class="fg" style="margin:0;"><label class="fl">ربط التخصيص بـ</label>
+        <select class="fs" id="hx-keyby" onchange="_hxChange()"><option value="student">الطالب نفسه</option><option value="rank">المركز (الأول، الثاني…)</option></select></div>
     </div>
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:1rem;font-size:12px;color:var(--text2);">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-together" onchange="_hxChange()" style="accent-color:var(--accent);">🔗 تحريك كل الأسماء معاً</label>
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-bold" checked onchange="_hxChange()" style="accent-color:var(--accent);">غامق</label>
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-shadow" onchange="_hxChange()" style="accent-color:var(--accent);">ظل</label>
       <label style="display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="hx-cls" checked onchange="_hxChange()" style="accent-color:var(--accent);">الصف</label>
@@ -1774,7 +1822,8 @@ async function _loadFromFirebase(){
       <button class="btn btn-primary" style="flex:1;min-width:130px;" onclick="honorExportImage('png')">🖼️ تصدير PNG</button>
       <button class="btn btn-primary" style="flex:1;min-width:130px;" onclick="honorExportImage('pdf')">📄 تصدير PDF</button>
     </div>
-    <div class="fa" style="margin-top:.8rem;">
+    <div class="fa" style="margin-top:.8rem;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="_hxResetAll()">↩️ إعادة ضبط كل الأسماء</button>
       <button class="btn btn-secondary btn-sm" onclick="document.getElementById('honor-img-up').click()">🔄 تغيير الصورة</button>
       <button class="btn btn-danger btn-sm" onclick="honorImgDelete()">🗑️ حذف الصورة</button>
       <button class="btn btn-secondary" onclick="closeModal('honor-export-modal')">إغلاق</button>
@@ -6377,13 +6426,31 @@ function filterBehStudents(){
   const sInp=document.getElementById('beh-st-search'); if(sInp) sInp.value='';
   const dd=document.getElementById('beh-st-dd'); if(dd) dd.style.display='none';
 }
-function behStSearchInput(){
-  const q=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
-  const list=_behStFiltered.filter(s=>{
+function _behStMatches(q){
+  return _behStFiltered.filter(s=>{
     const nm=(s.fname+' '+s.lname).toLowerCase();
     const code=(s.barcode||s.id||'').toLowerCase();
     return !q || nm.includes(q) || code.includes(q);
-  }).slice(0,60);
+  });
+}
+// Enter في خانة البحث: لو ظهر طالب واحد فقط (أو فيه تطابق تام واحد) يتم اختياره مباشرة
+function behStKey(e){
+  if(e.key!=='Enter' || e.isComposing) return;
+  const q=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
+  if(!q) return;
+  const list=_behStMatches(q);
+  let pick=null;
+  if(list.length===1) pick=list[0];
+  else {
+    const exact=list.filter(s=>(s.fname+' '+s.lname).trim().toLowerCase()===q||(s.barcode||s.id||'').toLowerCase()===q);
+    if(exact.length===1) pick=exact[0];
+  }
+  e.preventDefault();
+  if(pick) behStSelect(pick.id);
+}
+function behStSearchInput(){
+  const q=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
+  const list=_behStMatches(q).slice(0,60);
   const dd=document.getElementById('beh-st-dd');
   dd.innerHTML=list.length?list.map(s=>`<div style="padding:8px 12px;cursor:pointer;font-size:12.5px;border-bottom:1px solid rgba(255,255,255,.05);display:flex;justify-content:space-between;gap:8px;" onmouseover="this.style.background='rgba(255,255,255,.05)'" onmouseout="this.style.background=''" onmousedown="behStSelect('${s.id}')">
       <span style="font-weight:700;">${s.fname} ${s.lname}</span>
@@ -6521,34 +6588,65 @@ function editBehEntry(id){
 let _honorRange=(function(){ try{ return localStorage.getItem('etp_honor_range')||'3'; }catch(e){ return '3'; } })();
 function setHonorRange(v){ _honorRange=v; try{ localStorage.setItem('etp_honor_range',v); }catch(e){} renderHonorAcademic(); }
 function _honorEsc(t){ return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// فلاتر لوحة الشرف: الصف + المجموعة + الامتحان (محفوظة على المتصفح)
+let _honorFlt=(function(){ try{ return Object.assign({cls:'',grp:''},JSON.parse(localStorage.getItem('etp_honor_flt')||'{}')); }catch(e){ return {cls:'',grp:''}; } })();
+function setHonorFilter(kind,v){
+  if(kind==='cls'){ _honorFlt.cls=v; _honorFlt.grp=''; } else _honorFlt.grp=v;
+  try{ localStorage.setItem('etp_honor_flt',JSON.stringify(_honorFlt)); }catch(e){}
+  renderHonorAcademic();
+}
+function _honorStudents(){
+  return DB.students.filter(s=>(!_honorFlt.cls||s.classId===_honorFlt.cls)&&(!_honorFlt.grp||s.groupId===_honorFlt.grp));
+}
 function _honorCompute(){
-  const gradedIds=new Set((DB.grades||[]).filter(g=>g.examId).map(g=>g.examId));
-  const graded=(DB.exams||[]).filter(e=>gradedIds.has(e.id));            // بترتيب الإضافة (الأقدم → الأحدث)
-  const allMode=_honorRange==='all';
-  const exams=allMode?graded:graded.slice(-(parseInt(_honorRange,10)||3));
+  const studs=_honorStudents(), sids=new Set(studs.map(s=>s.id));
+  const gradedIds=new Set((DB.grades||[]).filter(g=>g.examId&&sids.has(g.studentId)).map(g=>g.examId));
+  const graded=(DB.exams||[]).filter(e=>gradedIds.has(e.id));            // امتحانات لها درجات لطلاب الفلتر (بترتيب الإضافة)
+  let range=String(_honorRange);
+  if(range.startsWith('e:') && !graded.some(e=>e.id===range.slice(2))) range='3';
+  const allMode=range==='all';
+  const exams=allMode?graded:(range.startsWith('e:')?graded.filter(e=>e.id===range.slice(2)):graded.slice(-(parseInt(range,10)||3)));
   let ranked;
   if(allMode){
-    ranked=DB.students.map(s=>({s,avg:stuAvg(s.id)||0,n:(DB.grades||[]).filter(g=>g.studentId===s.id).length})).filter(x=>x.avg>0);
+    ranked=studs.map(s=>({s,avg:stuAvg(s.id)||0,n:(DB.grades||[]).filter(g=>g.studentId===s.id).length})).filter(x=>x.avg>0);
   } else {
     const ids=new Set(exams.map(e=>e.id)), per={};
     (DB.grades||[]).forEach(g=>{                                          // آخر درجة للطالب في كل امتحان
-      if(!g.examId||!ids.has(g.examId)||!(g.outOf>0)) return;
+      if(!g.examId||!ids.has(g.examId)||!sids.has(g.studentId)||!(g.outOf>0)) return;
       (per[g.studentId]=per[g.studentId]||{})[g.examId]=Math.round(g.score/g.outOf*100);
     });
-    ranked=DB.students.map(s=>{ const m=per[s.id]; if(!m) return null; const v=Object.values(m); return {s,avg:Math.round(v.reduce((a,b)=>a+b,0)/v.length),n:v.length}; }).filter(x=>x&&x.avg>0);
+    ranked=studs.map(s=>{ const m=per[s.id]; if(!m) return null; const v=Object.values(m); return {s,avg:Math.round(v.reduce((a,b)=>a+b,0)/v.length),n:v.length}; }).filter(x=>x&&x.avg>0);
   }
   ranked.sort((a,b)=>b.avg-a.avg||b.n-a.n);
-  return {ranked,exams,graded,gradedIds,allMode};
+  return {ranked,exams,graded,gradedIds,allMode,studs};
+}
+// تعبئة القوائم الثلاث (الصف/المجموعة/الامتحان) حسب الفلاتر الحالية
+function _honorFillFilters(){
+  const cs=document.getElementById('honor-f-cls'), gs=document.getElementById('honor-f-grp'), rs=document.getElementById('honor-range');
+  if(!cs||!gs||!rs) return;
+  if(_honorFlt.cls && !DB.classes.some(c=>c.id===_honorFlt.cls)) _honorFlt.cls='';
+  if(_honorFlt.grp && !DB.groups.some(g=>g.id===_honorFlt.grp&&(!_honorFlt.cls||g.classId===_honorFlt.cls))) _honorFlt.grp='';
+  cs.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${_honorEsc(c.name)}</option>`).join('');
+  cs.value=_honorFlt.cls;
+  gs.innerHTML='<option value="">كل المجموعات</option>'+DB.groups.filter(g=>!_honorFlt.cls||g.classId===_honorFlt.cls).map(g=>`<option value="${g.id}">${_honorEsc(g.name)}</option>`).join('');
+  gs.value=_honorFlt.grp;
+  const {graded}=_honorCompute();
+  let opts='<optgroup label="حسب الفترة"><option value="1">آخر امتحان</option><option value="3">آخر 3 امتحانات</option><option value="5">آخر 5 امتحانات</option><option value="all">كل الامتحانات والدرجات</option></optgroup>';
+  if(graded.length) opts+='<optgroup label="امتحان محدد">'+graded.slice().reverse().map(e=>`<option value="e:${e.id}">${_honorEsc(e.title)}</option>`).join('')+'</optgroup>';
+  rs.innerHTML=opts;
+  if(!Array.from(rs.options).some(o=>o.value===String(_honorRange))) _honorRange='3';
+  rs.value=String(_honorRange);
 }
 function renderHonorAcademic(){
   const grid=document.getElementById('honor-academic-grid'); if(!grid) return;
-  const sel=document.getElementById('honor-range'); if(sel) sel.value=_honorRange;
+  _honorFillFilters();
   const note=document.getElementById('honor-exams-note');
-  const {ranked:all,exams,graded,gradedIds,allMode}=_honorCompute();
+  const {ranked:all,exams,graded,allMode}=_honorCompute();
   const ranked=all.slice(0,12);
-  // امتحانات أُضيفت بعد آخر امتحان له درجات ولسه درجاتها ما اتسجلتش
+  // امتحانات أُضيفت بعد آخر امتحان له درجات (في الفلتر الحالي) ولسه درجاتها ما اتسجلتش
+  const anyGraded=new Set((DB.grades||[]).filter(g=>g.examId).map(g=>g.examId));
   const lastIdx=graded.length?DB.exams.findIndex(e=>e.id===graded[graded.length-1].id):-1;
-  const pending=(DB.exams||[]).slice(lastIdx+1).filter(e=>!gradedIds.has(e.id));
+  const pending=(DB.exams||[]).slice(lastIdx+1).filter(e=>!anyGraded.has(e.id)&&(!_honorFlt.cls||e.classId===_honorFlt.cls));
   if(note){
     note.innerHTML=(allMode?'📊 كل الدرجات المسجلة':(exams.length?'📋 '+exams.map(e=>_honorEsc(e.title)).join(' • '):''))
       +(pending.length?' &nbsp;<span style="color:var(--amber);">⏳ بانتظار الدرجات: '+pending.map(e=>_honorEsc(e.title)).join('، ')+'</span>':'');
@@ -6561,7 +6659,7 @@ function renderHonorAcademic(){
         <div style="font-size:22px;font-weight:700;margin-top:7px;color:${grCol(x.avg)};">${x.avg}%</div>
         <span class="badge ${grBadge(x.avg)}" style="margin-top:3px;">${grChar(x.avg)}</span>
         ${(!allMode&&exams.length>1)?`<div style="font-size:10px;color:var(--text3);margin-top:4px;">${x.n} من ${exams.length} امتحانات</div>`:''}
-      </div>`).join('')||'<div class="empty"><div>لا توجد درجات بعد</div></div>';
+      </div>`).join('')||'<div class="empty"><div>لا توجد درجات للفلتر المختار</div></div>';
 }
 // تحديث تلقائي للوحة لو مفتوحة وحصل أي حفظ (امتحان جديد / درجة جديدة / مزامنة من جهاز آخر)
 let _honorRT=null;
@@ -6570,12 +6668,20 @@ function _honorAutoRefresh(){
   if(document.getElementById('honor-academic')?.style.display==='none') return;
   clearTimeout(_honorRT); _honorRT=setTimeout(renderHonorAcademic,150);
 }
-// ═══ تصدير لوحة الشرف على صورة مستوردة من الجهاز (PNG / PDF) ═══
+// ═══ تصدير لوحة الشرف على صورة مستوردة من الجهاز (PNG / PDF) — كل اسم صندوق نص مستقل ═══
 let _hxImg=null;                       // الصورة المضغوطة (Data URL)
 try{ _hxImg=localStorage.getItem('etp_honor_img')||null; }catch(e){}
-const _HX_DEF={x:50,y:50,fs:3.2,color:'#1a1a2e',bold:true,shadow:false,align:'center',count:'5',cls:true,pct:true};
+const _HX_DEF={v:2,x:50,y:50,fs:3.2,color:'#1a1a2e',bold:true,shadow:false,align:'center',count:'5',cls:true,pct:true,together:false,keyBy:'student',lock:false,items:{}};
 let _hxSet=Object.assign({},_HX_DEF);
 try{ Object.assign(_hxSet,JSON.parse(localStorage.getItem('etp_honor_exp')||'{}')); }catch(e){}
+if(!_hxSet.items||typeof _hxSet.items!=='object') _hxSet.items={};
+if(!_hxSet.v||_hxSet.v<2){                       // ترحيل من النسخة السابقة
+  const m={}; for(const k in _hxSet.items) m[/^\d+$/.test(k)?'r'+k:k]=_hxSet.items[k];
+  _hxSet.items=m; _hxSet.together=false; _hxSet.keyBy=_hxSet.keyBy||'student'; _hxSet.v=2;
+}
+let _hxSel=null;                       // ترتيب الاسم المحدد في القائمة
+let _hxMeasureCtx=null;
+function _hxSave(){ try{ localStorage.setItem('etp_honor_exp',JSON.stringify(_hxSet)); }catch(e){} }
 
 function honorImgLoad(input){
   const file=input.files&&input.files[0]; input.value='';
@@ -6604,83 +6710,249 @@ function honorImgDelete(){
   _hxImg=null; try{ localStorage.removeItem('etp_honor_img'); }catch(e){}
   closeModal('honor-export-modal'); toast('🗑️ تم حذف الصورة');
 }
-function _hxLines(st){
-  const list=_honorCompute().ranked.slice(0,+st.count||5);
-  return list.map((x,i)=>{
-    const m=['🥇','🥈','🥉'][i]||((i+1)+'.');
-    return m+' '+x.s.fname+' '+x.s.lname+(st.cls?' — '+clsN(x.s.classId):'')+(st.pct?' — '+x.avg+'%':'');
+// الأسماء المعروضة: المفتاح k يربط التخصيص بالطالب نفسه ('s<id>') أو بمركزه ('r<n>')
+function _hxEntries(st){
+  return _honorCompute().ranked.slice(0,+st.count||5).map((x,i)=>({
+    i, k:(st.keyBy==='rank'?'r'+i:'s'+x.s.id),
+    text:(['🥇','🥈','🥉'][i]||((i+1)+'.'))+' '+x.s.fname+' '+x.s.lname+(st.cls?' — '+clsN(x.s.classId):'')+(st.pct?' — '+x.avg+'%':'')
+  }));
+}
+// عرض النص كنسبة من عرض الصورة (عرض الصورة = 1)
+function _hxTextW(text,fsPct,bold){
+  if(!_hxMeasureCtx) _hxMeasureCtx=document.createElement('canvas').getContext('2d');
+  const c=_hxMeasureCtx; c.font=`${bold?900:400} 100px Cairo, sans-serif`; c.direction='rtl';
+  return c.measureText(text).width/100*(fsPct/100);
+}
+// مكان/أبعاد/لون/دوران/إخفاء كل اسم: غير المخصّص يُرتَّب تلقائياً حول مركز الكتلة، والمخصّص يستخدم قيمه الخاصة
+function _hxPlace(st,aspect){
+  const en=_hxEntries(st), n=en.length;
+  const step=st.fs*1.7*aspect;                              // المسافة بين الأسطر كنسبة % من ارتفاع الصورة
+  const ws=en.map(e=>_hxTextW(e.text,st.fs,st.bold)), bw=Math.max(0,...ws);
+  return en.map((e,i)=>{
+    const o=st.items[e.k]||{};
+    let x=st.x;
+    if(st.align==='right') x=st.x+(bw-ws[i])*50;
+    else if(st.align==='left') x=st.x-(bw-ws[i])*50;
+    const y=st.y+(i-(n-1)/2)*step;
+    return {i,k:e.k,text:e.text,x:o.x!=null?o.x:x,y:o.y!=null?o.y:y,
+            fs:o.fs!=null?o.fs:st.fs, color:o.color||st.color,
+            bold:o.bold!=null?o.bold:st.bold, shadow:o.shadow!=null?o.shadow:st.shadow,
+            hide:!!o.hide, rot:o.rot||0,
+            w:(o.w!=null&&o.h!=null)?o.w:null, h:(o.w!=null&&o.h!=null)?o.h:null,   // أبعاد الصندوق (% من عرض الصورة) — null = تلقائي
+            fit:o.fit!==false, ta:o.ta||'center'};
   });
 }
+// تخطيط النص داخل الصندوق: التفاف الأسطر + ملاءمة حجم الخط (إن كانت مفعّلة). كل القيم % من عرض الصورة
+function _hxLayoutItem(o){
+  if(o.w==null) return {lines:[o.text],fs:o.fs,w:_hxTextW(o.text,o.fs,o.bold)*100+o.fs*0.6,h:o.fs*1.7,lh:1.7,pad:0,sized:false};
+  const lh=1.35, pad=Math.min(o.w,o.h)*0.06, iw=Math.max(0.5,o.w-2*pad), ih=Math.max(0.5,o.h-2*pad);
+  const words=o.text.split(/\s+/).filter(Boolean);
+  const wrap=fs=>{
+    const lines=[]; let cur='';
+    for(const w of words){
+      const t=cur?cur+' '+w:w;
+      if(!cur || _hxTextW(t,fs,o.bold)*100<=iw) cur=t; else { lines.push(cur); cur=w; }
+    }
+    if(cur) lines.push(cur);
+    const widest=Math.max(...lines.map(l=>_hxTextW(l,fs,o.bold)*100));
+    return {lines,fits:widest<=iw+0.001 && lines.length*fs*lh<=ih+0.001};
+  };
+  let fs=o.fs;
+  if(o.fit){ let lo=0.4, hi=Math.min(ih,14); for(let k=0;k<22;k++){ const mid=(lo+hi)/2; if(wrap(mid).fits) lo=mid; else hi=mid; } fs=lo; }
+  return {lines:wrap(fs).lines,fs,w:o.w,h:o.h,lh,pad,sized:true};
+}
+function _hxAspect(){ const im=document.getElementById('hx-img'); return (im&&im.naturalWidth)?im.naturalWidth/im.naturalHeight:0.707; }
+
 function openHonorExport(){
   if(!_hxImg){ document.getElementById('honor-img-up').click(); return; }
   if(!_honorCompute().ranked.length){ toast('لا توجد درجات لعرضها في لوحة الشرف','e'); return; }
   const g=id=>document.getElementById(id);
-  g('hx-count').value=String(_hxSet.count); g('hx-align').value=_hxSet.align; g('hx-fs').value=_hxSet.fs; g('hx-color').value=_hxSet.color;
+  g('hx-count').max=_honorCompute().ranked.length; g('hx-count').value=String(Math.min(parseInt(_hxSet.count,10)||5,_honorCompute().ranked.length)); g('hx-align').value=_hxSet.align; g('hx-fs').value=_hxSet.fs; g('hx-color').value=_hxSet.color;
+  g('hx-keyby').value=_hxSet.keyBy;
   g('hx-bold').checked=!!_hxSet.bold; g('hx-shadow').checked=!!_hxSet.shadow; g('hx-cls').checked=!!_hxSet.cls; g('hx-pct').checked=!!_hxSet.pct;
+  g('hx-together').checked=!!_hxSet.together;
+  _hxSel=null;
   const img=g('hx-img');
-  img.onload=()=>{ _hxLayout(); };
+  img.onload=()=>{ _hxStage(); };
   img.src=_hxImg;
   openModal('honor-export-modal');
-  requestAnimationFrame(_hxLayout);
+  requestAnimationFrame(_hxStage);
 }
-function _hxLayout(){
+function _hxStage(){
   const stage=document.getElementById('hx-stage'), img=document.getElementById('hx-img'); if(!stage||!img||!img.naturalWidth) return;
   const aspect=img.naturalWidth/img.naturalHeight;
   const maxW=Math.min(640,(stage.parentElement.clientWidth||640));
   stage.style.width=Math.max(160,Math.min(maxW,window.innerHeight*0.5*aspect))+'px';
-  _hxRenderBox();
+  _hxRenderItems();
 }
-function _hxRenderBox(){
-  const stage=document.getElementById('hx-stage'), box=document.getElementById('hx-box'); if(!stage||!box) return;
+const _HX_HANDLES=[['nw',0,0],['n',50,0],['ne',100,0],['e',100,50],['se',100,100],['s',50,100],['sw',0,100],['w',0,50]];
+function _hxRenderItems(){
+  const stage=document.getElementById('hx-stage'), layer=document.getElementById('hx-items'); if(!stage||!layer) return;
   const st=_hxSet, w=stage.clientWidth||300;
-  box.style.left=st.x+'%'; box.style.top=st.y+'%';
-  box.style.fontSize=(st.fs/100*w)+'px'; box.style.lineHeight='1.7';
-  box.style.color=st.color; box.style.fontWeight=st.bold?'900':'400';
-  box.style.textAlign=st.align; box.style.textShadow=st.shadow?'0 2px 6px rgba(0,0,0,.8)':'none';
-  box.innerHTML=_hxLines(st).map(t=>`<div>${_honorEsc(t)}</div>`).join('');
+  const items=_hxPlace(st,_hxAspect());
+  if(_hxSel!=null && _hxSel>=items.length) _hxSel=null;
+  const lay=items.map(_hxLayoutItem);
+  layer.innerHTML=items.map((o,idx)=>{
+    const L=lay[idx], sel=_hxSel===o.i, fsPx=L.fs/100*w, padPx=L.pad/100*w;
+    const clip=(L.sized&&!o.fit)?'hidden':'visible';
+    const lines=L.lines.map(t=>`<div style="width:100%;text-align:${L.sized?o.ta:'center'};white-space:nowrap;">${_honorEsc(t)}</div>`).join('');
+    const handles=sel?_HX_HANDLES.map(([n,hx,hy])=>`<div class="hx-h" data-h="${n}" style="position:absolute;left:${hx}%;top:${hy}%;width:11px;height:11px;margin:-5.5px 0 0 -5.5px;background:#fff;border:2px solid #4f7cff;border-radius:2px;cursor:${n==='n'||n==='s'?'ns-resize':(n==='e'||n==='w'?'ew-resize':(n==='nw'||n==='se'?'nwse-resize':'nesw-resize'))};z-index:3;"></div>`).join(''):'';
+    return `<div class="hx-item" data-i="${o.i}" style="position:absolute;left:${o.x}%;top:${o.y}%;width:${L.w/100*w}px;height:${L.h/100*w}px;transform:translate(-50%,-50%) rotate(${o.rot}deg);opacity:${o.hide?.28:1};outline:${sel?'2px solid #4f7cff':'1px dashed rgba(255,255,255,.75)'};border-radius:4px;background:rgba(0,0,0,.06);cursor:move;">
+      <div style="position:absolute;inset:0;box-sizing:border-box;padding:${padPx}px;display:flex;flex-direction:column;justify-content:center;overflow:${clip};font-family:Cairo,sans-serif;font-size:${fsPx}px;line-height:${L.lh};color:${o.color};font-weight:${o.bold?900:400};text-shadow:${o.shadow?'0 2px 6px rgba(0,0,0,.8)':'none'};pointer-events:none;">${lines}</div>${handles}</div>`;
+  }).join('');
+  const panel=document.getElementById('hx-sel');
+  if(_hxSel!=null){
+    const o=items[_hxSel], L=lay[_hxSel], g=id=>document.getElementById(id);
+    panel.style.display='block';
+    g('hx-sel-name').textContent=o.text;
+    g('hx-ifs').value=o.fit&&L.sized?L.fs:o.fs; g('hx-ifs').disabled=!!(o.fit&&L.sized);
+    g('hx-ifs-note').textContent=(o.fit&&L.sized)?'(تلقائي)':'';
+    g('hx-icolor').value=o.color; g('hx-irot').value=o.rot; g('hx-irot-v').textContent=o.rot+'°';
+    g('hx-iw').value=L.w; g('hx-ih').value=L.h; g('hx-iw-v').textContent=Math.round(L.w*10)/10+'%'; g('hx-ih-v').textContent=Math.round(L.h*10)/10+'%';
+    g('hx-ita').value=o.ta; g('hx-ifit').checked=!!o.fit; g('hx-lock').checked=!!st.lock;
+    g('hx-ibold').checked=!!o.bold; g('hx-ishadow').checked=!!o.shadow; g('hx-ihide').checked=!!o.hide;
+  } else panel.style.display='none';
 }
+function _hxSelect(i){ _hxSel=i; _hxRenderItems(); }
 function _hxChange(){
   const g=id=>document.getElementById(id);
-  Object.assign(_hxSet,{count:g('hx-count').value,align:g('hx-align').value,fs:+g('hx-fs').value||3.2,color:g('hx-color').value,
-    bold:g('hx-bold').checked,shadow:g('hx-shadow').checked,cls:g('hx-cls').checked,pct:g('hx-pct').checked});
-  try{ localStorage.setItem('etp_honor_exp',JSON.stringify(_hxSet)); }catch(e){}
-  _hxRenderBox();
+  const _cn=parseInt(g('hx-count').value,10), _cmax=_honorCompute().ranked.length||1;
+  if(_cn>=1){ _hxSet.count=String(Math.min(_cn,_cmax)); if(_cn>_cmax) g('hx-count').value=_cmax; }   // أي رقم من 1 لحد عدد الطلاب المتاح
+  Object.assign(_hxSet,{align:g('hx-align').value,fs:+g('hx-fs').value||3.2,color:g('hx-color').value,keyBy:g('hx-keyby').value,
+    bold:g('hx-bold').checked,shadow:g('hx-shadow').checked,cls:g('hx-cls').checked,pct:g('hx-pct').checked,together:g('hx-together').checked});
+  _hxSave(); _hxRenderItems();
 }
-// سحب القائمة/الضغط على الصورة لتحديد المكان (يعمل بالماوس واللمس)
+// عدّاد عدد الطلاب: أزرار + / − أو كتابة أي رقم
+function _hxCount(d){
+  const g=document.getElementById('hx-count'), max=_honorCompute().ranked.length||1;
+  let n=parseInt(g.value,10); if(!(n>=1)) n=parseInt(_hxSet.count,10)||5;
+  g.value=Math.max(1,Math.min(max,n+d)); _hxChange();
+}
+function _hxCountFix(){            // عند ترك الحقل: لو فاضي/غير صالح يرجع لآخر قيمة صالحة
+  const g=document.getElementById('hx-count'), max=_honorCompute().ranked.length||1;
+  let n=parseInt(g.value,10); if(!(n>=1)) n=parseInt(_hxSet.count,10)||5;
+  g.value=Math.min(max,n); _hxChange();
+}
+function _hxSelObj(create){
+  if(_hxSel==null) return null;
+  const it=_hxPlace(_hxSet,_hxAspect())[_hxSel]; if(!it) return null;
+  return create?(_hxSet.items[it.k]=_hxSet.items[it.k]||{}):it;
+}
+// خصائص النص (لا تغيّر أبعاد الصندوق)
+function _hxItemChange(){
+  const o=_hxSelObj(true); if(!o) return; const g=id=>document.getElementById(id);
+  const cur=_hxSelObj(false), L=_hxLayoutItem(cur);
+  if(!(cur.fit&&L.sized)) o.fs=+g('hx-ifs').value;
+  o.color=g('hx-icolor').value; o.rot=+g('hx-irot').value||0; o.ta=g('hx-ita').value; o.fit=g('hx-ifit').checked;
+  o.bold=g('hx-ibold').checked; o.shadow=g('hx-ishadow').checked; o.hide=g('hx-ihide').checked;
+  _hxSet.lock=g('hx-lock').checked;
+  _hxSave(); _hxRenderItems();
+}
+// أبعاد الصندوق من الأشرطة
+function _hxSizeChange(){
+  const o=_hxSelObj(true); if(!o) return; const g=id=>document.getElementById(id);
+  o.w=+g('hx-iw').value; o.h=+g('hx-ih').value;
+  _hxSave(); _hxRenderItems();
+}
+// أشكال سريعة: مربع / مستطيل أفقي / مستطيل رأسي / حجم تلقائي (بنفس المساحة الحالية تقريباً)
+function _hxShape(kind){
+  const cur=_hxSelObj(false); if(!cur) return;
+  const o=_hxSelObj(true);
+  if(kind==='auto'){ delete o.w; delete o.h; }
+  else {
+    const L=_hxLayoutItem(cur), area=Math.max(9,L.w*L.h);
+    const r=kind==='square'?1:(kind==='wide'?2.5:0.4);       // العرض ÷ الارتفاع
+    o.w=+Math.max(3,Math.sqrt(area*r)).toFixed(2); o.h=+Math.max(3,o.w/r).toFixed(2);
+  }
+  _hxSave(); _hxRenderItems();
+}
+function _hxItemReset(){
+  if(_hxSel==null) return;
+  const it=_hxPlace(_hxSet,_hxAspect())[_hxSel]; if(it) delete _hxSet.items[it.k];
+  _hxSave(); _hxRenderItems();
+}
+function _hxResetAll(){
+  if(!confirm('إعادة ضبط مكان وأبعاد ولون كل الأسماء للوضع التلقائي؟')) return;
+  _hxSet.items={}; _hxSel=null; _hxSave(); _hxRenderItems();
+}
+// سحب الأسماء + تغيير أبعاد الصندوق بالمقابض (ماوس/لمس). افتراضياً كل اسم لوحده
 (function(){
-  let drag=false, offX=0, offY=0;
-  const move=e=>{
-    const stage=document.getElementById('hx-stage'); if(!stage) return;
-    const r=stage.getBoundingClientRect();
-    _hxSet.x=+Math.min(98,Math.max(2,(e.clientX-offX-r.left)/r.width*100)).toFixed(2);
-    _hxSet.y=+Math.min(98,Math.max(2,(e.clientY-offY-r.top)/r.height*100)).toFixed(2);
-    _hxRenderBox();
+  let drag=null, rs=null;
+  const clamp=v=>Math.min(98,Math.max(2,v));
+  const ptr=e=>{ const r=document.getElementById('hx-stage').getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*100,y:(e.clientY-r.top)/r.height*100,w:r.width,h:r.height}; };
+  const apply=(px,py)=>{
+    const nx=clamp(px-drag.offX), ny=clamp(py-drag.offY);
+    if(drag.all){
+      const dx=nx-drag.last.x, dy=ny-drag.last.y;
+      for(const k in _hxSet.items){ const o=_hxSet.items[k]; if(o.x!=null){ o.x=+(o.x+dx).toFixed(2); o.y=+(o.y+dy).toFixed(2); } }
+      _hxSet.x=+clamp(_hxSet.x+dx).toFixed(2); _hxSet.y=+clamp(_hxSet.y+dy).toFixed(2);
+      drag.last={x:nx,y:ny};
+    } else {
+      const o=_hxSet.items[drag.k]=_hxSet.items[drag.k]||{}; o.x=+nx.toFixed(2); o.y=+ny.toFixed(2);
+    }
+    _hxRenderItems();
+  };
+  const resize=e=>{
+    const ang=rs.rot*Math.PI/180, cos=Math.cos(ang), sin=Math.sin(ang);
+    const dxp=e.clientX-rs.sx, dyp=e.clientY-rs.sy;
+    const lx=dxp*cos+dyp*sin, ly=-dxp*sin+dyp*cos;              // الإزاحة بإحداثيات الصندوق (بعد إلغاء الدوران)
+    const dW=lx/rs.stageW*100, dH=ly/rs.stageW*100;             // % من عرض الصورة
+    let nw=rs.w0+(rs.hx!==0?rs.hx*dW:0), nh=rs.h0+(rs.hy!==0?rs.hy*dH:0);
+    if(_hxSet.lock && rs.hx!==0 && rs.hy!==0){
+      const sW=nw/rs.w0, sH=nh/rs.h0, k=Math.abs(sW-1)>Math.abs(sH-1)?sW:sH; nw=rs.w0*k; nh=rs.h0*k;
+    }
+    nw=Math.max(3,Math.min(100,nw)); nh=Math.max(3,Math.min(100,nh));
+    const aw=nw-rs.w0, ah=nh-rs.h0;
+    const lcx=rs.hx*aw/2, lcy=rs.hy*ah/2;                       // إزاحة المركز بحيث يثبت الطرف المقابل
+    const wx=lcx*cos-lcy*sin, wy=lcx*sin+lcy*cos;
+    const o=_hxSet.items[rs.k]=_hxSet.items[rs.k]||{};
+    o.w=+nw.toFixed(2); o.h=+nh.toFixed(2);
+    o.x=+(rs.x0+wx).toFixed(2); o.y=+(rs.y0+wy*rs.stageW/rs.stageH).toFixed(2);
+    _hxRenderItems();
   };
   document.addEventListener('pointerdown',e=>{
     const stage=document.getElementById('hx-stage'); if(!stage||!stage.contains(e.target)) return;
-    const box=document.getElementById('hx-box'), r=stage.getBoundingClientRect();
-    drag=true; offX=0; offY=0;
-    if(box.contains(e.target)){ offX=e.clientX-(r.left+_hxSet.x/100*r.width); offY=e.clientY-(r.top+_hxSet.y/100*r.height); }
-    move(e); e.preventDefault();
+    const p=ptr(e), cur=_hxPlace(_hxSet,_hxAspect());
+    const hd=e.target.closest('.hx-h');
+    if(hd && _hxSel!=null && cur[_hxSel]){                       // مقبض تغيير الأبعاد
+      const o=cur[_hxSel], L=_hxLayoutItem(o), hh=_HX_HANDLES.find(h=>h[0]===hd.dataset.h);
+      rs={k:o.k,hx:(hh[1]-50)/50,hy:(hh[2]-50)/50,w0:L.w,h0:L.h,x0:o.x,y0:o.y,rot:o.rot,sx:e.clientX,sy:e.clientY,stageW:p.w,stageH:p.h};
+      e.preventDefault(); return;
+    }
+    const el=e.target.closest('.hx-item'), together=!!_hxSet.together;
+    if(el){
+      const i=+el.dataset.i, o=cur[i]; _hxSel=i;
+      drag={k:o.k,all:together,offX:p.x-o.x,offY:p.y-o.y,last:{x:o.x,y:o.y}};
+      _hxRenderItems();
+    } else if(together){
+      drag={all:true,offX:0,offY:0,last:{x:_hxSet.x,y:_hxSet.y}}; apply(p.x,p.y);
+    } else if(_hxSel!=null && cur[_hxSel]){
+      drag={k:cur[_hxSel].k,all:false,offX:0,offY:0,last:null}; apply(p.x,p.y);          // الضغط على مكان في الصورة ينقل الصندوق المحدد إليه
+    } else return;
+    e.preventDefault();
   });
-  document.addEventListener('pointermove',e=>{ if(drag) move(e); });
-  document.addEventListener('pointerup',()=>{ if(!drag) return; drag=false; try{ localStorage.setItem('etp_honor_exp',JSON.stringify(_hxSet)); }catch(e){} });
+  document.addEventListener('pointermove',e=>{ if(rs){ resize(e); } else if(drag){ const p=ptr(e); apply(p.x,p.y); } });
+  document.addEventListener('pointerup',()=>{ if(!drag&&!rs) return; drag=null; rs=null; _hxSave(); });
 })();
 async function _hxCompose(){
-  const st=_hxSet, lines=_hxLines(st);
+  const st=_hxSet;
   const im=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=_hxImg; });
   const W=im.naturalWidth, H=im.naturalHeight;
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
   const c=cv.getContext('2d'); c.drawImage(im,0,0,W,H);
-  const fs=st.fs/100*W, lh=fs*1.7, wt=st.bold?900:400;
-  try{ await document.fonts.load(`${wt} ${fs}px Cairo`,'ابج'); }catch(e){}
-  c.font=`${wt} ${fs}px Cairo, sans-serif`; c.direction='rtl'; c.textBaseline='middle'; c.textAlign='left'; c.fillStyle=st.color;
-  if(st.shadow){ c.shadowColor='rgba(0,0,0,.8)'; c.shadowBlur=fs*.2; c.shadowOffsetY=fs*.06; }
-  const widths=lines.map(t=>c.measureText(t).width), bw=Math.max(...widths);
-  const cx=st.x/100*W, cy=st.y/100*H, top=cy-(lines.length*lh)/2+lh/2, left=cx-bw/2;
-  lines.forEach((t,i)=>{
-    const x=st.align==='center'?cx-widths[i]/2:(st.align==='right'?left+bw-widths[i]:left);
-    c.fillText(t,x,top+i*lh);
+  try{ await document.fonts.load('400 40px Cairo','ابج'); await document.fonts.load('900 40px Cairo','ابج'); }catch(e){}
+  c.direction='rtl'; c.textBaseline='middle';
+  _hxPlace(st,W/H).filter(o=>!o.hide).forEach(o=>{
+    const L=_hxLayoutItem(o), fs=L.fs/100*W, lhpx=fs*L.lh;
+    c.save();
+    c.translate(o.x/100*W,o.y/100*H); if(o.rot) c.rotate(o.rot*Math.PI/180);
+    if(L.sized&&!o.fit){ c.beginPath(); c.rect(-L.w/200*W,-L.h/200*W,L.w/100*W,L.h/100*W); c.clip(); }
+    c.font=`${o.bold?900:400} ${fs}px Cairo, sans-serif`; c.fillStyle=o.color;
+    if(o.shadow){ c.shadowColor='rgba(0,0,0,.8)'; c.shadowBlur=fs*.2; c.shadowOffsetY=fs*.06; }
+    const ta=L.sized?o.ta:'center', half=L.w/200*W-L.pad/100*W;
+    c.textAlign=ta; const xx=ta==='right'?half:(ta==='left'?-half:0);
+    L.lines.forEach((t,idx)=>c.fillText(t,xx,(idx-(L.lines.length-1)/2)*lhpx));
+    c.restore();
   });
   return cv;
 }
@@ -13244,9 +13516,9 @@ function switchRep(tab,btn){
             <div class="rep-hdr-sub" id="top-sub">جارٍ التحميل...</div>
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;" class="no-print">
-            <select id="top-f-exam" class="fs" style="width:160px;" onchange="window._renderTopRep()">${examOpts}</select>
             <select id="top-f-cls"  class="fs" style="width:140px;" onchange="window._topFilterGrps()">${clsOpts}</select>
-            <select id="top-f-grp"  class="fs" style="width:140px;" onchange="window._renderTopRep()">${grpOpts}</select>
+            <select id="top-f-grp"  class="fs" style="width:140px;" onchange="window._topFilterExams()">${grpOpts}</select>
+            <select id="top-f-exam" class="fs" style="width:170px;" onchange="window._renderTopRep()">${examOpts}</select>
           </div>
           <button class="btn btn-wa btn-sm no-print" onclick="sendTopWA()">📱 واتساب</button><button class="btn btn-tg btn-sm no-print" onclick="sendTopTG()">✈️ تيليجرام</button>
           <button class="rep-print-btn no-print" onclick="window._printTopRep()">🖨️ طباعة PDF</button>
@@ -13279,6 +13551,17 @@ function switchRep(tab,btn){
         '<option value="">كل المجموعات</option>'+
         DB.groups.filter(g=>!cid||g.classId===cid)
                  .map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+      window._topFilterExams();
+    };
+    // ── قائمة الامتحانات تتبع الصف/المجموعة المختارين (الامتحانات التي لها درجات لطلابهم فقط) ──
+    window._topFilterExams = function(){
+      const cid=document.getElementById('top-f-cls').value, gid=document.getElementById('top-f-grp').value;
+      const sel=document.getElementById('top-f-exam'), cur=sel.value;
+      const sids=new Set(DB.students.filter(s=>(!cid||s.classId===cid)&&(!gid||s.groupId===gid)).map(s=>s.id));
+      const ids=new Set(DB.grades.filter(g=>g.examId&&sids.has(g.studentId)).map(g=>g.examId));
+      const list=(cid||gid)?DB.exams.filter(e=>ids.has(e.id)):DB.exams;
+      sel.innerHTML='<option value="">كل الامتحانات</option>'+list.map(e=>`<option value="${e.id}">${e.title}</option>`).join('');
+      sel.value=list.some(e=>e.id===cur)?cur:'';
       window._renderTopRep();
     };
 
@@ -13322,8 +13605,8 @@ function switchRep(tab,btn){
       // ── شرط العرض: يجب اختيار الامتحان والصف معاً ──
       if(!examId || !cid){
         const missing=[];
-        if(!examId) missing.push('الامتحان');
         if(!cid)    missing.push('الصف الدراسي');
+        if(!examId) missing.push('الامتحان');
         if(subEl) subEl.textContent='اختر '+missing.join(' و')+' لعرض الترتيب';
         if(kpiEl) kpiEl.innerHTML='';
         if(podEl) podEl.innerHTML='';
