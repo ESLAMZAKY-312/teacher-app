@@ -14638,7 +14638,8 @@ function _quickRosterState(sid,pid){
 function _quickRosterList(){
   const f=_salesPageFilters();
   if(!f.prod || !(f.cls||f.grp)) return [];
-  let list=DB.students.filter(s=>(!f.cls||s.classId===f.cls)&&(!f.grp||s.groupId===f.grp));
+  // الطلاب المستبعدين (غياب 3 أيام متتالية) لا يظهرون — المنتظمون فقط
+  let list=DB.students.filter(s=>(!f.cls||s.classId===f.cls)&&(!f.grp||s.groupId===f.grp)&&!isStuFinExcluded(s.id));
   if(f.stu) list=list.filter(s=>(s.fname+' '+s.lname).toLowerCase().includes(f.stu));
   return list.filter(s=>{
     const st=_quickRosterState(s.id,f.prod);
@@ -14658,6 +14659,7 @@ function _filterSalesByPage(){
   const f=_salesPageFilters();
   return DB.sales.filter(s=>{
     if(f.prod && s.productId!==f.prod) return false;
+    if(s.studentId && isStuFinExcluded(s.studentId)) return false; // مبيعات الطلاب المستبعدين لا تظهر في السجل
     if(f.cls || f.grp || f.stu){
       const st=s.studentId?stu(s.studentId):null;
       if(!st) return false; // عميل عام بدون طالب مربوط — يُستبعد لو فيه فلترة بالصف/المجموعة/الاسم
@@ -14832,7 +14834,7 @@ function spmRenderProdList(){
   let relevantProds=DB.products;
   if(cid){
     // الطلاب في هذا الصف
-    const stuIds=new Set(DB.students.filter(s=>s.classId===cid&&(!gid||s.groupId===gid)).map(s=>s.id));
+    const stuIds=new Set(DB.students.filter(s=>s.classId===cid&&(!gid||s.groupId===gid)&&!isStuFinExcluded(s.id)).map(s=>s.id));
     // المنتجات التي بُيعت لهؤلاء الطلاب
     const soldProdIds=new Set(DB.sales.filter(s=>stuIds.has(s.studentId)).map(s=>s.productId));
     relevantProds=DB.products.filter(p=>soldProdIds.has(p.id));
@@ -14883,7 +14885,7 @@ function spmRenderStuList(){
   const cid=document.getElementById('spm-cls').value;
   const gid=document.getElementById('spm-grp').value;
   const sel=_spmSelectedStus;
-  let list=DB.students.filter(s=>(!cid||s.classId===cid)&&(!gid||s.groupId===gid));
+  let list=DB.students.filter(s=>(!cid||s.classId===cid)&&(!gid||s.groupId===gid)&&!isStuFinExcluded(s.id));
   if(q) list=list.filter(s=>(s.fname+' '+s.lname).toLowerCase().includes(q)||(s.barcode||s.id||'').toLowerCase().includes(q));
   const container=document.getElementById('spm-stu-list');
   if(!list.length){ container.innerHTML='<div style="padding:12px;text-align:center;color:var(--text3);font-size:12px;">لا يوجد طلاب</div>'; return; }
