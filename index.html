@@ -290,6 +290,85 @@ tr:hover td{background:rgba(255,255,255,.018);}
 <script>
 // ══ إعداد Firebase مع حماية كاملة ══
 let _fbDB = null;
+
+// ═══════════════════════════════════════════════════
+//  👁️ وضع (جهاز عرض فقط) — خاص بالجهاز نفسه (مش بيتزامن مع الأجهزة الأخرى)
+//  الجهاز في الوضع ده: لا يحفظ ولا يرسل أي تعديل للموقع ولا يعمل إغلاق حضور تلقائي،
+//  لكنه يستقبل ويعرض أحدث بيانات الجهاز الرئيسي تلقائياً.
+// ═══════════════════════════════════════════════════
+let _viewOnly = false;
+try{ _viewOnly = localStorage.getItem('etp_viewonly')==='1'; }catch(e){}
+let _voRefreshT = null, _voToastT = 0, _voRefreshing = false;
+/** استدعاء save() على جهاز العرض: بنمنعه وبنرجّع الشاشة لنسخة الموقع (عشان أي تعديل في الذاكرة يتلغي) */
+function _viewOnlyBlocked(){
+  const now = Date.now();
+  if(now-_voToastT > 2500){ _voToastT = now; toast('👁️ هذا الجهاز في وضع العرض فقط — لا يتم حفظ أي تعديل','e'); }
+  clearTimeout(_voRefreshT);
+  _voRefreshT = setTimeout(()=>{ _viewOnlyRefresh(); }, 600);
+}
+/** يسحب أحدث نسخة من الموقع ويعيد رسم الصفحة الحالية */
+async function _viewOnlyRefresh(manual){
+  if(_voRefreshing) return false;
+  if(!_fbDB){ if(manual) toast('⚠️ لا يوجد اتصال بالموقع','e'); return false; }
+  _voRefreshing = true;
+  try{
+    const snap = await _fbDB.ref('schoolData').once('value');
+    const data = _dewireDB(snap.val());
+    if(!data || !data.students){ if(manual) toast('⚠️ لا توجد بيانات على الموقع','e'); return false; }
+    const logo = DB.settings?.logo, certBgs = {};
+    if(DB.certTemplates){ ['male','female'].forEach(g=>{ if(DB.certTemplates[g]?.bg) certBgs[g]=DB.certTemplates[g].bg; }); }
+    Object.assign(DB, data);
+    if(logo) DB.settings.logo = logo;
+    if(DB.certTemplates){ ['male','female'].forEach(g=>{ if(certBgs[g]) DB.certTemplates[g].bg = certBgs[g]; }); }
+    DB.__syncedAt = data.__syncedAt;
+    _invalidateCache();
+    try{ _honorAutoRefresh(); }catch(e){}
+    if(typeof gp === 'function') gp(sessionStorage.getItem('etp_page')||'dashboard');
+    return true;
+  }catch(e){
+    if(manual) toast('⚠️ تعذّر التحديث من الموقع — تحقق من الاتصال','e');
+    return false;
+  }finally{ _voRefreshing = false; }
+}
+function _applyViewOnlyUI(){
+  const btn = document.getElementById('view-only-btn');
+  if(btn){
+    btn.style.background = _viewOnly ? 'rgba(245,166,35,.18)' : 'var(--glass)';
+    btn.style.borderColor = _viewOnly ? 'rgba(245,166,35,.6)' : 'var(--border)';
+    btn.title = _viewOnly ? 'وضع العرض فقط مفعّل — اضغط للإيقاف' : 'تفعيل وضع (جهاز عرض فقط)';
+  }
+  let bn = document.getElementById('view-only-banner');
+  if(_viewOnly){
+    if(!bn){
+      bn = document.createElement('div'); bn.id = 'view-only-banner';
+      bn.style.cssText = 'margin:0 0 .8rem;padding:8px 12px;border-radius:var(--rs);background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.4);color:var(--amber);font-size:12px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+      bn.innerHTML = '<span>👁️ هذا الجهاز في وضع <b>العرض فقط</b> — لا يحفظ ولا يرسل أي تعديل للموقع، ويتحدّث تلقائياً من الجهاز الرئيسي.</span><button class="btn btn-secondary btn-xs" style="margin-right:auto;" onclick="toggleViewOnly()">إيقاف الوضع</button>';
+      const tb = document.querySelector('.main .topbar');
+      if(tb) tb.after(bn);
+    }
+  } else if(bn){ bn.remove(); }
+}
+async function toggleViewOnly(){
+  if(!_viewOnly){
+    if(!confirm('تفعيل وضع (جهاز عرض فقط)؟\n\n• هذا الجهاز لن يحفظ أي تعديل ولن يرسل أي شيء للموقع\n• يتحدّث تلقائياً بما يسجّله الجهاز الرئيسي\n• الإغلاق التلقائي للحضور يتوقف على هذا الجهاز')) return;
+    if(_saveDirty){                                       // أرسل أي تعديلات لسه ما اتبعتتش قبل التفعيل عشان ما تضيعش
+      const ok = await _saveFlush();
+      if(!ok){ toast('⚠️ تعذّر إرسال التعديلات غير المرسلة — حاول بعد الاتصال بالإنترنت','e'); return; }
+    }
+    if(_fbSyncPending){ clearTimeout(_fbSyncPending); _fbSyncPending=null; _fbSyncStartTime=null; }
+    if(_countdownTimer){ clearInterval(_countdownTimer); _countdownTimer=null; }
+    _viewOnly = true;
+    try{ localStorage.setItem('etp_viewonly','1'); }catch(e){}
+    _applyViewOnlyUI();
+    toast('👁️ تم تفعيل وضع جهاز العرض فقط');
+  } else {
+    if(!confirm('إيقاف وضع العرض فقط؟ سيعود هذا الجهاز للحفظ والمزامنة العادية.')) return;
+    _viewOnly = false;
+    try{ localStorage.removeItem('etp_viewonly'); }catch(e){}
+    _applyViewOnlyUI();
+    location.reload();                                    // نسخة نظيفة ومحدّثة
+  }
+}
 let _fbAvailable = false;
 try {
   if(typeof firebase !== 'undefined'){
@@ -619,6 +698,7 @@ async function _loadFromFirebase(){
     <button class="btn btn-secondary" style="padding:6px 9px;" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">☰</button>
     <div class="pg-title" id="pg-title">لوحة التحكم</div>
     <div style="flex:1"></div>
+    <button id="view-only-btn" onclick="toggleViewOnly()" title="تفعيل وضع (جهاز عرض فقط)" style="position:relative;width:38px;height:38px;border-radius:50%;background:var(--glass);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;">👁️</button>
     <button id="manual-sync-btn" onclick="_manualSyncNow()" title="مزامنة الآن" style="position:relative;width:38px;height:38px;border-radius:50%;background:var(--glass);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:opacity .15s;">
       <span id="manual-sync-ic" style="display:inline-block;">🔄</span>
     </button>
@@ -1237,7 +1317,7 @@ async function _loadFromFirebase(){
     <div id="store-quick-roster" style="display:none;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--glass);max-height:280px;overflow-y:auto;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
         <div style="font-size:11.5px;font-weight:700;color:var(--text2);" id="store-quick-roster-title"></div>
-        <button class="btn btn-sm" type="button" onclick="quickCompleteTaken()" title="يحدد الاستلام والدفع معاً لكل طالب مسجّل عليه هذا المنتج في القائمة الحالية" style="font-size:11px;padding:4px 10px;">✔ استكمال الاستلام والدفع لمن أخذ المنتج</button>
+        <button class="btn btn-sm" type="button" id="quick-complete-btn" onclick="quickCompleteTaken()" title="يحدد الاستلام والدفع معاً لكل طالب مسجّل عليه هذا المنتج في القائمة الحالية" style="font-size:11px;padding:4px 10px;">✔ استكمال الاستلام والدفع لمن أخذ المنتج</button>
       </div>
       <div id="store-quick-roster-list"></div>
     </div>
@@ -3533,6 +3613,7 @@ async function _loadDB(){
     chosen = fbDB || idbDB;
   }
 
+  if(_viewOnly && fbDB) chosen = fbDB;            // 👁️ جهاز العرض: نسخة الموقع هي المرجع
   if(chosen) return Object.assign(_defaultDB(), chosen);
   return _defaultDB();
 }
@@ -3582,6 +3663,7 @@ function _dewireDB(wire){
 }
 
 async function _saveFlush(){
+  if(_viewOnly) return false;                      // 👁️ جهاز عرض فقط: لا إرسال للموقع
   // ══ الإرسال الفعلي لـ Firebase ══
   if(!_fbDB){ _showSyncIndicator('error'); return false; }
   try{
@@ -3642,6 +3724,13 @@ async function _syncNow(){
 
 // ── مزامنة يدوية بضغطة زر (من التوب بار) — لا تنتظر الـ 10 دقائق ──
 async function _manualSyncNow(){
+  if(_viewOnly){
+    const ic0 = document.getElementById('manual-sync-ic'); if(ic0) ic0.style.animation='_bootspin .8s linear infinite';
+    const ok0 = await _viewOnlyRefresh(true);
+    if(ic0) ic0.style.animation='';
+    if(ok0) toast('🔄 تم تحديث البيانات من الموقع');
+    return;
+  }
   if(_isSyncing){ toast('☁️ جارٍ المزامنة بالفعل…','i'); return; }
   const btn = document.getElementById('manual-sync-btn');
   const ic  = document.getElementById('manual-sync-ic');
@@ -3654,6 +3743,7 @@ async function _manualSyncNow(){
 }
 
 function _saveFlushSync(){
+  if(_viewOnly) return;
   // ══ إرسال اضطراري عند إغلاق الصفحة ══
   if(!_fbDB || !_saveDirty) return;
   try{
@@ -3690,6 +3780,7 @@ let _fbSyncStartTime = null; // وقت بدء العد التنازلي
 let _countdownTimer = null; // مؤقت عرض العد التنازلي
 
 function save(){
+  if(_viewOnly){ _viewOnlyBlocked(); return; }   // 👁️ جهاز عرض فقط
   DB.__lastSave = Date.now();
   _invalidateCache();
   try{ _honorAutoRefresh(); }catch(e){}
@@ -4043,7 +4134,7 @@ function pushNotif(studentId, type, icon, title, body){
 // ================================================================
 // MODAL
 // ================================================================
-function openModal(id){ document.getElementById(id).classList.add('open'); popModal(id); }
+function openModal(id){ if(id==='add-payment-modal' && _supBlockPay('بإضافة دفعات')) return; document.getElementById(id).classList.add('open'); popModal(id); }
 function closeModal(id){
   document.getElementById(id).classList.remove('open');
   if(id==='create-exam-modal'){
@@ -8777,6 +8868,7 @@ function onGradeExamChange(){
  *  بوابة الطالب بتقرأ التصريح ده، ولو وقته أحدث من قفل التسليم المخزّن على جهاز
  *  الطالب بتلغي القفل تلقائياً ويرجع الاختبار يظهر له "متاح" من تاني (فرصة واحدة جديدة). */
 async function allowExamRetake(studentId, examId, gradeId){
+  if(_viewOnly){ toast('👁️ غير متاح في وضع العرض فقط','e'); return; }
   const st = DB.students.find(x=>x.id===studentId);
   const ex = DB.exams.find(x=>x.id===examId);
   const name = st ? (st.fname+' '+st.lname) : 'الطالب';
@@ -9721,14 +9813,14 @@ function _onPayStatusChange(){
 // ── إحصائية سريعة بجوار زر (تصدير) — حسب الفلتر المختار حالياً، مخفية عن المشرف ──
 function _updatePayFilterStat(count,amount,label){
   const el=document.getElementById('pay-filter-stat'); if(!el) return;
-  if(document.body.dataset.role==='supervisor' || !count){ el.style.display='none'; el.innerHTML=''; return; }
+  if(!count){ el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='flex';
   el.innerHTML=`📊 ${count} ${label||'دفعة'} <span style="color:var(--text3);">|</span> ${fmtM(amount)}`;
 }
 // ── إحصائية إضافية بجوار سابقتها — عدد السجلات اللي عليها متبقي فعلي + إجمالي هذا المتبقي، بنفس الفلتر الحالي ──
 function _updatePayRemainingStat(count,amount){
   const el=document.getElementById('pay-remaining-stat'); if(!el) return;
-  if(document.body.dataset.role==='supervisor' || !count){ el.style.display='none'; el.innerHTML=''; return; }
+  if(!count){ el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='flex';
   el.innerHTML=`🔶 ${count} متبقي <span style="color:var(--text3);">|</span> ${fmtM(amount)}`;
 }
@@ -9753,7 +9845,7 @@ function renderPayments(){
   const unpaidStForTotal=_dedupeSiblingsForTotals(unpaidSt);
   // ── إجمالي عدد الدفعات: بدون دفعات الطلاب المستبعدين ──
   const totalPayCount=DB.payments.filter(p=>{ const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); }).length;
-  document.getElementById('pay-metrics').innerHTML=document.body.dataset.role==='supervisor'?'':`
+  document.getElementById('pay-metrics').innerHTML=`
     <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(paid)}</div><div class="ml">إجمالي المحصل</div></div>
     <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidStForTotal.length}</div><div class="ml">غير مسددين</div></div>
     <div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidStForTotal.reduce((a,s)=>a+stuUnpaidAmount(s),0))}</div><div class="ml">إجمالي المتأخر</div></div>
@@ -9802,15 +9894,18 @@ function renderPayments(){
       return;
     }
     const _rowDebt=({s,unpaidMonths})=>unpaidMonths.reduce((a,m)=>a+monthDebtInfo(s.id,m).remaining,0);
-    _updatePayFilterStat(rows.length, rows.reduce((a,r)=>a+_rowDebt(r),0), 'طالب مديون');
-    _updatePayRemainingStat(rows.length, rows.reduce((a,r)=>a+_rowDebt(r),0));
+    // الإخوة يُحسبون كفرد واحد في الإحصائيات (نفس قاعدة الكروت العلوية)
+    const _keepIds=new Set(_dedupeSiblingsForTotals(rows.map(r=>r.s)).map(x=>x.id));
+    const _statRows=rows.filter(r=>_keepIds.has(r.s.id));
+    _updatePayFilterStat(_statRows.length, _statRows.reduce((a,r)=>a+_rowDebt(r),0), 'طالب مديون');
+    _updatePayRemainingStat(_statRows.length, _statRows.reduce((a,r)=>a+_rowDebt(r),0));
     document.getElementById('pay-tbody').innerHTML=rows.map(({s,unpaidMonths})=>{
       const fee=stuEffectiveFee(s);
       const totalDebt=_rowDebt({s,unpaidMonths});
       return `<tr onclick="_payToggleBtns(this)" style="cursor:pointer;">
         <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color||'#4f7cff'}20;color:${s.color||'#4f7cff'}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}${_joinTag(s)}</div>
           <div class="pay-btns-row" style="display:none;flex-wrap:wrap;gap:3px;margin-top:5px;">
-            <button class="btn btn-success btn-xs" onclick="event.stopPropagation();openEditPaysForStudent('${s.id}')">💰 تسديد / تعديل</button>
+            <button class="btn btn-success btn-xs" onclick="event.stopPropagation();openEditPaysForStudent('${s.id}')">${document.body.dataset.role==='supervisor'?'👁️ عرض الدفعات':'💰 تسديد / تعديل'}</button>
             <button class="btn btn-wa btn-xs" onclick="event.stopPropagation();sendPayWARem('${s.id}')">📱</button>
           </div>
           <div style="margin-top:5px;padding:5px 9px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);border-radius:var(--rs);font-size:10px;display:flex;flex-wrap:wrap;gap:5px;">
@@ -9829,9 +9924,9 @@ function renderPayments(){
 
   // أزرار الصف — مخفية افتراضياً
   const _btns=(pid,sid)=>`<div class="pay-btns-row" style="display:none;flex-wrap:wrap;gap:3px;margin-top:5px;">
-    <button class="btn btn-success btn-xs" onclick="event.stopPropagation();openEditPaysForStudent('${sid}')">💰 تسديد / تعديل</button>
+    <button class="btn btn-success btn-xs" onclick="event.stopPropagation();openEditPaysForStudent('${sid}')">${document.body.dataset.role==='supervisor'?'👁️ عرض الدفعات':'💰 تسديد / تعديل'}</button>
     <button class="btn btn-wa btn-xs" onclick="event.stopPropagation();sendPayWARem('${sid}')">📱</button>
-    ${pid?`<button class="btn btn-danger btn-xs" onclick="event.stopPropagation();if(confirm('حذف هذه الدفعة؟'))delPayment('${pid}')">🗑</button>`
+    ${document.body.dataset.role==='supervisor'?'':pid?`<button class="btn btn-danger btn-xs" onclick="event.stopPropagation();if(confirm('حذف هذه الدفعة؟'))delPayment('${pid}')">🗑</button>`
         :`<button class="btn btn-danger btn-xs" onclick="event.stopPropagation();if(confirm('حذف سجل هذا الطالب؟'))delStudentPayRecord('${sid}')">🗑</button>`}
   </div>`;
 
@@ -9931,21 +10026,25 @@ function renderPayments(){
   {
     const _statList=list.filter(p=>{ const s=stu(p.studentId); return !s||!isStuFinExcluded(s.id); });
     const _statUnlisted=showUnlisted?unlistedUnpaid.filter(s=>!isStuFinExcluded(s.id)):[];
-    const listedCount=_statList.length, listedAmount=_statList.reduce((a,p)=>a+(+p.amount||0),0);
-    const unlistedCount=_statUnlisted.length;
-    const unlistedAmount=_statUnlisted.reduce((a,s)=>a+_unlAmt(s),0);
-    _updatePayFilterStat(listedCount+unlistedCount, listedAmount+unlistedAmount, 'سجل');
-    // ── عدد السجلات اللي عليها "متبقي" فعلي + إجمالي هذا المتبقي، على نفس السجلات الظاهرة (بدون المستبعدين) ──
-    let remainingCount=0, remainingAmount=0;
+    // الإخوة يُحسبون كفرد واحد (نفس قاعدة الكروت العلوية): أول أخ في المجموعة هو اللي يتحسب
+    const _once=()=>{ const seen=new Set(); return sid=>{ const g=_getSiblingGroupId(sid); if(!g) return true; if(seen.has(g)) return false; seen.add(g); return true; }; };
+    const _onceA=_once(), _onceB=_once();
+    let statCount=0, statAmount=0, remainingCount=0, remainingAmount=0;
     _statList.forEach(p=>{
-      const st=stu(p.studentId); if(!st) return;
-      if(p.status==='unpaid'){ remainingCount++; remainingAmount+=stuEffectiveFee(st); return; }
-      if(p.status==='partial'){
-        const {partialTotal}=_stuDebt(p.studentId);
-        if(partialTotal>0){ remainingCount++; remainingAmount+=partialTotal; }
-      }
+      const st=stu(p.studentId);
+      if(_onceA(p.studentId)){ statCount++; statAmount+=(+p.amount||0); }
+      if(!st) return;
+      let rem=0;
+      if(p.status==='unpaid') rem=stuEffectiveFee(st);
+      else if(p.status==='partial'){ const {partialTotal}=_stuDebt(p.studentId); rem=partialTotal; }
+      if(rem>0 && _onceB(p.studentId)){ remainingCount++; remainingAmount+=rem; }
     });
-    if(showUnlisted){ remainingCount+=_statUnlisted.length; remainingAmount+=_statUnlisted.reduce((a,s)=>a+_unlAmt(s),0); }
+    _statUnlisted.forEach(st=>{
+      const a=_unlAmt(st);
+      if(_onceA(st.id)){ statCount++; statAmount+=a; }
+      if(_onceB(st.id)){ remainingCount++; remainingAmount+=a; }
+    });
+    _updatePayFilterStat(statCount, statAmount, 'سجل');
     _updatePayRemainingStat(remainingCount, remainingAmount);
   }
 
@@ -10056,7 +10155,12 @@ function _showInvDetails(code){
     </div>`;
   openModal('inv-details-modal');
 }
-function addPayment(){ const sid=document.getElementById('p-st').value, amt=+document.getElementById('p-amt').value; if(!sid||!amt){toast('أكمل البيانات','e');return;} const s=stu(sid); const finalAmt=document.body.dataset.role==='supervisor'?(s?stuEffectiveFee(s):amt):amt; const pMonth=document.getElementById('p-month').value, pStatus=document.getElementById('p-status').value; DB.payments.push({id:nid('p'),studentId:sid,amount:finalAmt,month:pMonth,date:document.getElementById('p-date').value,status:pStatus,note:document.getElementById('p-note').value}); pushNotif(sid,'payment','💳','دفعة جديدة',`تم تسجيل دفعة بقيمة ${fmtM(finalAmt)} لشهر ${pMonth}${pStatus==='paid'?' (مسددة)':''}`); save(); closeModal('add-payment-modal'); renderPayments(); toast('✅ تم تسجيل الدفعة'); }
+/** المشرف: عرض وبحث فقط في المدفوعات — لا إضافة ولا تعديل ولا حذف (حماية داخل الدوال نفسها بجانب إخفاء الأزرار) */
+function _supBlockPay(what){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف '+(what||'بتعديل المدفوعات')+' — عرض وبحث فقط','e'); return true; }
+  return false;
+}
+function addPayment(){ if(_supBlockPay('بإضافة دفعات')) return; const sid=document.getElementById('p-st').value, amt=+document.getElementById('p-amt').value; if(!sid||!amt){toast('أكمل البيانات','e');return;} const s=stu(sid); const finalAmt=document.body.dataset.role==='supervisor'?(s?stuEffectiveFee(s):amt):amt; const pMonth=document.getElementById('p-month').value, pStatus=document.getElementById('p-status').value; DB.payments.push({id:nid('p'),studentId:sid,amount:finalAmt,month:pMonth,date:document.getElementById('p-date').value,status:pStatus,note:document.getElementById('p-note').value}); pushNotif(sid,'payment','💳','دفعة جديدة',`تم تسجيل دفعة بقيمة ${fmtM(finalAmt)} لشهر ${pMonth}${pStatus==='paid'?' (مسددة)':''}`); save(); closeModal('add-payment-modal'); renderPayments(); toast('✅ تم تسجيل الدفعة'); }
 function openPayInvoice(pid){
   // View/print receipt only — does NOT edit
   const p=DB.payments.find(x=>x.id===pid); if(!p)return;
@@ -10070,7 +10174,7 @@ function openEditPayModal(pid){
   openEditPaysForStudent(p.studentId);
 }
 
-function _settlePartialPay(pid,sid,remaining){
+function _settlePartialPay(pid,sid,remaining){ if(_supBlockPay('بتسوية الدفعات')) return;
   const p=DB.payments.find(x=>x.id===pid);
   const s=stu(sid);
   if(!p||!s)return;
@@ -10123,7 +10227,7 @@ function _settlePartialPay(pid,sid,remaining){
     </div>`;
 }
 
-function _executeSettle(pid,sid,remaining){
+function _executeSettle(pid,sid,remaining){ if(_supBlockPay('بتسوية الدفعات')) return;
   const settleAmt=+document.getElementById('settle-amt').value||0;
   if(!settleAmt||settleAmt<=0){toast('أدخل مبلغاً صحيحاً','e');return;}
   if(settleAmt>remaining){toast(`المبلغ لا يتجاوز المتبقي (${fmtM(remaining)})`,'e');return;}
@@ -10485,7 +10589,7 @@ function _printStuAttPDF(sid){
 function openEditPaysForStudent(sid){
   // ── إعادة عنوان النافذة الأصلي ──
   const mttEl=document.querySelector('#edit-pays-list-modal .mtt');
-  if(mttEl) mttEl.innerHTML=`✏️ تعديل دفعات الطالب <button class="mc-btn" onclick="closeModal('edit-pays-list-modal')">✕</button>`;
+  if(mttEl) mttEl.innerHTML=`${document.body.dataset.role==='supervisor'?'👁️ مدفوعات الطالب (عرض فقط)':'✏️ تعديل دفعات الطالب'} <button class="mc-btn" onclick="closeModal('edit-pays-list-modal')">✕</button>`;
   const s=stu(sid); if(!s)return;
   const pays=DB.payments.filter(x=>x.studentId===sid).sort((a,b)=>new Date(b.date||b.month||0)-new Date(a.date||a.month||0));
   const totalPaid=pays.filter(x=>x.status==='paid'||x.status==='partial').reduce((a,b)=>a+b.amount,0);
@@ -10514,6 +10618,24 @@ function openEditPaysForStudent(sid){
         ${(()=>{
           const unpaidMonths=getUnpaidMonthsSince(sid);
           if(!unpaidMonths.length) return '';
+          if(document.body.dataset.role==='supervisor'){
+            const infos=unpaidMonths.map(m=>({m,di:monthDebtInfo(sid,m)}));
+            const totalDebt=infos.reduce((a,x)=>a+x.di.remaining,0);
+            return `
+          <div style="position:relative;">
+            <button class="btn btn-sm" style="background:rgba(255,77,109,.12);color:var(--red);border:1px solid rgba(255,77,109,.3);" onclick="_toggleOverdueDropdown('${sid}')">⚠️ مديونيات سابقة (${unpaidMonths.length}) — ${fmtM(totalDebt)}</button>
+            <div id="overdue-dropdown" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:260px;max-height:300px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rs);box-shadow:0 8px 28px rgba(0,0,0,.35);">
+              ${infos.map(({m,di})=>`
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;">
+                <span>${monthLabelAr(m)}</span>
+                ${di.partial
+                  ?`<span style="color:var(--amber);font-size:10.5px;font-weight:700;">🔶 متبقي: ${fmtM(di.remaining)} <span style="color:var(--text3);font-weight:500;">(دفع ${fmtM(di.paid)})</span></span>`
+                  :`<span style="color:var(--red);font-size:10.5px;font-weight:700;">⏳ غير مسدد — ${fmtM(di.fee)}</span>`}
+              </div>`).join('')}
+              <div style="display:flex;justify-content:space-between;padding:9px 12px;font-size:12px;font-weight:800;background:rgba(255,77,109,.07);"><span>إجمالي المتأخر</span><span style="color:var(--red);">${fmtM(totalDebt)}</span></div>
+            </div>
+          </div>`;
+          }
           return `
           <div style="position:relative;">
             <button class="btn btn-sm" style="background:rgba(255,77,109,.12);color:var(--red);border:1px solid rgba(255,77,109,.3);" onclick="_toggleOverdueDropdown('${sid}')">⚠️ مديونيات سابقة (${unpaidMonths.length})</button>
@@ -10530,7 +10652,7 @@ function openEditPaysForStudent(sid){
             </div>
           </div>`;
         })()}
-        <button class="btn btn-success btn-sm" onclick="showInlineNewPay('${sid}')">➕ دفعة جديدة</button>
+        ${document.body.dataset.role==='supervisor'?'':`<button class="btn btn-success btn-sm" onclick="showInlineNewPay('${sid}')">➕ دفعة جديدة</button>`}
       </div>
     </div>
 
@@ -10567,10 +10689,7 @@ function openEditPaysForStudent(sid){
           <!-- ① الأزرار — يسار -->
           <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
             ${isSupervisor
-              ?`<button disabled title="حذف — غير مسموح للمشرف"
-                  style="width:30px;height:30px;border-radius:7px;background:rgba(120,120,120,.07);
-                  border:1px solid rgba(120,120,120,.15);color:var(--text3);font-size:13px;
-                  cursor:not-allowed;opacity:.4;display:flex;align-items:center;justify-content:center;">🗑</button>`
+              ?''
               :`<button title="حذف" onclick="if(confirm('حذف هذه الدفعة؟')){delPayment('${p.id}');openEditPaysForStudent('${sid}');}"
                   style="width:30px;height:30px;border-radius:7px;background:rgba(255,77,109,.12);
                   border:1px solid rgba(255,77,109,.25);color:var(--red);font-size:13px;cursor:pointer;
@@ -10583,11 +10702,11 @@ function openEditPaysForStudent(sid){
                 style="width:30px;height:30px;border-radius:7px;background:rgba(245,166,35,.12);
                 border:1px solid rgba(245,166,35,.25);color:#f5a623;font-size:13px;cursor:pointer;
                 display:flex;align-items:center;justify-content:center;">🖨️</button>
-            <button title="تعديل" onclick="showInlineEditPay('${p.id}','${sid}')"
+            ${isSupervisor?'':`<button title="تعديل" onclick="showInlineEditPay('${p.id}','${sid}')"
                 style="width:30px;height:30px;border-radius:7px;background:rgba(79,124,255,.12);
                 border:1px solid rgba(79,124,255,.25);color:var(--accent);font-size:13px;cursor:pointer;
-                display:flex;align-items:center;justify-content:center;">✏️</button>
-            ${p.status==='partial'&&remaining>0?`<button title="تسوية الباقي" onclick="_settlePartialPay('${p.id}','${sid}',${remaining})"
+                display:flex;align-items:center;justify-content:center;">✏️</button>`}
+            ${!isSupervisor&&p.status==='partial'&&remaining>0?`<button title="تسوية الباقي" onclick="_settlePartialPay('${p.id}','${sid}',${remaining})"
                 style="height:30px;padding:0 8px;border-radius:7px;
                 background:linear-gradient(135deg,rgba(245,166,35,.22),rgba(245,166,35,.1));
                 border:1px solid rgba(245,166,35,.55);color:#e09010;font-size:11px;
@@ -10620,7 +10739,7 @@ function openEditPaysForStudent(sid){
     <div class="empty" style="padding:2.5rem;">
       <div class="empty-ic" style="font-size:36px;">💸</div>
       <div>لا توجد دفعات مسجلة لهذا الطالب</div>
-      <button class="btn btn-primary" style="margin-top:1rem;" onclick="showInlineNewPay('${sid}')">➕ إضافة أول دفعة</button>
+      ${document.body.dataset.role==='supervisor'?'':`<button class="btn btn-primary" style="margin-top:1rem;" onclick="showInlineNewPay('${sid}')">➕ إضافة أول دفعة</button>`}
     </div>
     `}
 
@@ -10667,7 +10786,7 @@ document.addEventListener('click',function(e){
   }
 });
 // ── فتح نافذة دفعة جديدة مع تعبئة شهر مديونية محدد مسبقاً ──
-function _paySpecificMonth(sid,month){
+function _paySpecificMonth(sid,month){ if(_supBlockPay('بإضافة دفعات')) return;
   showInlineNewPay(sid);
   setTimeout(()=>{
     const monthInp=document.getElementById('inv-month');
@@ -10675,7 +10794,7 @@ function _paySpecificMonth(sid,month){
   },30);
 }
 
-function showInlineNewPay(sid){
+function showInlineNewPay(sid){ if(_supBlockPay('بإضافة دفعات')) return;
   const s=stu(sid); if(!s)return;
   const month=localMonth();
   _invoiceMode={type:'new',sid,_fromList:sid};
@@ -10833,7 +10952,7 @@ function _setPayDuration(type, fullFee){
   if(lbl) lbl.textContent=labelText;
 }
 
-function showInlineEditPay(pid,sid){
+function showInlineEditPay(pid,sid){ if(_supBlockPay('بتعديل الدفعات')) return;
   const p=DB.payments.find(x=>x.id===pid); if(!p)return;
   const s=stu(sid||p.studentId);
   _invoiceMode={type:'existing',pid,_fromList:p.studentId};
@@ -10897,7 +11016,7 @@ function _printSinglePay(pid){
   _buildInvoiceForm(s,p.amount,p.month,p.date,p.status,p.note,true);
   printPayReceipt();
 }
-function openPayInvoiceNew(sid){
+function openPayInvoiceNew(sid){ if(_supBlockPay('بإضافة دفعات')) return;
   // Always adds a BRAND NEW payment — never modifies existing
   const s=stu(sid); if(!s)return;
   const now=new Date(); const month=localMonth();
@@ -11088,7 +11207,7 @@ function _paySuccessFinish(){
   if(sid) setTimeout(()=>openEditPaysForStudent(sid),80);
 }
 
-function saveInvoicePay(){
+function saveInvoicePay(){ if(_supBlockPay('بإضافة أو تعديل الدفعات')) return;
   const amt=+document.getElementById('inv-amt').value||0;
   const month=document.getElementById('inv-month').value;
   const date=document.getElementById('inv-date').value;
@@ -11159,7 +11278,7 @@ function saveInvoicePay(){
     setTimeout(()=>openEditPaysForStudent(sid),150);
   }
 }
-function undoPay(pid){ if(!confirm('إلغاء التسديد وتحويله لغير مسدد؟'))return; const p=DB.payments.find(x=>x.id===pid); if(p){p.status='unpaid'; save(); renderPayments(); toast('↩ تم إلغاء التسديد','i');} }
+function undoPay(pid){ if(_supBlockPay('بإلغاء الدفعات')) return; if(!confirm('إلغاء التسديد وتحويله لغير مسدد؟'))return; const p=DB.payments.find(x=>x.id===pid); if(p){p.status='unpaid'; save(); renderPayments(); toast('↩ تم إلغاء التسديد','i');} }
 // ══════════════════════════════════════════════════════════════
 // الإخوة — تسجيل تلقائي للدفعات + استرداد أسماء المجموعة
 // ══════════════════════════════════════════════════════════════
@@ -11519,7 +11638,7 @@ function printPayReceipt(){
 </body></html>`);
   w.document.close();
 }
-function delStudentPayRecord(sid){ if(!confirm('حذف سجل هذا الطالب من المدفوعات؟'))return; DB.payments=DB.payments.filter(p=>p.studentId!==sid); save(); renderPayments(); toast('تم حذف السجل','e'); }
+function delStudentPayRecord(sid){ if(_supBlockPay('بحذف المدفوعات')) return; if(!confirm('حذف سجل هذا الطالب من المدفوعات؟'))return; DB.payments=DB.payments.filter(p=>p.studentId!==sid); save(); renderPayments(); toast('تم حذف السجل','e'); }
 function sendPayWABulk(){
   const month=localMonth();
   const list=DB.students.map(s=>{
@@ -11719,7 +11838,7 @@ function printStudentPayHistory(){
 </body></html>`);
   w.document.close();
 }
-function delPayment(pid){ if(!confirm('⚠️ هل تريد حذف هذه الدفعة نهائياً؟ لا يمكن التراجع عن هذا الإجراء.'))return; DB.payments=DB.payments.filter(p=>p.id!==pid); save(); renderPayments(); toast('تم حذف الدفعة','e'); }
+function delPayment(pid){ if(_supBlockPay('بحذف المدفوعات')) return; if(!confirm('⚠️ هل تريد حذف هذه الدفعة نهائياً؟ لا يمكن التراجع عن هذا الإجراء.'))return; DB.payments=DB.payments.filter(p=>p.id!==pid); save(); renderPayments(); toast('تم حذف الدفعة','e'); }
 
 // ================================================================
 // REVENUE
@@ -12342,6 +12461,7 @@ const _debouncedRenderStore = debounce(renderStore, 280);
  *  ولو المعلم لغى العلامتين معاً (مش دافع ومش مستلم) يتم حذف العملية بدل ما تفضل سجل فاضي بلا فايدة. */
 /** يحدد "استلام" و"دفع" معاً لكل طالب في القائمة الحالية (حسب فلاتر الصف/المجموعة/الاسم) له عملية بيع مسجّلة للمنتج المختار */
 function quickCompleteTaken(){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف باستكمال الاستلام والدفع','e'); return; }
   const fProd=document.getElementById('sales-filter-product')?.value||'';
   const p=DB.products.find(x=>x.id===fProd); if(!p) return;
   const ids=new Set(_quickRosterList().map(s=>s.id));
@@ -12510,6 +12630,7 @@ function renderStore(){
       const rp=DB.products.find(x=>x.id===fProd);
       const rosterStudents=_quickRosterList();
       document.getElementById('store-quick-roster-title').textContent=`⚡ تسجيل سريع — ${rp?rp.icon+' '+rp.name:''} (${rosterStudents.length} طالب)`;
+      { const _qc=document.getElementById('quick-complete-btn'); if(_qc) _qc.style.display=document.body.dataset.role==='supervisor'?'none':''; }
       document.getElementById('store-quick-roster-list').innerHTML=rosterStudents.map(s=>{
         const _qs=_quickRosterState(s.id,fProd);
         const rPaid=_qs.paid, rRecv=_qs.recv;
@@ -15384,7 +15505,7 @@ function exportPortalData(){
   a.click();
   toast('🌐 تم تصدير بيانات البوابة — ارفع الملف على GitHub');
 }
-function importJSON(e){ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=async ev=>{ try{ DB=JSON.parse(ev.target.result); DB.__lastSave=Date.now(); if(_fbSyncPending){clearTimeout(_fbSyncPending);_fbSyncPending=null;} _idbSet('etp3',DB).catch(()=>{}); await _saveFlush(); location.reload(); }catch(err){toast('خطأ في الملف','e');} }; r.readAsText(f); }
+function importJSON(e){ if(_viewOnly){ toast('👁️ غير متاح في وضع العرض فقط','e'); return; } const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=async ev=>{ try{ DB=JSON.parse(ev.target.result); DB.__lastSave=Date.now(); if(_fbSyncPending){clearTimeout(_fbSyncPending);_fbSyncPending=null;} _idbSet('etp3',DB).catch(()=>{}); await _saveFlush(); location.reload(); }catch(err){toast('خطأ في الملف','e');} }; r.readAsText(f); }
 // ── توليد كود داخلي فريد تماماً لطالب جديد (يتأكد من عدم تعارضه مع أي id أو باركود موجود حالياً) ──
 function _genUniqueStudentId(prefix='STU'){
   let id;
@@ -15567,6 +15688,7 @@ function deleteSelected(){
   save(); closeModal('selective-delete-modal'); renderSelectiveDelete(); toast(`✅ تم نقل ${ids.length} طالب لسلة المحذوفات`,'i');
 }
 function deleteAllData(){
+  if(_viewOnly){ toast('👁️ غير متاح في وضع العرض فقط','e'); return; }
   if(!confirm('تأكيد حذف كل البيانات نهائياً؟ لا يمكن التراجع!'))return;
   if(_fbDB){
     _fbDB.ref('schoolData').remove().then(()=>location.reload()).catch(()=>location.reload());
@@ -17687,6 +17809,7 @@ let toastT; function toast(msg,type='s'){ const el=document.getElementById('toas
 // ================================================================
 function renderSpecialPays(){
   if(!DB.specialPays) DB.specialPays=[];
+  { const _w=document.getElementById('sp-add-dropdown-wrap'); if(_w) _w.style.display=document.body.dataset.role==='supervisor'?'none':''; }
   const container=document.getElementById('specialpays-inline-body');
   if(!container)return;
   if(!DB.specialPays.length){
@@ -17727,6 +17850,7 @@ function renderSpecialPays(){
     </tr>`;
   }).join('');
   container.innerHTML=`<table><thead><tr><th>الطالب</th><th>الكود</th><th>النوع</th><th>المبلغ الخاص</th><th>التاريخ</th><th style="text-align:center;">إجراءات</th></tr></thead><tbody>${rows}</tbody></table>`;
+  if(document.body.dataset.role==='supervisor'){ container.querySelectorAll('td button').forEach(b=>b.remove()); const w=document.getElementById('sp-add-dropdown-wrap'); if(w) w.style.display='none'; }
 }
 
 function toggleSpDropdown(){
@@ -17857,7 +17981,7 @@ function _spSelectFromSearch(sid){
   document.getElementById('sp-amount').focus();
   document.getElementById('sp-amount').select();
 }
-function addSpecialPay(){
+function addSpecialPay(){ if(_supBlockPay('بإدارة حالات الدفع الخاصة')) return;
   if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   const code=document.getElementById('sp-code').value.trim();
   const amountRaw=document.getElementById('sp-amount').value;
@@ -17890,7 +18014,7 @@ function addSpecialPay(){
 }
 
 
-function editSpecialPay(idx){
+function editSpecialPay(idx){ if(_supBlockPay('بإدارة حالات الدفع الخاصة')) return;
   if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   const sp=DB.specialPays?.[idx]; if(!sp){ toast('لم يتم العثور على السجل','e'); return; }
   openSpecialPayModal(sp.type);
@@ -17902,7 +18026,7 @@ function editSpecialPay(idx){
 // ══════════════════════════════════════════════
 let _sibStudents = []; // الطلاب المضافون مؤقتاً في المودال
 
-function openSiblingsModal(){
+function openSiblingsModal(){ if(_supBlockPay('بإدارة حالات الدفع الخاصة')) return;
   if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   _closeSpDropdown();
   _sibStudents = [];
@@ -18043,7 +18167,7 @@ function _sibUpdateAmountPreview(){
   }
 }
 
-function saveSiblingsGroup(){
+function saveSiblingsGroup(){ if(_supBlockPay('بإدارة حالات الدفع الخاصة')) return;
   if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   const amtRaw = document.getElementById('sib-amount')?.value;
   const amount = amtRaw===''||amtRaw==null ? null : +amtRaw;
@@ -18086,7 +18210,7 @@ function saveSiblingsGroup(){
   toast(`✅ ${msg.join(' — ')} طالب بمبلغ إخوة ${Number(amount).toLocaleString()} جنيه`);
 }
 
-function delSpecialPay(idx){
+function delSpecialPay(idx){ if(_supBlockPay('بإدارة حالات الدفع الخاصة')) return;
   if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإدارة حالات الدفع الخاصة','e'); return; }
   if(!confirm('حذف هذه الحالة الخاصة؟'))return;
   DB.specialPays.splice(idx,1);
@@ -18921,9 +19045,10 @@ updateRetakeBadge();
   }
   _restoreImages();
   _seedDemoDataIfEmpty();
-  if(_dedupeRetakeRequests()) save();
+  if(_dedupeRetakeRequests() && !_viewOnly) save();
   _invalidateCache();
   _bootUI();
+  _applyViewOnlyUI();
   const bl=document.getElementById('boot-loading');
   if(bl) bl.remove();
   // ابدأ الاستماع للتغييرات الفورية من أي جهاز
@@ -19024,6 +19149,7 @@ function _updateCountdownBar(){
 
 // ── الفحص الدوري الموحّد ──
 function _absWACheck(){
+  if(_viewOnly) return;   // 👁️ جهاز عرض فقط: لا إغلاق تلقائي للحضور
   // الإغلاق التلقائي شغال في أي صفحة مفتوحة — بيفحص كل المجموعات مش بس المجموعة المختارة في صفحة الحضور
   if(typeof DB==='undefined' || !DB || !DB.groups || !DB.students || !DB.attendance) return;
   const page = document.getElementById('page-attendance');
