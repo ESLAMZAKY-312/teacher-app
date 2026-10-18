@@ -1137,7 +1137,7 @@ async function _loadFromFirebase(){
           <input class="fi" id="pay-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:200px;" oninput="_debouncedRenderPayments()" onkeydown="if(event.key==='Enter'){_payBarcodeScan();}" autocomplete="off">
           <select class="fs" style="width:130px" id="pay-cls-f" onchange="renderPayments()"><option value="">كل الصفوف</option></select>
           <select class="fs" style="width:130px" id="pay-grp-f" onchange="renderPayments()"><option value="">كل المجموعات</option></select>
-          <select class="fs" style="width:120px" id="pay-st-f" onchange="_onPayStatusChange()"><option value="">الحالة</option><option value="paid">مسدد</option><option value="unpaid">غير مسدد</option><option value="partial">جزئي</option><option value="curdebt">🕒 مديونيات حالية</option><option value="overdue">⚠️ مديونيات سابقة</option></select>
+          <select class="fs" style="width:120px" id="pay-st-f" onchange="_onPayStatusChange()"><option value="">الحالة</option><option value="paid">مسدد</option><option value="unpaid">غير مسدد</option><option value="partial">جزئي</option><option value="curdebt">🕒 مديونيات حالية</option><option value="overdue">⚠️ مديونيات سابقة</option><option value="excluded">🚫 مديونيات المستبعدين</option></select>
           <input class="fi" type="month" id="pay-month-f" style="width:145px;" oninput="_debouncedRenderPayments()" title="تصفية حسب الشهر">
           <input class="fi" id="pay-inv-code" placeholder="🔑 التأكد من الفاتورة..." style="width:200px;" oninput="_verifyInvCode(this.value.trim())" onpaste="setTimeout(()=>_verifyInvCode(document.getElementById('pay-inv-code').value.trim()),50)" onchange="_verifyInvCode(this.value.trim())" onkeydown="if(event.key==='Enter')_showInvDetails(this.value.trim())" title="ابحث بكود الفاتورة — اضغط Enter لعرض التفاصيل">
           <button class="btn btn-wa btn-sm" onclick="sendPayWABulkSequential()">📱 تذكير واتساب (للجميع)</button><button class="btn btn-tg btn-sm" onclick="sendPayTGBulk()">✈️ تذكير تيليجرام (للجميع)</button>
@@ -3871,6 +3871,37 @@ function stuUnpaidAmount(s){
   return fee;
 }
 // ── حالة مديونية شهر معيّن لطالب: مسدد كامل → 0 | جزئي → الرسوم − مجموع الدفعات الجزئية | لا شيء → الرسوم كاملة ──
+// ── مديونية شهر لطالب مستبعد: الشهر = 8 حصص، فالمستحق = (قيمة الشهر ÷ 8) × عدد الحصص التي حضرها فعلاً في هذا الشهر
+// (حاضر/متأخر/استثنائي/مستأذن بعذر) — والمتبقي = المستحق − ما دفعه. لو الشهر مسدد بالكامل فالمتبقي صفر ──
+const EXCL_SESSIONS_PER_MONTH = 8;
+function excludedMonthDebtInfo(sid,m){
+  const s=stu(sid); const fee=stuEffectiveFee(s);
+  let attended=0;
+  Object.keys(DB.attendance).forEach(d=>{
+    if(d.slice(0,7)!==m) return;
+    const v=DB.attendance[d][sid];
+    if(v==='present'||v==='late'||v==='exceptional'||v==='excused') attended++; // الاستئذان/الغياب بعذر يُحتسب حصة حضور
+  });
+  attended=Math.min(attended,EXCL_SESSIONS_PER_MONTH);
+  const due=Math.round(fee*attended/EXCL_SESSIONS_PER_MONTH);
+  const pays=DB.payments.filter(p=>p.studentId===sid&&p.month===m);
+  if(pays.some(p=>p.status==='paid')) return {remaining:0,paid:due,due,fee,attended,partial:false};
+  const paid=pays.filter(p=>p.status==='partial').reduce((a,p)=>a+(+p.amount||0),0);
+  return {remaining:Math.max(0,due-paid),paid,due,fee,attended,partial:paid>0};
+}
+// الشهور التي عليها مديونية فعلية للطالب المستبعد (من تاريخ الالتحاق حتى الشهر الحالي)
+function excludedUnpaidMonths(sid){
+  const s=stu(sid); if(!s||!s.date) return [];
+  const st=new Date(s.date); if(isNaN(st.getTime())) return [];
+  const now=new Date(); const out=[];
+  let y=st.getFullYear(), mo=st.getMonth();
+  while(y<now.getFullYear()||(y===now.getFullYear()&&mo<=now.getMonth())){
+    const m=y+'-'+String(mo+1).padStart(2,'0');
+    if(excludedMonthDebtInfo(sid,m).remaining>0) out.push(m);
+    mo++; if(mo>11){ mo=0; y++; }
+  }
+  return out;
+}
 function monthDebtInfo(sid,m){
   const s=stu(sid); const fee=stuEffectiveFee(s);
   const pays=DB.payments.filter(p=>p.studentId===sid&&p.month===m);
@@ -9806,7 +9837,7 @@ function _payBarcodeScan(){
 function _onPayStatusChange(){
   const sf=document.getElementById('pay-st-f')?.value||'';
   const mfEl=document.getElementById('pay-month-f');
-  if(mfEl) mfEl.title = (sf==='overdue'||sf==='curdebt') ? 'غير متاح عند اختيار "مديونيات سابقة/حالية" — الشهر محدد تلقائياً' : 'تصفية حسب الشهر';
+  if(mfEl) mfEl.title = (sf==='overdue'||sf==='curdebt'||sf==='excluded') ? 'غير متاح عند اختيار "مديونيات سابقة/حالية/المستبعدين" — الشهر محدد تلقائياً' : 'تصفية حسب الشهر';
   renderPayments();
 }
 
@@ -9829,7 +9860,7 @@ function renderPayments(){
   if(_mfEl&&!_mfEl.value){ const _n=new Date(); _mfEl.value=localMonth(); }
   const cf=document.getElementById('pay-cls-f')?.value||'', gf=document.getElementById('pay-grp-f')?.value||'', sf=document.getElementById('pay-st-f')?.value||'', qf=(document.getElementById('pay-search')?.value||'').trim().toLowerCase(), mf=document.getElementById('pay-month-f')?.value||'';
   // ── مزامنة حالة تعطيل خانة الشهر مع خانة الحالة (احتياطاً لأي استدعاء مباشر لـ renderPayments) ──
-  if(_mfEl){ _mfEl.disabled = sf==='overdue'||sf==='curdebt'; _mfEl.style.opacity = (sf==='overdue'||sf==='curdebt')?'.5':''; _mfEl.style.cursor = (sf==='overdue'||sf==='curdebt')?'not-allowed':''; }
+  if(_mfEl){ const _dm = sf==='overdue'||sf==='curdebt'||sf==='excluded'; _mfEl.disabled = _dm; _mfEl.style.opacity = _dm?'.5':''; _mfEl.style.cursor = _dm?'not-allowed':''; }
   // ── مسح الباركود: لو النص المكتوب يطابق باركود طالب بالضبط، افتح سجل مدفوعاته تلقائياً ──
   if(!qf) _lastPayBarcodeOpened='';
   if(qf && _tryOpenPayHistoryByBarcode(qf)) return;
@@ -9867,8 +9898,9 @@ function renderPayments(){
   // ⚠️ حالتان خاصتان: "مديونيات سابقة" (كل الشهور غير المسددة منذ الالتحاق
   // وحتى الآن بدون الشهر الحالي) و"مديونيات حالية" (الشهر الحالي فقط لو غير مسدد)
   // ══════════════════════════════════════════════════════════
-  if(sf==='overdue'||sf==='curdebt'){
-    let candidates=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id));
+  if(sf==='overdue'||sf==='curdebt'||sf==='excluded'){
+    // مديونيات المستبعدين: الطلاب المستبعدين فقط (غياب 3 أيام متتالية)، وبقية الفلاتر تعمل بشكل طبيعي
+    let candidates=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&(sf==='excluded'?isStuFinExcluded(s.id):!isStuFinExcluded(s.id))&&!isStuExempt(s.id));
     if(qf){
       candidates=candidates.filter(s=>{
         const nm=(s.fname+' '+s.lname).toLowerCase();
@@ -9879,25 +9911,27 @@ function renderPayments(){
     const _curM=localMonth();
     const rows=[];
     candidates.forEach(s=>{
-      let unpaidMonths=getUnpaidMonthsSince(s.id);
-      unpaidMonths = sf==='overdue' ? unpaidMonths.filter(m=>m!==_curM) : unpaidMonths.filter(m=>m===_curM);
+      let unpaidMonths = sf==='excluded' ? excludedUnpaidMonths(s.id) : getUnpaidMonthsSince(s.id);
+      // المستبعدين: كل الشهور غير المسددة منذ الالتحاق وحتى الشهر الحالي (بدون أي تصفية)
+      if(sf==='overdue') unpaidMonths = unpaidMonths.filter(m=>m!==_curM);
+      else if(sf==='curdebt') unpaidMonths = unpaidMonths.filter(m=>m===_curM);
       if(!unpaidMonths.length) return;
       rows.push({s,unpaidMonths});
     });
     if(!rows.length){
       document.getElementById('pay-tbody').innerHTML=`<tr><td colspan="6" style="text-align:center;padding:3rem;color:var(--text3);">
         <div style="font-size:40px;margin-bottom:.75rem;">✅</div>
-        <div style="font-size:13px;font-weight:600;">${sf==='overdue'?'لا توجد مديونيات سابقة لهذا الاختيار':'لا توجد مديونيات للشهر الحالي لهذا الاختيار'}</div>
+        <div style="font-size:13px;font-weight:600;">${sf==='overdue'?'لا توجد مديونيات سابقة لهذا الاختيار':sf==='excluded'?'لا توجد مديونيات للطلاب المستبعدين':'لا توجد مديونيات للشهر الحالي لهذا الاختيار'}</div>
       </td></tr>`;
       _updatePayFilterStat(0,0);
       _updatePayRemainingStat(0,0);
       return;
     }
-    const _rowDebt=({s,unpaidMonths})=>unpaidMonths.reduce((a,m)=>a+monthDebtInfo(s.id,m).remaining,0);
+    const _rowDebt=({s,unpaidMonths})=>unpaidMonths.reduce((a,m)=>a+(sf==='excluded'?excludedMonthDebtInfo(s.id,m):monthDebtInfo(s.id,m)).remaining,0);
     // الإخوة يُحسبون كفرد واحد في الإحصائيات (نفس قاعدة الكروت العلوية)
     const _keepIds=new Set(_dedupeSiblingsForTotals(rows.map(r=>r.s)).map(x=>x.id));
     const _statRows=rows.filter(r=>_keepIds.has(r.s.id));
-    _updatePayFilterStat(_statRows.length, _statRows.reduce((a,r)=>a+_rowDebt(r),0), 'طالب مديون');
+    _updatePayFilterStat(_statRows.length, _statRows.reduce((a,r)=>a+_rowDebt(r),0), sf==='excluded'?'طالب مستبعد مديون':'طالب مديون');
     _updatePayRemainingStat(_statRows.length, _statRows.reduce((a,r)=>a+_rowDebt(r),0));
     document.getElementById('pay-tbody').innerHTML=rows.map(({s,unpaidMonths})=>{
       const fee=stuEffectiveFee(s);
@@ -9909,13 +9943,13 @@ function renderPayments(){
             <button class="btn btn-wa btn-xs" onclick="event.stopPropagation();sendPayWARem('${s.id}')">📱</button>
           </div>
           <div style="margin-top:5px;padding:5px 9px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);border-radius:var(--rs);font-size:10px;display:flex;flex-wrap:wrap;gap:5px;">
-            ${unpaidMonths.map(m=>{ const di=monthDebtInfo(s.id,m); return di.partial?`<span style="background:rgba(245,166,35,.15);padding:2px 7px;border-radius:6px;color:var(--amber);font-weight:700;">${monthLabelAr(m)} — متبقي ${fmtM(di.remaining)}</span>`:`<span style="background:rgba(255,77,109,.15);padding:2px 7px;border-radius:6px;color:var(--red);font-weight:700;">${monthLabelAr(m)}</span>`; }).join('')}
+            ${unpaidMonths.map(m=>{ if(sf==='excluded'){ const ex=excludedMonthDebtInfo(s.id,m); return `<span style="background:rgba(255,77,109,.15);padding:2px 7px;border-radius:6px;color:var(--red);font-weight:700;">${monthLabelAr(m)} — حضر ${ex.attended}/${EXCL_SESSIONS_PER_MONTH} حصص — ${ex.partial?'متبقي '+fmtM(ex.remaining)+' (من '+fmtM(ex.due)+')':fmtM(ex.remaining)}</span>`; } const di=monthDebtInfo(s.id,m); return di.partial?`<span style="background:rgba(245,166,35,.15);padding:2px 7px;border-radius:6px;color:var(--amber);font-weight:700;">${monthLabelAr(m)} — متبقي ${fmtM(di.remaining)}</span>`:`<span style="background:rgba(255,77,109,.15);padding:2px 7px;border-radius:6px;color:var(--red);font-weight:700;">${monthLabelAr(m)}</span>`; }).join('')}
           </div>
         </div></div></td>
         <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td>
         <td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
         <td style="font-weight:800;color:var(--red);">${fmtM(totalDebt)}</td>
-        <td><span class="badge bg-r">${sf==='overdue'?'⚠️ مديونية سابقة':'🕒 مديونية حالية'}</span></td>
+        <td><span class="badge bg-r">${sf==='overdue'?'⚠️ مديونية سابقة':sf==='excluded'?'🚫 مستبعد — مديونية':'🕒 مديونية حالية'}</span></td>
         <td></td>
       </tr>`;
     }).join('');
