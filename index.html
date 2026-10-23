@@ -157,6 +157,13 @@ th{padding:8px 12px;text-align:right;font-size:10.5px;font-weight:700;color:var(
 td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:12.5px;vertical-align:middle;}
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:rgba(255,255,255,.018);}
+/* جدول الطلاب: رؤوس أعمدة أوضح ومثبّتة أعلى الشاشة أثناء التمرير للأسفل
+   (overflow:clip بدل hidden عشان التثبيت sticky يشتغل مع سكرول الصفحة مع الحفاظ على الحواف المستديرة) */
+.tc.tc-stu{overflow:visible;overflow:clip;}
+/* top سالب = padding الحاوية (.content 1.2rem) — عشان الرأس يلزق في أعلى منطقة السكرول فعلاً ومايظهرش الصفوف فوقه */
+.tc.tc-stu thead th{position:sticky;top:-1.2rem;z-index:6;background:var(--bg3);color:var(--text);font-size:12.5px;font-weight:800;letter-spacing:0;text-transform:none;white-space:nowrap;padding:13px 12px;border-bottom:2px solid var(--accent);box-shadow:0 5px 12px -4px rgba(0,0,0,.4);}
+.tc.tc-stu thead th:first-child{border-top-right-radius:var(--r);}
+.tc.tc-stu thead th:last-child{border-top-left-radius:var(--r);}
 /* FORMS */
 .fg{margin-bottom:.85rem;}
 .fl{font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;display:block;letter-spacing:.04em;}
@@ -578,6 +585,14 @@ async function _loadFromFirebase(){
   return null;
 }
 </script>
+<style id="grp-dnd-style">
+.grp-drag-h{width:34px;text-align:center;cursor:grab;color:var(--text3);font-size:17px;line-height:1;user-select:none;-webkit-user-select:none;touch-action:none;letter-spacing:-2px}
+.grp-drag-h:hover{color:var(--accent)}
+tr.grp-dragging{opacity:.45;background:rgba(79,124,255,.12)}
+tr.grp-drop-before>td{box-shadow:inset 0 3px 0 var(--accent)}
+tr.grp-drop-after>td{box-shadow:inset 0 -3px 0 var(--accent)}
+body.grp-drag-active,body.grp-drag-active *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
+</style>
 </head>
 <body>
 
@@ -766,7 +781,7 @@ async function _loadFromFirebase(){
     <button class="btn btn-success btn-sm" onclick="openExportModal('excel')" style="gap:5px;">تصدير Excel</button>
     <button class="btn btn-wa btn-sm" onclick="sendSelectedStudentsCredentials()" style="gap:5px;">📤 إرسال بيانات الطالب</button>
   </div>
-  <div class="tc">
+  <div class="tc tc-stu">
     <table>
       <thead><tr>
         <th style="width:36px;text-align:center;"><input type="checkbox" id="stu-check-all" onchange="toggleAllStudents(this.checked)" style="cursor:pointer;"></th>
@@ -978,6 +993,7 @@ async function _loadFromFirebase(){
           <input class="fi" id="att-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:100%;" oninput="_attSearchInput()" onkeydown="if(event.key==='Enter'){_attSearchEnter();}" onblur="setTimeout(()=>{const b=document.getElementById('att-search-results'); if(b) b.style.display='none';},200)" autocomplete="off">
           <div id="att-search-results" style="display:none;position:absolute;top:100%;right:0;width:360px;max-width:calc(100vw - 40px);background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);margin-top:4px;max-height:70vh;overflow-x:hidden;overflow-y:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4);"></div>
         </div>
+        <button class="btn btn-sm" id="att-holiday-btn" onclick="toggleHolidayDay()" title="اعتبار اليوم المختار أجازة لجميع الطلاب (لا حضور ولا غياب)" style="border:1px solid rgba(0,188,212,.45);color:#00bcd4;background:rgba(0,188,212,.1);">🏖️ أجازة</button>
         <div id="auto-close-countdown" style="display:none;align-items:center;gap:6px;background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.3);border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:var(--red);">
           <span>⏱</span><span id="acc-text">إغلاق تلقائي خلال —</span>
         </div>
@@ -988,6 +1004,7 @@ async function _loadFromFirebase(){
         <span class="badge bg-r" id="att-a">غائب: 0</span>
         <span class="badge bg-a" id="att-l">متأخر: 0</span>
         <span class="badge" id="att-ex" style="background:rgba(124,92,255,.15);color:#7c5cff;">مستأذن: 0</span>
+        <span class="badge" id="att-hol" style="display:none;background:rgba(0,188,212,.15);color:#00bcd4;">أجازة: 0</span>
       </div>
       <div id="att-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:9px;"></div>
     </div>
@@ -3576,7 +3593,7 @@ function _defaultDB(){
       grpInvite:'مرحباً {اسم_ولي_الأمر}،\nتم تسجيل {اسم_الطالب} في مجموعة {المجموعة} مع {اسم_المعلم}.\nانضم/ي لمجموعة واتساب الخاصة بالمجموعة من هنا:\n{رابط_مجموعة_واتساب}\n\n📱 {رقم_المعلم}'
     },
     subjects:[],
-    classes:[],groups:[],students:[],attendance:{},grades:[],exams:[],examSessions:[],
+    classes:[],groups:[],students:[],attendance:{},holidays:{},grades:[],exams:[],examSessions:[],
     payments:[],expenses:[],products:[],sales:[],assignments:[],behaviors:[],
     points:[],rewards:[],rewardGiven:[],supervisors:[],trash:[],
     retakeRequests:[],retakePermissions:[],
@@ -3918,6 +3935,9 @@ const clsN = id => { const c=cls(id); return c?c.name:'—'; };
 const grpN = id => { const g=grp(id); return g?g.name:'—'; };
 const stuN = id => { const s=stu(id); return s?s.fname+' '+s.lname:'—'; };
 
+// ── أيام الأجازة: DB.holidays[التاريخ] = {at} + سجل حالة 'holiday' لكل طالب في DB.attendance[التاريخ].
+// الأجازة لا تُحسب حضوراً ولا غياباً ولا تكسر متتالية الغياب، وتظهر في العروض كـ "🏖️ أجازة" ──
+function isHolidayDate(d){ return !!(DB.holidays && DB.holidays[d]); }
 // ── attPct مع Cache ──
 // لا يتم احتساب أي يوم إلا لو كان ضمن الجدول الأسبوعي الفعلي لمجموعة الطالب
 // (أو كانت الحالة "استثنائي" — وده مخصص لحصص التعويض/الأيام الاستثنائية فتُحسب دائماً)
@@ -3930,7 +3950,7 @@ function attPct(sid){
   for(let i=0;i<dateKeys.length;i++){
     const d=dateKeys[i];
     const v=DB.attendance[d][sid];
-    if(v===undefined) continue;
+    if(v===undefined || v==='holiday') continue; // الأجازة لا تُحتسب
     if(s && v!=='exceptional'){
       // نحدد مجموعة الطالب *وقت* هذا اليوم بالتحديد (تدعم النقل بين المجموعات)
       const allowedDays=_grpDayNums(_grpIdOnDate(s,d));
@@ -3964,7 +3984,7 @@ function _stuAbsenceStreakInfo(sid){
   for(let i=0;i<dateKeys.length;i++){
     const d=dateKeys[i];
     const v=DB.attendance[d][sid];
-    if(v===undefined) continue;
+    if(v===undefined || v==='holiday') continue; // الأجازة لا تكسر المتتالية ولا تزيدها
     // أي تسجيل حضور فعلي (حاضر/متأخر/استثنائي) بيعيد الطالب للمنتظمين حتى لو كان في يوم خارج جدول مجموعته؛
     // التخطّي بيتم بس لتسجيلات الغياب/الاستئذان في الأيام غير المجدولة
     if(s && v!=='present' && v!=='late' && v!=='exceptional'){
@@ -4432,7 +4452,7 @@ function renderDashboard(){
 
   // Alerts
   const _last10Days=Object.keys(DB.attendance).sort().slice(-10);
-  const absents=DB.students.filter(s=>{ let c=0,mx=0; _last10Days.forEach(d=>{ if(DB.attendance[d][s.id]==='absent'){c++;mx=Math.max(mx,c);}else c=0; }); return mx>=3; });
+  const absents=DB.students.filter(s=>{ let c=0,mx=0; _last10Days.forEach(d=>{ const _v=DB.attendance[d][s.id]; if(_v==='absent'){c++;mx=Math.max(mx,c);}else if(_v!=='holiday') c=0; }); return mx>=3; });
   const alerts=[];
   if(absents.length) alerts.push(`<div style="padding:7px 11px;background:rgba(255,77,109,.07);border:1px solid rgba(255,77,109,.2);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;">⚠️ <b>${absents.length} طالب</b> غاب 3 أيام متواصلة أو أكثر</div>`);
   if(unpaidN>3) alerts.push(`<div style="padding:7px 11px;background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.2);border-radius:var(--rs);font-size:12.5px;margin-bottom:7px;">💳 <b>${unpaidN} طالب</b> لم يسدد رسوم هذا الشهر</div>`);
@@ -5307,7 +5327,7 @@ function renderPvwAttGrid(){
       // عشان يظهر عمود اليوم في الشبكة بدل ما السجل يختفي تمامًا من العرض
       return students.some(s=>{
         const st=DB.attendance[d] && DB.attendance[d][s.id];
-        return st && st!=='none';
+        return st && st!=='none' && st!=='holiday';
       });
     });
   }
@@ -6139,7 +6159,8 @@ function renderClasses(filterClsId){
       const desc = g.name || '—';
       const fee = fmtM(g.fee);
       const payPeriod = g.payPeriod || 'شهرياً';
-      return `<tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(79,124,255,.04)'" onmouseout="this.style.background=''">
+      return `<tr data-gid="${g.id}" style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='rgba(79,124,255,.04)'" onmouseout="this.style.background=''">
+        <td class="grp-drag-h" title="اسحب لإعادة ترتيب المجموعة" onpointerdown="_grpDragStart(event,'${g.id}')" onclick="event.stopPropagation()">⋮⋮</td>
         <td style="padding:10px 12px;font-weight:600;">${days}</td>
         <td style="padding:10px 12px;color:var(--text2);">${time}</td>
         <td style="padding:10px 12px;"><span class="badge bg-b" style="font-size:11px;">${desc}</span></td>
@@ -6179,6 +6200,7 @@ function renderClasses(filterClsId){
           <table style="width:100%;border-collapse:collapse;">
             <thead>
               <tr style="background:rgba(255,255,255,.025);">
+                <th style="width:34px;padding:9px 6px;" title="اسحب لإعادة الترتيب"></th>
                 <th style="padding:9px 12px;text-align:right;font-size:10.5px;font-weight:700;color:var(--text3);letter-spacing:.04em;">أيام المجموعة</th>
                 <th style="padding:9px 12px;text-align:right;font-size:10.5px;font-weight:700;color:var(--text3);letter-spacing:.04em;">وقت المجموعة</th>
                 <th style="padding:9px 12px;text-align:right;font-size:10.5px;font-weight:700;color:var(--text3);letter-spacing:.04em;">نص توضيحي</th>
@@ -6195,6 +6217,93 @@ function renderClasses(filterClsId){
       </div>` : ''}
     </div>`;
   }).join('');
+}
+
+// ── سحب وإفلات لإعادة ترتيب المجموعات داخل الصف ──────────────────
+let _gdrag=null;
+function _grpScrollParent(el){
+  let p=el.parentElement;
+  while(p && p!==document.body){
+    const o=getComputedStyle(p).overflowY;
+    if((o==='auto'||o==='scroll') && p.scrollHeight>p.clientHeight+2) return p;
+    p=p.parentElement;
+  }
+  return document.scrollingElement||document.documentElement;
+}
+function _grpDragStart(e,gid){
+  if(e.pointerType==='mouse' && e.button!==0) return;
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف بإعادة ترتيب المجموعات','e'); return; }
+  const tr=e.currentTarget.closest('tr'); if(!tr) return;
+  e.preventDefault(); e.stopPropagation();
+  _gdrag={gid,tr,tbody:tr.parentElement,target:null,after:false,y:e.clientY,raf:0,sp:_grpScrollParent(tr)};
+  tr.classList.add('grp-dragging');
+  document.body.classList.add('grp-drag-active');
+  document.addEventListener('pointermove',_grpDragMove,{passive:false});
+  document.addEventListener('pointerup',_grpDragEnd);
+  document.addEventListener('pointercancel',_grpDragCancel);
+  _grpAutoScroll();
+}
+function _grpUpdateTarget(){
+  const d=_gdrag; if(!d) return;
+  const rows=[...d.tbody.querySelectorAll('tr[data-gid]')];
+  let target=null, after=false;
+  for(const r of rows){
+    const b=r.getBoundingClientRect();
+    if(d.y<b.top+b.height/2){ target=r; after=false; break; }
+  }
+  if(!target){ target=rows[rows.length-1]; after=true; }
+  rows.forEach(r=>r.classList.remove('grp-drop-before','grp-drop-after'));
+  d.target=target; d.after=after;
+  if(target!==d.tr) target.classList.add(after?'grp-drop-after':'grp-drop-before');
+}
+function _grpDragMove(e){
+  if(!_gdrag) return;
+  e.preventDefault();
+  _gdrag.y=e.clientY;
+  _grpUpdateTarget();
+}
+function _grpAutoScroll(){
+  const d=_gdrag; if(!d) return;
+  const sp=d.sp, isDoc=(sp===document.scrollingElement||sp===document.documentElement);
+  const top=isDoc?0:sp.getBoundingClientRect().top;
+  const bottom=isDoc?window.innerHeight:sp.getBoundingClientRect().bottom;
+  const zone=60;
+  let dy=0;
+  if(d.y<top+zone) dy=-Math.ceil((top+zone-d.y)/4);
+  else if(d.y>bottom-zone) dy=Math.ceil((d.y-(bottom-zone))/4);
+  if(dy){ if(isDoc) window.scrollBy(0,dy); else sp.scrollTop+=dy; _grpUpdateTarget(); }
+  d.raf=requestAnimationFrame(_grpAutoScroll);
+}
+function _grpDragCleanup(){
+  const d=_gdrag; if(!d) return;
+  cancelAnimationFrame(d.raf);
+  d.tr.classList.remove('grp-dragging');
+  d.tbody.querySelectorAll('tr').forEach(r=>r.classList.remove('grp-drop-before','grp-drop-after'));
+  document.body.classList.remove('grp-drag-active');
+  document.removeEventListener('pointermove',_grpDragMove);
+  document.removeEventListener('pointerup',_grpDragEnd);
+  document.removeEventListener('pointercancel',_grpDragCancel);
+}
+function _grpDragCancel(){ _grpDragCleanup(); _gdrag=null; }
+function _grpDragEnd(){
+  const d=_gdrag; if(!d) return;
+  _grpDragCleanup();
+  _gdrag=null;
+  if(!d.target || d.target===d.tr) return;
+  const g=DB.groups.find(x=>x.id===d.gid); if(!g) return;
+  const cid=g.classId;
+  const list=DB.groups.filter(x=>x.classId===cid);
+  const from=list.findIndex(x=>x.id===d.gid);
+  list.splice(from,1);
+  let to=list.findIndex(x=>x.id===d.target.dataset.gid);
+  if(to<0) return;
+  if(d.after) to++;
+  list.splice(to,0,g);
+  const slots=[]; DB.groups.forEach((x,i)=>{ if(x.classId===cid) slots.push(i); });
+  list.forEach((x,k)=>{ DB.groups[slots[k]]=x; });
+  save();
+  renderClasses();
+  toast('↕️ تم تغيير ترتيب المجموعة');
 }
 
 let _filterClsId = null;
@@ -7169,11 +7278,12 @@ function renderAttGrid(){
   const excludedStudents=students.filter(s=>isStuFinExcluded(s.id))
     .sort((a,b)=>(stuExclusionDate(b.id)||'').localeCompare(stuExclusionDate(a.id)||''));
   const orderedStudents=normalStudents.concat(excludedStudents);
+  const _isHol=isHolidayDate(date);
   document.getElementById('att-grid').innerHTML=orderedStudents.map(s=>{
-    const st=attState[s.id]||'unknown';
+    const st=attState[s.id]||(_isHol?'holiday':'unknown');
     const isExc=isStuFinExcluded(s.id);
-    const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'}[st]||'var(--border)');
-    const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'}[st]||'var(--card)');
+    const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',holiday:'rgba(0,188,212,.45)'}[st]||'var(--border)');
+    const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',holiday:'rgba(0,188,212,.07)'}[st]||'var(--card)');
     return `<div id="ac-${s.id}" style="position:relative;background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;${isExc?'opacity:.6;':''}">
       ${!isExc?`<button onclick="event.stopPropagation();cancelAttCard('${s.id}')" title="إلغاء الإجراء — رجوع الطالب كما كان"
         style="position:absolute;top:6px;left:6px;width:20px;height:20px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;z-index:2;">↩</button>`:''}
@@ -7190,10 +7300,12 @@ function renderAttGrid(){
     </div>`;
   }).join('');
   updateAttCounts(normalStudents);
+  _syncHolidayBtn();
 }
 function closeAttendance(){
   const date=document.getElementById('att-date')?.value||localDate();
   if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
+  if(isHolidayDate(date)){ toast('🏖️ هذا اليوم أجازة — لا يُسجَّل فيه غياب','i'); return; }
   const gf=document.getElementById('att-grp')?.value||'', cf=document.getElementById('att-cls')?.value||'';
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id));
   if(!students.length){toast('اختر مجموعة أولاً','e');return;}
@@ -7207,7 +7319,39 @@ function closeAttendance(){
   renderAttGrid(); renderTodayLog();
   toast(`🔒 تم إغلاق الحضور — ${absentCount} طالب سُجِّل غيابه`,'i');
 }
-function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',excused:'🙋 مستأذن',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',unknown:'— غير محدد'}[st]||''; }
+/** زر 🏖️ أجازة: يعتبر اليوم المختار أجازة لكل الطلاب (لا حضور ولا غياب) — والضغط عليه مرة تانية يلغي الأجازة */
+function toggleHolidayDay(){
+  const date=document.getElementById('att-date')?.value||localDate();
+  if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
+  if(!DB.holidays) DB.holidays={};
+  if(isHolidayDate(date)){
+    if(!confirm(`إلغاء الأجازة ليوم ${date}؟\nسيرجع اليوم "غير محدد" لكل الطلاب (ما عدا من سُجِّل له حضور فعلي).`)) return;
+    delete DB.holidays[date];
+    const day=DB.attendance[date];
+    if(day){
+      Object.keys(day).forEach(k=>{ if(day[k]==='holiday') delete day[k]; });
+      if(!Object.keys(day).length) delete DB.attendance[date];
+    }
+    save(); toast('↩️ تم إلغاء الأجازة','i');
+  } else {
+    const day=DB.attendance[date]||{};
+    const real=Object.keys(day).filter(k=>!k.endsWith('_time') && day[k]!=='holiday').length;
+    if(!confirm(`سيتم اعتبار يوم ${date} أجازة لجميع الطلاب (${DB.students.length} طالب) — لن يُحتسب حضوراً ولا غياباً.${real?`\n⚠️ سيتم حذف ${real} تسجيل حضور/غياب مسجّل في هذا اليوم.`:''}\nمتابعة؟`)) return;
+    DB.attendance[date]={};
+    DB.students.forEach(st=>{ DB.attendance[date][st.id]='holiday'; });
+    DB.holidays[date]={at:Date.now()};
+    save(); toast('🏖️ تم تسجيل اليوم أجازة لجميع الطلاب','s');
+  }
+  renderAttGrid(); renderTodayLog(); _updateCountdownBar();
+}
+function _syncHolidayBtn(){
+  const b=document.getElementById('att-holiday-btn'); if(!b) return;
+  const date=document.getElementById('att-date')?.value||localDate();
+  const on=isHolidayDate(date);
+  b.textContent = on ? '↩️ إلغاء الأجازة' : '🏖️ أجازة';
+  b.style.background = on ? 'rgba(0,188,212,.25)' : 'rgba(0,188,212,.1)';
+}
+function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',excused:'🙋 مستأذن',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',holiday:'🏖️ أجازة',unknown:'— غير محدد'}[st]||''; }
 
 // ══════════════════════════════════════════════
 // 🔍 بحث سريع عن طالب بالاسم أو الباركود في صفحة الحضور — لعرض حضوره باليوم المختار وتعديله مباشرة
@@ -7253,11 +7397,11 @@ function _pickAttSearchResult(sid){
 function _renderAttSearchCard(sid){
   const s=stu(sid); const wrap=document.getElementById('att-search-picked'); if(!s||!wrap) return;
   const date=document.getElementById('att-date')?.value||localDate();
-  const st=(DB.attendance[date]&&DB.attendance[date][sid])||'unknown';
+  const st=(DB.attendance[date]&&DB.attendance[date][sid])||(isHolidayDate(date)?'holiday':'unknown');
   const _isSup=document.body.dataset.role==='supervisor';
   const isExc=isStuFinExcluded(sid);
-  const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)'}[st]||'var(--border)');
-  const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)'}[st]||'var(--card)');
+  const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',holiday:'rgba(0,188,212,.45)'}[st]||'var(--border)');
+  const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',holiday:'rgba(0,188,212,.07)'}[st]||'var(--card)');
   // ── أول مرة (أو طالب جديد): نبني الهيكل = كارت اليوم + لوحة الفترة الزمنية ──
   if(!wrap.querySelector('#att-sc-card') || wrap.dataset.sid!==sid){
     wrap.innerHTML='<div id="att-sc-card"></div><div id="att-range-panel"></div>';
@@ -7366,17 +7510,19 @@ function _renderAttRangeList(sid){
   const META={
     present:{l:'✅ حاضر',c:'var(--green)'}, exceptional:{l:'✅ حضور استثنائي',c:'var(--green)'},
     late:{l:'⏰ متأخر',c:'var(--amber)'}, excused:{l:'🙋 مستأذن',c:'#7c5cff'},
-    absent:{l:'❌ غائب',c:'var(--red)'}, none:{l:'— غير محدد',c:'var(--text3)'}
+    absent:{l:'❌ غائب',c:'var(--red)'}, holiday:{l:'🏖️ أجازة',c:'#00bcd4'}, none:{l:'— غير محدد',c:'var(--text3)'}
   };
-  const cnt={present:0,late:0,excused:0,absent:0,none:0};
+  const cnt={present:0,late:0,excused:0,absent:0,holiday:0,none:0};
   const rows=[];
   const end=_attParse(to);
   for(let dt=_attParse(from); dt<=end; dt.setDate(dt.getDate()+1)){
     const d=_attFmt(dt);
-    const rec=DB.attendance[d] && DB.attendance[d][sid];
+    const rec0=DB.attendance[d] && DB.attendance[d][sid];
+    const rec=(rec0==='holiday'||(!rec0&&isHolidayDate(d)))?'holiday':rec0;
     const hasRec=!!rec && rec!=='none' && rec!=='unknown';
     const dayNums=_grpDayNums(_grpIdOnDate(s,d));
     const isClassDay=dayNums ? dayNums.has(dt.getDay()) : false;
+    if(rec==='holiday' && ((!isClassDay && !all) || (s.date && d<s.date))) continue; // أجازة خارج جدول الطالب/قبل التحاقه: لا تظهر
     if(!all && !isClassDay && !hasRec) continue;
     const st=hasRec?rec:'none';
     // يوم حصة قبل تاريخ التحاق الطالب ومفيهوش سجل: مايتحسبش "غير محدد"
@@ -7390,7 +7536,7 @@ function _renderAttRangeList(sid){
   }
   rows.reverse(); // الأحدث أولاً
   const chip=(t,c,bg)=>`<span style="font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:12px;background:${bg};color:${c};">${t}</span>`;
-  if(sum) sum.innerHTML=chip('✅ حاضر: '+cnt.present,'var(--green)','rgba(34,201,122,.12)')+chip('⏰ متأخر: '+cnt.late,'var(--amber)','rgba(245,166,35,.12)')+chip('🙋 مستأذن: '+cnt.excused,'#7c5cff','rgba(124,92,255,.12)')+chip('❌ غائب: '+cnt.absent,'var(--red)','rgba(255,77,109,.12)')+chip('— غير محدد: '+cnt.none,'var(--text2)','rgba(150,150,170,.12)');
+  if(sum) sum.innerHTML=chip('✅ حاضر: '+cnt.present,'var(--green)','rgba(34,201,122,.12)')+chip('⏰ متأخر: '+cnt.late,'var(--amber)','rgba(245,166,35,.12)')+chip('🙋 مستأذن: '+cnt.excused,'#7c5cff','rgba(124,92,255,.12)')+chip('❌ غائب: '+cnt.absent,'var(--red)','rgba(255,77,109,.12)')+(cnt.holiday?chip('🏖️ أجازة: '+cnt.holiday,'#00bcd4','rgba(0,188,212,.12)'):'')+chip('— غير محدد: '+cnt.none,'var(--text2)','rgba(150,150,170,.12)');
   if(!rows.length){ list.innerHTML='<div style="padding:1.2rem;text-align:center;color:var(--text2);font-size:12px;">لا توجد أيام حصص أو سجلات ضمن هذه الفترة — فعّل "إظهار كل أيام الفترة" لو عايز تسجّل في يوم تاني</div>'; return; }
   list.innerHTML=rows.map(r=>{
     const p=r.d.split('-');
@@ -7534,6 +7680,7 @@ const _AVW_DAY_SHORT=['أحد','إثنين','ثلاثاء','أربعاء','خم�
 function _avwCellStatus(s, date){
   const rec=DB.attendance[date] && DB.attendance[date][s.id];
   if(rec) return rec==='exceptional' ? 'present' : rec;
+  if(isHolidayDate(date)) return 'holiday';
   const allowedDays=_grpDayNums(_grpIdOnDate(s,date));
   if(allowedDays){
     const parts=date.split('-');
@@ -7549,6 +7696,7 @@ function _avwBox(status){
     excused:{bg:'#7c5cff',fg:'#fff',label:'إ'},
     late:   {bg:'var(--amber)',fg:'#1a1f2e',label:'ت'},
     excluded:{bg:'#3a3f52',fg:'rgba(255,255,255,.55)',label:'د'},
+    holiday:{bg:'#00bcd4',fg:'#fff',label:'أ'},
   };
   const m=map[status]||map.excluded;
   return `<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;font-weight:800;font-size:12.5px;background:${m.bg};color:${m.fg};">${m.label}</span>`;
@@ -7612,7 +7760,7 @@ function renderAttViewGrid(){
       // عشان يظهر عمود اليوم في الشبكة بدل ما السجل يختفي تمامًا من العرض
       return students.some(s=>{
         const st=DB.attendance[d] && DB.attendance[d][s.id];
-        return st && st!=='none';
+        return st && st!=='none' && st!=='holiday';
       });
     });
   }
@@ -7718,6 +7866,8 @@ function updateAttCounts(students){
   const p=students.filter(s=>attState[s.id]==='present'||attState[s.id]==='exceptional').length, a=students.filter(s=>attState[s.id]==='absent').length, l=students.filter(s=>attState[s.id]==='late').length, ex=students.filter(s=>attState[s.id]==='excused').length;
   document.getElementById('att-p').textContent='حاضر: '+p; document.getElementById('att-a').textContent='غائب: '+a; document.getElementById('att-l').textContent='متأخر: '+l;
   const exEl=document.getElementById('att-ex'); if(exEl) exEl.textContent='مستأذن: '+ex;
+  const _hd=document.getElementById('att-date')?.value||localDate(), _hOn=isHolidayDate(_hd);
+  const hEl=document.getElementById('att-hol'); if(hEl){ hEl.style.display=_hOn?'':'none'; hEl.textContent='أجازة: '+students.filter(s=>attState[s.id]==='holiday'||(!attState[s.id]&&_hOn)).length; }
 }
 // ── تسجيل حضور جماعي فوري لكل طلاب المجموعة/الصف المختار دفعة واحدة — يمكن تعديل أي طالب فردياً بعدها ──
 function bulkMarkGroupPresent(){
@@ -7792,7 +7942,7 @@ function renderTodayLog(){
             style="flex-shrink:0;width:20px;height:20px;border-radius:5px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">✕</button>
         </div>`;
       }).join('')
-    : '<div class="empty" style="padding:1.5rem;text-align:center;"><div style="font-size:26px;margin-bottom:.35rem;">📋</div><div>لم يسجل أحد بعد</div></div>';
+    : '<div class="empty" style="padding:1.5rem;text-align:center;"><div style="font-size:26px;margin-bottom:.35rem;">📋</div><div>'+(isHolidayDate(date)?'🏖️ اليوم أجازة':'لم يسجل أحد بعد')+'</div></div>';
 }
 
 function deleteAttEntry(sid){
@@ -10376,7 +10526,7 @@ function _filterDaysByGrp(days, grpIdOrStudent, sid){
       return true;
     }
     // 2) هل يوجد سجل حضور فعلي (أي حالة) لهذا الطالب في هذا اليوم؟
-    if(sid && DB.attendance[d]?.[sid]) return true;
+    { const _r=DB.attendance[d]?.[sid]; if(sid && _r && _r!=='holiday') return true; }
     return false;
   });
 }
@@ -10422,9 +10572,9 @@ function _showStuAttDetails(sid){
     months[m].push(d);
   });
 
-  const stMap={present:'✅ حاضر',exceptional:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب'};
-  const stCol={present:'var(--green)',exceptional:'var(--green)',late:'var(--amber)',absent:'var(--red)'};
-  const stBg ={present:'rgba(34,201,122,.08)',exceptional:'rgba(245,166,35,.05)',late:'rgba(245,166,35,.08)',absent:'rgba(255,77,109,.08)'};
+  const stMap={present:'✅ حاضر',exceptional:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب',holiday:'🏖️ أجازة'};
+  const stCol={present:'var(--green)',exceptional:'var(--green)',late:'var(--amber)',absent:'var(--red)',holiday:'#00bcd4'};
+  const stBg ={present:'rgba(34,201,122,.08)',exceptional:'rgba(245,166,35,.05)',late:'rgba(245,166,35,.08)',absent:'rgba(255,77,109,.08)',holiday:'rgba(0,188,212,.08)'};
 
   // بناء أقسام الشهور
   const monthSections=Object.keys(months).sort().map(m=>{
@@ -10432,7 +10582,7 @@ function _showStuAttDetails(sid){
     const label=new Date(+y,+mo-1,1).toLocaleDateString('ar-EG',{year:'numeric',month:'long'});
     let mp=0,ma=0,ml=0;
     const rows=months[m].map(d=>{
-      const raw=DB.attendance[d]?.[sid]||'absent';
+      const raw=DB.attendance[d]?.[sid]||(isHolidayDate(d)?'holiday':'absent');
       const isExc = raw==='exceptional';
       if(raw==='present'||isExc) mp++; else if(raw==='absent') ma++; else if(raw==='late') ml++;
       const dayLabel=new Date(d+'T00:00:00').toLocaleDateString('ar-EG',{weekday:'short',day:'numeric'});
@@ -10533,12 +10683,12 @@ function _printStuAttPDF(sid){
     const m=d.slice(0,7); if(!months[m]) months[m]=[]; months[m].push(d);
   });
 
-  const stMap={present:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب'};
-  const stCol={present:'#22c97a',late:'#f5a623',absent:'#ff4d6d'};
-  const stBg ={present:'#f0fff8',late:'#fffbf0',absent:'#fff5f5'};
+  const stMap={present:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب',holiday:'🏖️ أجازة'};
+  const stCol={present:'#22c97a',late:'#f5a623',absent:'#ff4d6d',holiday:'#00a5ba'};
+  const stBg ={present:'#f0fff8',late:'#fffbf0',absent:'#fff5f5',holiday:'#effcfd'};
 
   let totP=0,totA=0,totL=0;
-  stuDays.forEach(d=>{ const st=DB.attendance[d]?.[sid]||'absent'; if(st==='present')totP++; else if(st==='absent')totA++; else if(st==='late')totL++; });
+  stuDays.forEach(d=>{ const st=DB.attendance[d]?.[sid]||(isHolidayDate(d)?'holiday':'absent'); if(st==='present')totP++; else if(st==='absent')totA++; else if(st==='late')totL++; });
   const totR=totP+totA+totL;
   const pct=totR?Math.round(totP/totR*100):0;
 
@@ -10547,7 +10697,7 @@ function _printStuAttPDF(sid){
     const lbl=new Date(+y,+mo-1,1).toLocaleDateString('ar-EG',{year:'numeric',month:'long'});
     let mp=0,ma=0,ml=0;
     const rows=months[m].map(d=>{
-      const raw=DB.attendance[d]?.[sid]||'absent';
+      const raw=DB.attendance[d]?.[sid]||(isHolidayDate(d)?'holiday':'absent');
       if(raw==='present')mp++; else if(raw==='absent')ma++; else if(raw==='late')ml++;
       const dayLbl=new Date(d).toLocaleDateString('ar-EG',{weekday:'long',day:'numeric',month:'long'});
       return `<tr style="background:${stBg[raw]};">
@@ -14067,17 +14217,18 @@ function switchRep(tab,btn){
     window._stuAttStats = function(sid, days){
       const s = DB.students.find(x=>x.id===sid);
       const filteredDays = s ? _filterDaysByGrp(days, s, sid) : days;
-      let present=0, absent=0, late=0, exceptional=0;
+      let present=0, absent=0, late=0, exceptional=0, holiday=0;
       filteredDays.forEach(d=>{
         const st = DB.attendance[d]?.[sid];
-        if(st==='present') present++;
+        if(st==='holiday') holiday++;
+        else if(st==='present') present++;
         else if(st==='exceptional') { present++; exceptional++; } // exceptional تُحسب كحضور
         else if(st==='absent') absent++;
         else if(st==='late') late++;
       });
       const recorded = present+absent+late;
       const pct = recorded ? Math.round(present/recorded*100) : (filteredDays.length ? 0 : 100);
-      return {present, absent, late, exceptional, recorded, pct, groupDays: filteredDays.length};
+      return {present, absent, late, exceptional, holiday, recorded, pct, groupDays: filteredDays.length - holiday};
     };
 
     // ── عرض بيانات الكشف ──
@@ -14366,7 +14517,7 @@ function switchRep(tab,btn){
   // 6. التسرب
   // ════════════════════════════════════════════════════════
   else if(tab==='dropout'){
-    const absL=DB.students.filter(s=>{ let c=0,mx=0; const ds=Object.keys(DB.attendance).sort().slice(-14); ds.forEach(d=>{ if(DB.attendance[d]?.[s.id]==='absent'){c++;mx=Math.max(mx,c);}else c=0; }); s._mx=mx; return mx>=3; });
+    const absL=DB.students.filter(s=>{ let c=0,mx=0; const ds=Object.keys(DB.attendance).sort().slice(-14); ds.forEach(d=>{ const _v=DB.attendance[d]?.[s.id]; if(_v==='absent'){c++;mx=Math.max(mx,c);}else if(_v!=='holiday') c=0; }); s._mx=mx; return mx>=3; });
     const lowG=DB.students.filter(s=>{ const avg=stuAvg(s.id); return avg!==null&&avg<50; });
     const riskRows=absL.map(s=>{
       const avg=stuAvg(s.id); const attP=attPct(s.id);
@@ -15487,7 +15638,7 @@ function exportPortalData(){
     students: DB.students.map(s=>{
       const sid=s.id;
       // الحضور
-      const attDays=Object.entries(DB.attendance).map(([date,rec])=>({date,status:rec[sid]||null})).filter(x=>x.status);
+      const attDays=Object.entries(DB.attendance).map(([date,rec])=>({date,status:rec[sid]||null})).filter(x=>x.status && x.status!=='holiday');
       const totalDays=attDays.length;
       const presentDays=attDays.filter(x=>x.status==='present'||x.status==='exceptional').length;
       const absentDays=attDays.filter(x=>x.status==='absent').length;
@@ -17147,9 +17298,9 @@ function spRenderAttend(){
   }).sort((a,b)=>b[0].localeCompare(a[0]));
   const rows=attEntries.map(([date,rec])=>{
     const st=rec[s.id]; if(!st)return '';
-    const ic={present:'✅',late:'⏰',absent:'❌'}[st]||'—';
-    const col={present:'#22c97a',late:'#f5a623',absent:'#ff4d6d'}[st]||'#aaa';
-    const lbl={present:'حاضر',late:'متأخر',absent:'غائب'}[st]||'—';
+    const ic={present:'✅',late:'⏰',absent:'❌',holiday:'🏖️'}[st]||'—';
+    const col={present:'#22c97a',late:'#f5a623',absent:'#ff4d6d',holiday:'#00bcd4'}[st]||'#aaa';
+    const lbl={present:'حاضر',late:'متأخر',absent:'غائب',holiday:'أجازة'}[st]||'—';
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem .9rem;border-bottom:1px solid rgba(255,255,255,.06);">
       <span style="font-size:12.5px;color:#fff;">${date}</span>
       <span style="font-size:13px;color:${col};font-weight:700;">${ic} ${lbl}</span>
@@ -17601,7 +17752,7 @@ function buildComprehensiveReportHTML(sid){
   const today=localDate();
 
   // Attendance
-  const attEntries=Object.entries(DB.attendance).map(([date,rec])=>({date,status:rec[sid]})).filter(x=>x.status);
+  const attEntries=Object.entries(DB.attendance).map(([date,rec])=>({date,status:rec[sid]})).filter(x=>x.status && x.status!=='holiday');
   const present=attEntries.filter(x=>x.status==='present').length;
   const absent=attEntries.filter(x=>x.status==='absent').length;
   const late=attEntries.filter(x=>x.status==='late').length;
@@ -19139,6 +19290,7 @@ function _updateCountdownBar(){
 
   const gid = document.getElementById('att-grp')?.value || '';
   if(!gid){ bar.style.display='none'; return; }
+  if(isHolidayDate(localDate())){ bar.style.display='none'; return; }
 
   const grp = DB.groups.find(g => g.id === gid);
   const resolvedFrom = _grpResolvedFrom(grp);
@@ -19218,6 +19370,7 @@ function _absWACheck(){
     // ────────────────────────────────────────────
     if(elapsed >= AUTO_CLOSE_MIN && !_absWAFired[closeKey]){
       _absWAFired[closeKey] = true;
+      if(isHolidayDate(today)) continue; // يوم أجازة — لا إغلاق تلقائي ولا غياب
       const grpStudents = DB.students.filter(s => s.groupId === grp.id);
       if(!grpStudents.length) continue;
       if(!DB.attendance[today]) DB.attendance[today] = {};
