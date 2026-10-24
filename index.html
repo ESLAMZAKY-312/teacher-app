@@ -593,6 +593,11 @@ tr.grp-drop-before>td{box-shadow:inset 0 3px 0 var(--accent)}
 tr.grp-drop-after>td{box-shadow:inset 0 -3px 0 var(--accent)}
 body.grp-drag-active,body.grp-drag-active *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
 </style>
+<style id="dt-ltr-style">
+input[type=date].dt-fmt{position:relative;direction:ltr;background-repeat:no-repeat,no-repeat;background-position:left 12px center,right 10px center;background-size:140px 30px,16px 16px}
+input[type=date].dt-fmt::-webkit-datetime-edit{opacity:0}
+input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
+</style>
 </head>
 <body>
 
@@ -7270,7 +7275,7 @@ function renderAttGrid(){
   }
   const saved=DB.attendance[date]||{}; attState={...saved};
   // Only show grid if a group or class is selected
-  if(!gf&&!cf){ document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--text3);"><div style="font-size:40px;margin-bottom:.75rem;">📷</div><div style="font-size:13px;">اختر صفاً أو مجموعةً لعرض الطلاب، أو امسح الباركود مباشرة</div></div>`; updateAttCounts([]); return; }
+  if(!gf&&!cf){ _syncHolidayBtn(); document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2.5rem;color:var(--text3);"><div style="font-size:40px;margin-bottom:.75rem;">📷</div><div style="font-size:13px;">اختر صفاً أو مجموعةً لعرض الطلاب، أو امسح الباركود مباشرة</div></div>`; updateAttCounts([]); return; }
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf));
   if(!students.length){ document.getElementById('att-grid').innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--text3);">لا يوجد طلاب في هذه المجموعة</div>`; return; }
   // ── المستبعدون (غياب 3 أيام متتالية) يُعرضون في نهاية الشبكة فقط بدون احتساب في الإحصاءات ──
@@ -7319,36 +7324,62 @@ function closeAttendance(){
   renderAttGrid(); renderTodayLog();
   toast(`🔒 تم إغلاق الحضور — ${absentCount} طالب سُجِّل غيابه`,'i');
 }
-/** زر 🏖️ أجازة: يعتبر اليوم المختار أجازة لكل الطلاب (لا حضور ولا غياب) — والضغط عليه مرة تانية يلغي الأجازة */
+/** زر 🏖️ أجازة: لو فيه فلتر (صف/مجموعة) بيتطبق على طلاب الفلتر بس، ولو مفيش فلتر بيتطبق على الجميع — والضغط عليه مرة تانية يلغي الأجازة (على نفس النطاق) */
+function _holScope(){
+  const cf=document.getElementById('att-cls')?.value||'', gf=document.getElementById('att-grp')?.value||'';
+  const scoped=!!(cf||gf);
+  const students=scoped?DB.students.filter(x=>(!cf||x.classId===cf)&&(!gf||x.groupId===gf)):DB.students;
+  const label=!scoped?'جميع الطلاب':(gf?('مجموعة «'+grpN(gf)+'»'):('صف «'+clsN(cf)+'»'));
+  return {scoped,students,label};
+}
+function _holIsOn(date,sc){
+  if(isHolidayDate(date)) return true;
+  if(!sc.scoped) return false;
+  const day=DB.attendance[date]||{};
+  return sc.students.length>0 && sc.students.every(x=>day[x.id]==='holiday');
+}
 function toggleHolidayDay(){
   const date=document.getElementById('att-date')?.value||localDate();
   if(_isPastAttDateBlockedForSupervisor(date)){ toast('❌ غير مسموح للمشرف بتعديل حضور تواريخ سابقة','e'); return; }
   if(!DB.holidays) DB.holidays={};
-  if(isHolidayDate(date)){
-    if(!confirm(`إلغاء الأجازة ليوم ${date}؟\nسيرجع اليوم "غير محدد" لكل الطلاب (ما عدا من سُجِّل له حضور فعلي).`)) return;
-    delete DB.holidays[date];
+  const sc=_holScope();
+  if(!sc.students.length){ toast('لا يوجد طلاب في هذا الفلتر','e'); return; }
+  if(_holIsOn(date,sc)){
+    if(!confirm(`إلغاء الأجازة ليوم ${date} عن ${sc.label}؟\nسيرجع اليوم "غير محدد" للطلاب (ما عدا من سُجِّل له حضور فعلي).`)) return;
+    if(!DB.attendance[date]) DB.attendance[date]={};
     const day=DB.attendance[date];
-    if(day){
-      Object.keys(day).forEach(k=>{ if(day[k]==='holiday') delete day[k]; });
-      if(!Object.keys(day).length) delete DB.attendance[date];
+    if(isHolidayDate(date)){
+      // الأجازة كانت عامة: نحوّلها لسجلات فردية عشان باقي الطلاب (خارج الفلتر) يفضلوا في أجازة
+      if(sc.scoped) DB.students.forEach(x=>{ if(!day[x.id]) day[x.id]='holiday'; });
+      delete DB.holidays[date];
     }
+    sc.students.forEach(x=>{ if(day[x.id]==='holiday') delete day[x.id]; });
+    if(!Object.keys(day).length) delete DB.attendance[date];
     save(); toast('↩️ تم إلغاء الأجازة','i');
   } else {
     const day=DB.attendance[date]||{};
-    const real=Object.keys(day).filter(k=>!k.endsWith('_time') && day[k]!=='holiday').length;
-    if(!confirm(`سيتم اعتبار يوم ${date} أجازة لجميع الطلاب (${DB.students.length} طالب) — لن يُحتسب حضوراً ولا غياباً.${real?`\n⚠️ سيتم حذف ${real} تسجيل حضور/غياب مسجّل في هذا اليوم.`:''}\nمتابعة؟`)) return;
-    DB.attendance[date]={};
-    DB.students.forEach(st=>{ DB.attendance[date][st.id]='holiday'; });
-    DB.holidays[date]={at:Date.now()};
-    save(); toast('🏖️ تم تسجيل اليوم أجازة لجميع الطلاب','s');
+    const ids=new Set(sc.students.map(x=>x.id));
+    const real=Object.keys(day).filter(k=>!k.endsWith('_time') && day[k]!=='holiday' && (!sc.scoped||ids.has(k))).length;
+    if(!confirm(`سيتم اعتبار يوم ${date} أجازة لـ ${sc.label} (${sc.students.length} طالب) — لن يُحتسب حضوراً ولا غياباً.${real?`\n⚠️ سيتم حذف ${real} تسجيل حضور/غياب مسجّل في هذا اليوم لهم.`:''}\nمتابعة؟`)) return;
+    if(!sc.scoped){
+      DB.attendance[date]={};
+      DB.students.forEach(st=>{ DB.attendance[date][st.id]='holiday'; });
+      DB.holidays[date]={at:Date.now()};
+    } else {
+      if(!DB.attendance[date]) DB.attendance[date]={};
+      sc.students.forEach(st=>{ DB.attendance[date][st.id]='holiday'; delete DB.attendance[date][st.id+'_time']; });
+    }
+    save(); toast(`🏖️ تم تسجيل اليوم أجازة لـ ${sc.label}`,'s');
   }
   renderAttGrid(); renderTodayLog(); _updateCountdownBar();
 }
 function _syncHolidayBtn(){
   const b=document.getElementById('att-holiday-btn'); if(!b) return;
   const date=document.getElementById('att-date')?.value||localDate();
-  const on=isHolidayDate(date);
+  const sc=_holScope();
+  const on=_holIsOn(date,sc);
   b.textContent = on ? '↩️ إلغاء الأجازة' : '🏖️ أجازة';
+  b.title = (on?'إلغاء الأجازة عن ':'اعتبار اليوم المختار أجازة لـ ')+sc.label+' (لا حضور ولا غياب)';
   b.style.background = on ? 'rgba(0,188,212,.25)' : 'rgba(0,188,212,.1)';
 }
 function attLbl(st){ return {present:'✅ حاضر',late:'⏰ متأخر',excused:'🙋 مستأذن',absent:'❌ غائب',exceptional:'✅ حضور استثنائي',holiday:'🏖️ أجازة',unknown:'— غير محدد'}[st]||''; }
@@ -10990,7 +11021,7 @@ function showInlineNewPay(sid){ if(_supBlockPay('بإضافة دفعات')) retu
   const attDates=Object.keys(DB.attendance||{}).filter(d=>DB.attendance[d]?.[sid]).sort();
   const firstAtt=attDates[0]||null;
   const firstAttLabel=firstAtt
-    ?new Date(firstAtt).toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'})
+    ?new Date(firstAtt).toLocaleDateString('ar-EG-u-nu-latn',{year:'numeric',month:'long',day:'numeric'})
     :'لا يوجد حضور مسجل';
 
   _payDurType='full'; // إعادة تعيين المدة لكل دفعة جديدة
@@ -20002,5 +20033,37 @@ function _doPrintCerts(students){
 })();
 </script>
 
+<script id="dt-ltr-script">
+// عرض كل حقول التاريخ بصيغة 24/10/2026 (يوم/شهر/سنة) — القيمة الفعلية للحقل تفضل ISO زي ما هي
+(function(){
+  function enc(svg){ return 'url("data:image/svg+xml,'+encodeURIComponent(svg)+'")'; }
+  function paint(inp){
+    var v=inp.value||'', cs=getComputedStyle(inp);
+    var key=v+'|'+cs.color+'|'+cs.fontSize+'|'+cs.fontWeight;
+    if(inp._dtKey===key) return;
+    inp._dtKey=key;
+    var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    var txt=m?(m[3]+'/'+m[2]+'/'+m[1]):'dd/mm/yyyy';
+    var col=m?cs.color:'rgba(140,150,170,.75)';
+    var fs=parseFloat(cs.fontSize)||13;
+    var t="<svg xmlns='http://www.w3.org/2000/svg' width='140' height='30'><text x='0' y='15' dominant-baseline='central' font-family='Segoe UI,Arial,sans-serif' font-size='"+fs+"' font-weight='"+cs.fontWeight+"' fill='"+col+"'>"+txt+"</text></svg>";
+    var ic="<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='"+cs.color+"' stroke-width='1.3' opacity='.75'><rect x='1.8' y='3' width='12.4' height='11' rx='2'/><path d='M1.8 6.5h12.4M5 1.5v3M11 1.5v3'/></svg>";
+    inp.style.setProperty('background-image',enc(t)+','+enc(ic));
+  }
+  function scan(){
+    var list=document.querySelectorAll('input[type=date]');
+    for(var i=0;i<list.length;i++){
+      var el=list[i];
+      if(!el.classList.contains('dt-fmt')) el.classList.add('dt-fmt');
+      paint(el);
+    }
+  }
+  ['input','change'].forEach(function(ev){
+    document.addEventListener(ev,function(e){ var t=e.target; if(t&&t.matches&&t.matches('input[type=date]')) paint(t); },true);
+  });
+  setInterval(scan,300);
+  scan();
+})();
+</script>
 </body>
 </html>
