@@ -1156,7 +1156,7 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
       <div class="th">
         <div class="tt">سجل المدفوعات</div>
         <div class="filt" style="flex-wrap:wrap;gap:6px;">
-          <input class="fi" id="pay-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:200px;" oninput="_debouncedRenderPayments()" onkeydown="if(event.key==='Enter'){_payBarcodeScan();}" autocomplete="off">
+          <input class="fi" id="pay-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:200px;" oninput="_debouncedRenderPayments()" onkeydown="if(event.key==='Enter'){event.preventDefault();_payEnterSelect();}" autocomplete="off">
           <select class="fs" style="width:130px" id="pay-cls-f" onchange="renderPayments()"><option value="">كل الصفوف</option></select>
           <select class="fs" style="width:130px" id="pay-grp-f" onchange="renderPayments()"><option value="">كل المجموعات</option></select>
           <select class="fs" style="width:120px" id="pay-st-f" onchange="_onPayStatusChange()"><option value="">الحالة</option><option value="paid">مسدد</option><option value="unpaid">غير مسدد</option><option value="partial">جزئي</option><option value="curdebt">🕒 مديونيات حالية</option><option value="overdue">⚠️ مديونيات سابقة</option><option value="excluded">🚫 مديونيات المستبعدين</option></select>
@@ -2665,7 +2665,7 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
           <span style="display:flex;align-items:center;gap:5px;"><span style="width:16px;height:16px;border-radius:5px;background:#3a3f52;display:inline-block;"></span> استبعاد</span>
         </div>
         <div id="pvw-att-meta" style="font-size:11.5px;color:var(--text2);margin-bottom:.6rem;"></div>
-        <div id="pvw-att-body" style="border:1px solid var(--border);border-radius:var(--rs);"></div>
+        <div id="pvw-att-body" style="border:1px solid var(--border);border-radius:var(--rs);overflow-x:auto;"></div>
       </div>
 
       <!-- تبويب الماليات -->
@@ -5306,7 +5306,7 @@ function renderPvwAttGrid(){
   if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; return; }
   let dates=_dateRangeList(from,to);
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; return; }
-  if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; return; }
+  if(dates.length>400){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من 13 شهر) — قلّل النطاق</div>'; return; }
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&matchesStuq(s));
   const showExcluded=document.getElementById('pvw-att-show-excluded')?.checked||false;
   const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
@@ -7763,7 +7763,7 @@ function renderAttViewGrid(){
   if(!from||!to){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">اختر نطاق تواريخ صحيح</div>'; _updateAvwDelBtn([]); return; }
   let dates=_dateRangeList(from,to);
   if(!dates.length){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">نطاق التواريخ غير صحيح — تأكد أن "من" قبل "إلى"</div>'; _updateAvwDelBtn([]); return; }
-  if(dates.length>62){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من شهرين) — قلّل النطاق عشان الجدول يفضل واضح</div>'; _updateAvwDelBtn([]); return; }
+  if(dates.length>400){ body.innerHTML='<div style="padding:2rem;text-align:center;color:var(--text2);">النطاق طويل جداً (أكتر من 13 شهر) — قلّل النطاق</div>'; _updateAvwDelBtn([]); return; }
   const searchQ=(document.getElementById('avw-search')?.value||'').trim().toLowerCase();
   const students=DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&(!searchQ||(s.fname+' '+s.lname).toLowerCase().includes(searchQ)||String(s.barcode||s.id||'').toLowerCase().includes(searchQ)));
   const _normS=students.filter(s=>!isStuFinExcluded(s.id)).sort((a,b)=>(a.fname+a.lname).localeCompare(b.fname+b.lname,'ar'));
@@ -10003,6 +10003,20 @@ function _tryOpenPayHistoryByBarcode(qf){
   // لا نُفرّغ خانة البحث: بهذا يبقى صف الطالب ظاهراً في الجدول
   // بعد إغلاق النافذة، وأي حفظ لاحق للدفعات لا يُرجع الجدول فارغاً
   return true;
+}
+// ── Enter في خانة بحث المدفوعات: باركود مطابق → يفتح مباشرة، أو لو الفلترة انتهت لطالب واحد فقط → يفتح نافذة تسديد/تعديل له ──
+function _payEnterSelect(){
+  const inp=document.getElementById('pay-search');
+  const qf=(inp?.value||'').trim().toLowerCase();
+  if(!qf) return;
+  if(_tryOpenPayHistoryByBarcode(qf)) return;
+  renderPayments(); // نحدّث الجدول فوراً بدل انتظار الـ debounce
+  const html=document.getElementById('pay-tbody')?.innerHTML||'';
+  const ids=new Set();
+  html.replace(/openEditPaysForStudent\('([^']+)'\)/g,(m,id)=>{ ids.add(id); return m; });
+  if(ids.size===1) openEditPaysForStudent([...ids][0]);
+  else if(ids.size===0) toast('لا توجد نتائج مطابقة','e');
+  else toast('يوجد '+ids.size+' طلاب مطابقين — اكتب اسماً أدق ثم اضغط Enter','i');
 }
 function _payBarcodeScan(){
   const inp=document.getElementById('pay-search');
