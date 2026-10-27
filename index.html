@@ -2432,6 +2432,7 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
       <div style="flex:1;min-width:0;">
         <div id="wgm-name" style="font-size:14px;font-weight:700;margin-bottom:6px;"></div>
         <div id="wgm-tags" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
+        <div id="wgm-grp-picker" style="display:none;margin-top:8px;flex-direction:column;gap:5px;max-height:190px;overflow:auto;"></div>
       </div>
     </div>
 
@@ -3885,8 +3886,18 @@ function stuEffectiveFee(s){
   if(special && special.amount!=null) return special.amount;
   return grp(s.groupId)?.fee || s.fee || DB.settings.fee || 0;
 }
+// ── طالب مستبعد لم يحضر أي حصة في الشهر الحالي → لا مستحقات عليه هذا الشهر ──
+function stuNoDueThisMonth(sid){
+  return isStuFinExcluded(sid) && excludedMonthDebtInfo(sid,localMonth()).attended===0;
+}
+// ── مبلغ التذكير: الرسوم العادية، أما المستبعد فالمتبقي بحسب حصص حضوره هذا الشهر ──
+function stuReminderAmount(s){
+  if(s && isStuFinExcluded(s.id)) return excludedMonthDebtInfo(s.id,localMonth()).remaining;
+  return stuEffectiveFee(s);
+}
 // ── المبلغ المتبقي فعلياً على الطالب لشهر الشهر الحالي: لو عنده دفعة جزئية بتُخصم من الرسوم، وإلا الرسوم كاملة ──
 function stuUnpaidAmount(s){
+  if(s && isStuFinExcluded(s.id)) return excludedMonthDebtInfo(s.id,localMonth()).remaining;
   const fee=stuEffectiveFee(s);
   const p=DB.payments.find(x=>x.studentId===s.id&&x.month===localMonth());
   if(p && p.status==='partial') return Math.max(0, fee-(p.amount||0));
@@ -3927,6 +3938,12 @@ function excludedUnpaidMonths(sid){
 function monthDebtInfo(sid,m){
   const s=stu(sid); const fee=stuEffectiveFee(s);
   const pays=DB.payments.filter(p=>p.studentId===sid&&p.month===m);
+  // ── الطالب المستبعد: الشهر الذي لم يحضر فيه لا يُحتسب عليه، وغيره يُحتسب بقدر حصص حضوره فقط ──
+  if(isStuFinExcluded(sid)){
+    const e=excludedMonthDebtInfo(sid,m);
+    const pp=pays.find(p=>p.status==='partial');
+    return {remaining:e.remaining,partial:e.partial,paid:e.paid,fee:e.due,pid:(e.partial&&pp)?pp.id:null,attended:e.attended};
+  }
   if(pays.some(p=>p.status==='paid')) return {remaining:0,partial:false,paid:fee,fee,pid:null};
   const partials=pays.filter(p=>p.status==='partial');
   if(partials.length){
@@ -4055,7 +4072,8 @@ function getUnpaidMonthsSince(sid){
   }
   // الشهر "مسدد" لو فيه دفعة بحالة paid لنفس الشهر (الدفعات الجزئية تُعتبر مديونية قائمة)
   const paidMonths=new Set(DB.payments.filter(p=>p.studentId===sid&&p.status==='paid').map(p=>p.month));
-  return (_cache[key]=months.filter(m=>{ if(paidMonths.has(m)) return false; const i=monthDebtInfo(sid,m); return !(i.partial && i.remaining<=0); }));
+  const _exc=isStuFinExcluded(sid);
+  return (_cache[key]=months.filter(m=>{ if(paidMonths.has(m)) return false; if(_exc && excludedMonthDebtInfo(sid,m).attended===0) return false; const i=monthDebtInfo(sid,m); return !(i.partial && i.remaining<=0); }));
 }
 const _monthLabelCache = new Map(); // كاش دائم — لا يُصفَّى مع _invalidateCache لأن الناتج لا يعتمد على DB إطلاقًا
 function monthLabelAr(m){
@@ -5745,13 +5763,16 @@ function saveEditStudent(){
   // وأي حضور/غياب من تاريخ التحويل فصاعداً يُحسب على أيام المجموعة *الجديدة* فقط.
   // (السجلات الفعلية في DB.attendance نفسها لا تُمس إطلاقاً — تبقى كما هي).
   const newGrpId=document.getElementById('edit-s-grp').value;
+  let _grpMoved=false;
   if(newGrpId && s.groupId && newGrpId!==s.groupId){
     const today=localDate();
     if(!s.groupHistory) s.groupHistory=[];
     const prevFrom=s.groupHistory.length ? s.groupHistory[s.groupHistory.length-1].to : (s.date||today);
     s.groupHistory.push({groupId:s.groupId, from:prevFrom, to:today});
+    _grpMoved=true;
   }
   s.groupId=newGrpId;
+  if(_grpMoved) _grpMovedCleanup(s);
   s.date=document.body.dataset.role==='supervisor'?s.date:(document.getElementById('edit-s-date').value||s.date);
   s.fee=document.body.dataset.role==='supervisor'?s.fee:(+document.getElementById('edit-s-fee').value||s.fee);
   s.barcode=newBc;
@@ -8350,9 +8371,7 @@ function checkIn(sid, forceAll){
     document.getElementById('wgm-avatar').style.color=s.color||'var(--accent)';
     document.getElementById('wgm-name').textContent=s.fname+' '+s.lname;
 
-    document.getElementById('wgm-tags').innerHTML=
-      _tag('📚', clsN(s.classId), '#4f7cff')+
-      _tag('👥', grpN(s.groupId), '#7c5cff');
+    _wgmRenderTags(s);
 
     const exDate=stuExclusionDate(sid);
     document.getElementById('wgm-conflicts').innerHTML=`<div style="background:rgba(255,77,109,.07);border:1px solid rgba(255,77,109,.25);border-radius:var(--rs);padding:9px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;">
@@ -8449,9 +8468,7 @@ function checkIn(sid, forceAll){
   document.getElementById('wgm-name').textContent=s.fname+' '+s.lname;
 
   // tags
-  document.getElementById('wgm-tags').innerHTML=
-    _tag('📚', clsN(s.classId), '#4f7cff')+
-    _tag('👥', grpN(s.groupId), '#7c5cff');
+  _wgmRenderTags(s);
 
   // تفاصيل التعارض (وقت فقط)
   const conflicts = pastAutoClose
@@ -8484,6 +8501,53 @@ function checkIn(sid, forceAll){
   openModal('wrong-grp-modal');
 }
 
+// ── تغيير مجموعة الطالب مباشرة من مودال "خارج وقت المجموعة" ──
+function _wgmRenderTags(s){
+  const tg=document.getElementById('wgm-tags');
+  const picker=document.getElementById('wgm-grp-picker');
+  if(picker){ picker.style.display='none'; picker.innerHTML=''; }
+  const grpTag=`<button type="button" onclick="_wgmToggleGrpPicker()" title="اضغط لتغيير المجموعة"
+    style="font-family:inherit;cursor:pointer;font-size:11px;padding:3px 9px;border-radius:20px;background:#7c5cff18;border:1px dashed #7c5cff88;color:#7c5cff;display:inline-flex;align-items:center;gap:4px;font-weight:700;">
+    👥 ${grpN(s.groupId)} <span style="font-size:9px;opacity:.8;">▼ تغيير</span></button>`;
+  tg.innerHTML=_tag('📚', clsN(s.classId), '#4f7cff')+grpTag;
+}
+function _wgmToggleGrpPicker(){
+  const picker=document.getElementById('wgm-grp-picker');
+  if(!picker||!_wgmPending) return;
+  if(picker.style.display==='flex'){ picker.style.display='none'; return; }
+  const s=stu(_wgmPending.sid); if(!s) return;
+  const list=DB.groups.filter(g=>g.classId===s.classId);
+  if(!list.length){ picker.innerHTML='<div style="font-size:11px;color:var(--text3);">لا توجد مجموعات أخرى في هذا الصف</div>'; picker.style.display='flex'; return; }
+  picker.innerHTML=list.map(g=>{
+    const cur=g.id===s.groupId;
+    const tm=(g.timeFrom&&g.timeTo)?(g.timeFrom+' — '+g.timeTo):(g.time||'');
+    return `<button type="button" ${cur?'disabled':''} onclick="_wgmChangeGroup('${g.id}')"
+      style="font-family:inherit;text-align:right;cursor:${cur?'default':'pointer'};padding:6px 10px;border-radius:var(--rs);font-size:11.5px;font-weight:700;
+      background:${cur?'rgba(124,92,255,.18)':'var(--glass2)'};border:1px solid ${cur?'#7c5cff':'var(--border)'};color:var(--text);display:flex;justify-content:space-between;gap:8px;">
+      <span>${cur?'✔ ':''}${g.name}</span><span style="font-weight:600;color:var(--text3);font-size:10.5px;">${tm}</span></button>`;
+  }).join('');
+  picker.style.display='flex';
+}
+function _wgmChangeGroup(gid){
+  if(!_wgmPending) return;
+  const sid=_wgmPending.sid, s=stu(sid); if(!s||s.groupId===gid) return;
+  const g=DB.groups.find(x=>x.id===gid); if(!g) return;
+  if(!confirm('نقل '+s.fname+' '+s.lname+' من مجموعة «'+grpN(s.groupId)+'» إلى «'+g.name+'»؟')) return;
+  // نفس منطق تعديل بيانات الطالب: تسجيل المجموعة القديمة في سجل التحويلات
+  const today=localDate();
+  if(!s.groupHistory) s.groupHistory=[];
+  const prevFrom=s.groupHistory.length ? s.groupHistory[s.groupHistory.length-1].to : (s.date||today);
+  s.groupHistory.push({groupId:s.groupId, from:prevFrom, to:today});
+  s.groupId=gid;
+  _grpMovedCleanup(s);
+  save();
+  toast('🔁 تم نقل '+s.fname+' إلى '+g.name);
+  // نعيد فحص الوقت بالمجموعة الجديدة: لو مطابق يتسجل حضوره عادي، ولو لأ المودال يتحدث بالمجموعة الجديدة
+  closeModal('wrong-grp-modal');
+  _wgmPending=null;
+  checkIn(sid);
+  if(typeof renderStudents==='function'){ try{ renderStudents(); }catch(e){} }
+}
 // ══ قرار المودال ══
 function wgmDecide(approve){
   closeModal('wrong-grp-modal');
@@ -10162,7 +10226,8 @@ function renderPayments(){
   // ── دالة مساعدة: حساب المبالغ المتأخرة والمتبقية لطالب ──
   const _stuDebt=(sid)=>{
     const allPays=DB.payments.filter(p=>p.studentId===sid);
-    const unpaidCount=allPays.filter(p=>p.status==='unpaid').length;
+    const _exS=isStuFinExcluded(sid);
+    const unpaidCount=allPays.filter(p=>p.status==='unpaid'&&!(_exS&&excludedMonthDebtInfo(sid,p.month).attended===0)).length;
     const s2=stu(sid);
     const fee=stuEffectiveFee(s2);
     // حساب الباقي: مجموع ما دُفع في كل الشهور الجزئية مقارنةً بالرسوم
@@ -10188,19 +10253,23 @@ function renderPayments(){
   };
 
   const _chkMonth=mf||(()=>{const n=new Date();return localMonth();})();
+  // ── الطالب المستبعد: الشهر الذي لم يحضر فيه أي حصة لا تُحتسب عليه دفعته، والمستحق = حصص حضوره فقط ──
+  const _monthDI=(sid,m)=>{ if(isStuFinExcluded(sid)){ const e=excludedMonthDebtInfo(sid,m); return {remaining:e.remaining,partial:e.partial,paid:e.paid,fee:e.due,attended:e.attended}; } return monthDebtInfo(sid,m); };
+  const _exclNoAtt=(sid,m)=>isStuFinExcluded(sid)&&excludedMonthDebtInfo(sid,m).attended===0;
   // مبلغ الطالب غير المدرج بسجل في شهر العرض: لو دفع جزء فالمتبقي فقط، وإلا الرسوم كاملة
-  const _unlAmt=(st)=>{ const di=monthDebtInfo(st.id,_chkMonth); return di.partial?di.remaining:stuEffectiveFee(st); };
+  const _unlAmt=(st)=>{ const di=_monthDI(st.id,_chkMonth); return di.partial?di.remaining:stuEffectiveFee(st); };
   // ── الطلاب المستبعدين (غياب 3 أيام متتالية) بيتخفوا من القوائم افتراضيًا، لكن لو البحث (qf) بيطابق اسمهم/كودهم بالظبط بيظهروا عشان تقدر تراجع سجلهم — مع بقائهم مستبعدين تمامًا من أي إجمالي/حساب مالي ──
   const _matchesSearch=(s)=>{ if(!qf) return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return fullName.includes(qf)||barcode.includes(qf); };
-  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false; if(isStuFinExcluded(s.id)&&!_matchesSearch(s))return false; if(isStuExempt(s.id))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
+  let rawList=DB.payments.filter(p=>{ const s=stu(p.studentId); if(!s)return false;  if(isStuExempt(s.id))return false; if(p.status==='unpaid'&&_exclNoAtt(s.id,p.month))return false; const fullName=(s.fname+' '+s.lname).toLowerCase(); const barcode=(s.barcode||s.id||'').toLowerCase(); return (!cf||s?.classId===cf)&&(!gf||s?.groupId===gf)&&(!sf||p.status===sf)&&(!mf||p.month===mf)&&(!qf||fullName.includes(qf)||barcode.includes(qf)); });
   // ── سجل واحد فقط لكل طالب (آخر دفعة بحسب تاريخ الإنشاء) ──
   const seenStu=new Map();
   rawList.forEach(p=>{ const ex=seenStu.get(p.studentId); if(!ex||(p.createdAt||'')>(ex.createdAt||''))seenStu.set(p.studentId,p); });
   const list=[...seenStu.values()];
   const listedIds=new Set(list.map(p=>p.studentId));
   const unlistedUnpaid=DB.students.filter(s=>{
-    if(isStuFinExcluded(s.id)&&!_matchesSearch(s))return false;
+    
     if(isStuExempt(s.id))return false;
+    if(_exclNoAtt(s.id,_chkMonth))return false;
     // ── تجاهل الطالب لو الشهر المطلوب فحصه قبل تاريخ التحاقه فعلاً (مايستحقش عليه اشتراك أصلاً) ──
     if(s.date){
       const _jd=new Date(s.date);
@@ -10211,7 +10280,7 @@ function renderPayments(){
     }
     const paidInMonth=DB.payments.some(p=>p.studentId===s.id&&p.month===_chkMonth&&p.status==='paid');
     if(paidInMonth)return false;
-    { const _di=monthDebtInfo(s.id,_chkMonth); if(_di.partial&&_di.remaining<=0) return false; }
+    { const _di=_monthDI(s.id,_chkMonth); if(_di.partial&&_di.remaining<=0) return false; }
     if(cf&&s.classId!==cf)return false;
     if(gf&&s.groupId!==gf)return false;
     if(listedIds.has(s.id))return false;
@@ -10231,7 +10300,7 @@ function renderPayments(){
       ?`<div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div><div style="font-size:10px;color:var(--amber);font-weight:700;">متبقي: ${fmtM(partialTotal)}</div>`
       :`<div style="font-weight:700;color:var(--green);">${fmtM(p.amount)}</div>`;
     return `<tr onclick="_payToggleBtns(this)" style="cursor:pointer;">
-      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div><div style="font-weight:600;">${stuN(p.studentId)}${_joinTag(s)}${s&&isStuFinExcluded(s.id)?' <span title="مستبعد بسبب الغياب المتكرر — غير محتسب في أي إحصائية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>${_btns(p.id,p.studentId)}${_alertBadge(p.studentId)}</div></div></td>
+      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s?.color||'#4f7cff'}20;color:${s?.color||'#4f7cff'}">${s?s.fname[0]:'?'}</div><div><div style="font-weight:600;">${stuN(p.studentId)}${_joinTag(s)}${s&&isStuFinExcluded(s.id)?' <span class="pay-excl-b" title="مستبعد بسبب الغياب المتكرر — غير محتسب في أي إحصائية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>${_btns(p.id,p.studentId)}${_alertBadge(p.studentId)}</div></div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s?.classId)}</td>
       <td style="font-size:11px;color:var(--text2);">${grpN(s?.groupId)}</td>
       <td>${amtDisplay}</td>
@@ -10243,12 +10312,23 @@ function renderPayments(){
 
   if(showUnlisted){
     const extraRows=unlistedUnpaid.map(s=>`<tr onclick="_payToggleBtns(this)" style="cursor:pointer;opacity:.85">
-      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}${_joinTag(s)}${isStuFinExcluded(s.id)?' <span title="مستبعد بسبب الغياب المتكرر — غير محتسب في أي إحصائية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>${_btns('',s.id)}</div></div></td>
+      <td><div style="display:flex;align-items:center;gap:7px;"><div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div><div><div style="font-weight:600;">${s.fname} ${s.lname}${_joinTag(s)}${isStuFinExcluded(s.id)?' <span class="pay-excl-b" title="مستبعد بسبب الغياب المتكرر — غير محتسب في أي إحصائية" style="font-size:9px;font-weight:800;color:var(--red);background:rgba(255,77,109,.12);border:1px solid rgba(255,77,109,.3);border-radius:8px;padding:1px 6px;margin-right:4px;">⛔ مستبعد</span>':''}</div>${_btns('',s.id)}</div></div></td>
       <td style="font-size:11px;color:var(--text2);">${clsN(s.classId)}</td><td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
-      <td>${(()=>{ const di=monthDebtInfo(s.id,_chkMonth); return di.partial?`<div style="font-weight:700;color:var(--amber);">${fmtM(di.remaining)}</div><div style="font-size:10px;color:var(--text2);">دفع ${fmtM(di.paid)} من ${fmtM(di.fee)}</div>`:`<div style="font-weight:700;color:var(--red);">${fmtM(stuEffectiveFee(s))}</div>`; })()}${_prevDebtLines(s.id,_chkMonth)}</td>
-      <td>${monthDebtInfo(s.id,_chkMonth).partial?'<span class="badge bg-a">🔶 جزئي — متبقي</span>':'<span class="badge bg-r">⏳ لم يسدد</span>'}</td><td></td>
+      <td>${(()=>{ const di=_monthDI(s.id,_chkMonth); return di.partial?`<div style="font-weight:700;color:var(--amber);">${fmtM(di.remaining)}</div><div style="font-size:10px;color:var(--text2);">دفع ${fmtM(di.paid)} من ${fmtM(di.fee)}</div>`:`<div style="font-weight:700;color:var(--red);">${fmtM(stuEffectiveFee(s))}</div>`; })()}${_prevDebtLines(s.id,_chkMonth)}</td>
+      <td>${_monthDI(s.id,_chkMonth).partial?'<span class="badge bg-a">🔶 جزئي — متبقي</span>':'<span class="badge bg-r">⏳ لم يسدد</span>'}</td><td></td>
     </tr>`).join('');
     document.getElementById('pay-tbody').innerHTML+=extraRows;
+  }
+
+  // ── المستبعدون (غياب 3 أيام متتالية): علامة مميزة على الصف + نقلهم لآخر القائمة (الأحدث استبعاداً أولاً) ──
+  {
+    const _tb=document.getElementById('pay-tbody');
+    const _ex=[..._tb.querySelectorAll('tr')].filter(r=>r.querySelector('.pay-excl-b'));
+    if(_ex.length){
+      const _sidOf=r=>{ const m=/openEditPaysForStudent\('([^']+)'\)/.exec(r.innerHTML); return m?m[1]:''; };
+      _ex.sort((x,y)=>(stuExclusionDate(_sidOf(y))||'').localeCompare(stuExclusionDate(_sidOf(x))||''));
+      _ex.forEach(r=>{ r.style.boxShadow='inset -4px 0 0 var(--red)'; r.style.background='rgba(255,77,109,.07)'; r.style.opacity='.88'; _tb.appendChild(r); });
+    }
   }
 
   // ── تحديث إحصائية الفلتر الحالي (عدد السجلات الظاهرة + إجمالي مبالغها) — الطلاب المستبعدين (لو ظهروا بسبب البحث) لا يُحتسبون هنا إطلاقاً ──
@@ -10533,8 +10613,20 @@ function _grpIdOnDate(s, date){
 // ── هل هذا التاريخ يوم خارج جدول مجموعة الطالب الأسبوعي؟ (حصة تعويض/استثنائية) ──
 // تُستخدم في كل نقاط تسجيل الحضور (مسح باركود / تسجيل يدوي / شبكة الحضور / تسجيل جماعي)
 // عشان أي حضور فعلي في يوم مش من أيام جدول المجموعة يتسجّل تلقائياً "استثنائي" بدل "حاضر"
+// ── بعد نقل الطالب لمجموعة جديدة: الغياب يُحتسب حسب المجموعة الجديدة من تاريخ النقل فقط ──
+// أي غياب اتسجّل النهارده تلقائياً على مجموعته القديمة (إغلاق حصتها) بيتشال، والمجموعة الجديدة هي اللي تحدد غياب اليوم من إغلاقها.
+// (الأيام السابقة لتاريخ النقل لا تتأثر — بتفضل على المجموعة القديمة عن طريق groupHistory)
+function _grpMovedCleanup(s){
+  if(!s) return;
+  const today=localDate();
+  const day=DB.attendance[today];
+  if(day && day[s.id]==='absent'){ delete day[s.id]; delete day[s.id+'_time']; }
+  if(typeof attState!=='undefined' && attState[s.id]==='absent') delete attState[s.id];
+}
 function _isExceptionalDay(sid, dateStr){
   const s = stu(sid); if(!s || !dateStr) return false;
+  // يوم نقل الطالب لمجموعة جديدة: حضوره فيه حضور عادي (مش استثنائي) حتى لو مش من أيام المجموعة الجديدة
+  { const h=s.groupHistory; if(h && h.length && h[h.length-1].to===dateStr) return false; }
   const allowedDays = _grpDayNums(_grpIdOnDate(s, dateStr));
   if(!allowedDays) return false; // المجموعة بلا جدول أيام محدد → لا يوجد مفهوم "استثنائي"
   const parts = dateStr.split('-');
@@ -16812,10 +16904,10 @@ function sendPayTGBulk(){
     if(qf){ const nm=(s.fname+' '+s.lname).toLowerCase(); const bc=(s.barcode||s.id||'').toLowerCase(); if(!nm.includes(qf)&&!bc.includes(qf))return false; }
     return true;
   });
-  let list=filtered.map(s=>{
+  let list=filtered.filter(s=>isPaid(s.id)||!stuNoDueThisMonth(s.id)).map(s=>{
     const paid=isPaid(s.id);
     const tmpl=paid?(DB.waTmpl.paid||'مرحباً {اسم_الطالب}، نشكركم على سداد رسوم {الشهر}. ✅'):DB.waTmpl.pay;
-    const msg=applyWAVars(tmpl, s, {month, amount:stuEffectiveFee(s)});
+    const msg=applyWAVars(tmpl, s, {month, amount:stuReminderAmount(s)});
     return {sid:s.id,name:s.fname+' '+s.lname,msg,paid};
   });
   if(!list.length){toast('لا يوجد طلاب في هذا الاختيار','e');return;}
@@ -16897,8 +16989,9 @@ function sendPayWARem(sid){
   const ph=fmtPhone(s.parentPhone||s.phone||'');
   if(!ph){toast('لا يوجد رقم هاتف','e');return;}
   const paid=isPaid(sid);
+  if(!paid && stuNoDueThisMonth(sid)){ toast('طالب مستبعد ولم يحضر هذا الشهر — لا مستحقات عليه','i'); return; }
   const tmpl=paid?(DB.waTmpl.paid||DB.waTmpl.pay):DB.waTmpl.pay;
-  const msg=applyWAVars(tmpl, s, {month:localMonth(), amount:stuEffectiveFee(s)});
+  const msg=applyWAVars(tmpl, s, {month:localMonth(), amount:stuReminderAmount(s)});
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`,'_blank');
 }
 
@@ -16991,7 +17084,7 @@ function openWA(type){
   } else if(type==='class'){
     body=`<div class="fg"><label class="fl">الصف</label><select class="fs" id="wa-c-sel">${DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('')}</select></div><div class="fg"><label class="fl">الرسالة</label><textarea class="fta" id="wa-c-msg" rows="3">مرحباً طلاب الصف، ...</textarea></div><div class="fa"><button class="btn btn-secondary" onclick="closeModal('wa-modal')">إلغاء</button><button class="btn btn-wa" onclick="sendWAClass()">📱 إرسال للصف</button><button class="btn btn-tg" onclick="sendTGClass()">✈️ إرسال للصف</button></div>`;
   } else if(type==='unpaid'){
-    const u=DB.students.filter(s=>!isPaid(s.id));
+    const u=DB.students.filter(s=>!isPaid(s.id)&&!stuNoDueThisMonth(s.id));
     body=`<div style="padding:7px 10px;background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.18);border-radius:var(--rs);margin-bottom:.9rem;font-size:12.5px;">سيتم إرسال تذكير لـ <b>${u.length} طالب</b> غير مسدد</div><div class="fg"><label class="fl">الرسالة</label><textarea class="fta" id="wa-u-msg" rows="3">${DB.waTmpl.pay}</textarea></div><div class="fa"><button class="btn btn-secondary" onclick="closeModal('wa-modal')">إلغاء</button><button class="btn btn-wa" onclick="sendWAUnpaid()">📱 إرسال للكل</button><button class="btn btn-tg" onclick="sendTGUnpaid()">✈️ إرسال للكل</button></div>`;
   } else if(type==='absent'){
     const today=localDate(); const abs=DB.students.filter(s=>DB.attendance[today]?.[s.id]==='absent');
@@ -17050,10 +17143,10 @@ function sendWAUnpaid(){
   const msg=document.getElementById('wa-u-msg').value;
   closeModal('wa-modal');
   const month=localMonth();
-  showWAList(DB.students.filter(s=>!isPaid(s.id)).map(s=>({
+  showWAList(DB.students.filter(s=>!isPaid(s.id)&&!stuNoDueThisMonth(s.id)).map(s=>({
     name:s.fname+' '+s.lname,
     ph:fmtPhone(s.parentPhone||s.phone||''),
-    msg:applyWAVars(msg,s,{month,amount:stuEffectiveFee(s)})
+    msg:applyWAVars(msg,s,{month,amount:stuReminderAmount(s)})
   })).filter(x=>x.ph));
 }
 function sendWAAbsent(){
@@ -17101,10 +17194,10 @@ function sendTGUnpaid(){
   const msg=document.getElementById('wa-u-msg').value;
   closeModal('wa-modal');
   const month=localMonth();
-  showTgList(DB.students.filter(s=>!isPaid(s.id)).map(s=>({
+  showTgList(DB.students.filter(s=>!isPaid(s.id)&&!stuNoDueThisMonth(s.id)).map(s=>({
     sid:s.id,
     name:s.fname+' '+s.lname,
-    msg:applyWAVars(msg,s,{month,amount:stuEffectiveFee(s)})
+    msg:applyWAVars(msg,s,{month,amount:stuReminderAmount(s)})
   })));
 }
 function sendTGAbsent(){
@@ -17980,8 +18073,9 @@ function sendPayWABulkSequential(){
     const ph=fmtPhone(s.parentPhone||s.phone||'');
     if(!ph)return null;
     const paid=isPaid(s.id);
+    if(!paid && stuNoDueThisMonth(s.id)) return null; // مستبعد لم يحضر هذا الشهر — لا تذكير
     const tmpl=paid?(DB.waTmpl.paid||'مرحباً {اسم_الطالب}، نشكركم على سداد رسوم {الشهر}. ✅'):DB.waTmpl.pay;
-    const msg=applyWAVars(tmpl, s, {month, amount:stuEffectiveFee(s)});
+    const msg=applyWAVars(tmpl, s, {month, amount:stuReminderAmount(s)});
     return {name:s.fname+' '+s.lname,ph,msg,paid,_wid:'pw'+i+Date.now()};
   }).filter(Boolean);
   if(!_payList.length){toast('لا يوجد طلاب بأرقام هواتف في هذا الاختيار','e');return;}
