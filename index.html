@@ -1147,6 +1147,7 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
   <div class="tabs" id="pay-tabs">
     <button class="tab-btn active" onclick="switchPayTab('main',this)">💰 سجل المدفوعات</button>
     <button class="tab-btn" onclick="switchPayTab('special',this)">💎 حالات دفع خاصة</button>
+    <button class="tab-btn" onclick="switchPayTab('geo',this)">⛰️ الجيولوجيا</button>
   </div>
 
   <!-- TAB: سجل المدفوعات -->
@@ -1205,6 +1206,23 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
         </div>
       </div>
       <table><thead><tr><th>الطالب</th><th>الصف</th><th>المجموعة</th><th>المبلغ</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="pay-tbody"></tbody></table>
+    </div>
+  </div>
+
+  <!-- TAB: الجيولوجيا (اشتراك شهري) -->
+  <div id="pay-tab-geo" style="display:none;">
+    <div class="g4" id="geo-metrics" style="margin-bottom:1rem;"></div>
+    <div class="tc">
+      <div class="th">
+        <div class="tt">⛰️ اشتراك الجيولوجيا الشهري</div>
+        <div class="filt" style="flex-wrap:wrap;gap:6px;">
+          <input class="fi" id="geo-search" placeholder="🔍 بحث بالاسم أو الباركود..." style="width:200px;" oninput="renderGeoPays()">
+          <select class="fs" style="width:130px" id="geo-grp-f" onchange="renderGeoPays()"><option value="">كل المجموعات</option></select>
+          <input class="fi" type="month" id="geo-month-f" style="width:145px;" oninput="renderGeoPays()" title="الشهر">
+          <select class="fs" style="width:120px" id="geo-st-f" onchange="renderGeoPays()"><option value="">كل الحالات</option><option value="paid">مسدد</option><option value="partial">جزئي</option><option value="unpaid">غير مسدد</option></select>
+        </div>
+      </div>
+      <table><thead><tr><th>الطالب</th><th>المجموعة</th><th>الشهر</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="geo-tbody"></tbody></table>
     </div>
   </div>
 
@@ -3477,20 +3495,21 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
         <option value="ثانوي">المرحلة الثانوية</option>
       </select>
     </div>
-    <div class="fg"><label class="fl">الصف الدراسي</label>
-      <select class="fs" id="subj-classes" onchange="filterSubjGroupsByCls()" multiple style="height:auto;min-height:44px;max-height:180px;padding:4px 0;">
-        <option value="" disabled selected>— اختر المرحلة أولاً —</option>
-      </select>
-      <div style="font-size:10.5px;color:var(--accent);margin-top:4px;display:flex;align-items:center;gap:4px;">
-        <span style="background:rgba(79,124,255,.12);border:1px solid rgba(79,124,255,.25);border-radius:5px;padding:1px 7px;font-size:10px;font-weight:700;">Ctrl</span>
-        <span style="color:var(--text2);">+ النقر لاختيار أكثر من صف</span>
+    <div class="fg"><label class="fl">الصف الدراسي <span style="font-weight:600;color:var(--text3);font-size:10.5px;">(بدون اختيار = كل الصفوف)</span></label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+        <select class="fs" id="subj-cls-pick" style="flex:1;min-width:140px;"><option value="">— اختر المرحلة أولاً —</option></select>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="subjAddCls()">➕ إضافة صف</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="subjAddAllCls()">➕ إضافة كل الصفوف</button>
       </div>
+      <div id="subj-cls-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
     </div>
-    <div class="fg"><label class="fl">المجموعة</label>
-      <select class="fs" id="subj-groups" multiple style="height:80px;">
-        <option value="">— كل المجموعات —</option>
-      </select>
-      <div style="font-size:10px;color:var(--text2);margin-top:3px;">اضغط Ctrl + النقر لاختيار أكثر من مجموعة</div>
+    <div class="fg"><label class="fl">المجموعة <span style="font-weight:600;color:var(--text3);font-size:10.5px;">(بدون اختيار = كل المجموعات)</span></label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+        <select class="fs" id="subj-grp-pick" style="flex:1;min-width:140px;"><option value="">— اختر مجموعة —</option></select>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="subjAddGrp()">➕ إضافة مجموعة</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="subjAddAllGrps()">➕ إضافة كل المجموعات</button>
+      </div>
+      <div id="subj-grp-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
     </div>
     <div class="fg"><label class="fl">الرسوم الشهرية (جنيه)</label><input type="number" class="fi" id="subj-fee" placeholder="500"></div>
     <div class="fa"><button class="btn btn-secondary" onclick="closeModal('add-subject-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveSubject()">✅ حفظ المادة</button></div>
@@ -3603,7 +3622,7 @@ function _defaultDB(){
     payments:[],expenses:[],products:[],sales:[],assignments:[],behaviors:[],
     points:[],rewards:[],rewardGiven:[],supervisors:[],trash:[],
     retakeRequests:[],retakePermissions:[],
-    specialPays:[],pinnedMessages:[],tgPinnedMessages:[],
+    specialPays:[],geoPayments:[],pinnedMessages:[],tgPinnedMessages:[],
     notifications:[],questionBank:[]
   };
 }
@@ -4341,9 +4360,7 @@ function popModal(id){
   if(id==='add-product-modal'){ document.getElementById('pr-cls').innerHTML='<option value="">الكل</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join(''); const pub=document.getElementById('pr-type-public'); const azh=document.getElementById('pr-type-azhar'); if(pub) pub.checked=true; if(azh) azh.checked=false; const editId=document.getElementById('pr-edit-id'); if(editId && !editId.value){ document.getElementById('pr-modal-title').innerHTML='إضافة منتج <button class="mc-btn" onclick="closeModal(\'add-product-modal\')">✕</button>'; document.getElementById('pr-modal-actions').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('add-product-modal')">إلغاء</button><button class="btn btn-primary" onclick="saveProduct()">✅ إضافة</button>`; document.getElementById('pr-name').value=''; document.getElementById('pr-icon').value=''; document.getElementById('pr-price').value=''; document.getElementById('pr-stock').value=''; } }
   if(id==='trash-modal'){ const _ts=document.getElementById('trash-search'); if(_ts) _ts.value=''; renderTrash(); }
   if(id==='add-subject-modal'){
-    // Don't pre-populate classes here — filterSubjClsByStage handles it based on selected stage
-    const grpSel=document.getElementById('subj-groups');
-    grpSel.innerHTML='<option value="">— كل المجموعات —</option>'+DB.groups.map(g=>`<option value="${g.id}">${g.name} (${clsN(g.classId)})</option>`).join('');
+    _subjRefreshGrpPick();
   }
 }
 
@@ -4449,7 +4466,7 @@ function renderDashboard(){
   const activeGrades=DB.grades.filter(g=>!isStuFinExcluded(g.studentId));
   const allScores=activeGrades.map(g=>Math.round(g.score/g.outOf*100));
   const avg=allScores.length?Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length):0;
-  const totalRev=DB.payments.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
+  const totalRev=DB.payments.concat(_geoAsPays()).filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
 
   document.getElementById('dash-metrics').innerHTML=document.body.dataset.role==='supervisor'?'':`
     <div class="mc mc-b"><div class="mi">👨‍🎓</div><div class="mv">${total}</div><div class="ml">إجمالي الطلاب</div><div class="mt2" style="color:var(--text2)">${DB.classes.length} صفوف · ${DB.groups.length} مجموعات</div></div>
@@ -7731,7 +7748,12 @@ const _AVW_DAY_SHORT=['أحد','إثنين','ثلاثاء','أربعاء','خم�
 // ── حالة يوم معيّن لطالب معيّن: من سجل الحضور الفعلي، أو "استبعاد" لو مفيش سجل / اليوم مش من أيام مجموعته ──
 function _avwCellStatus(s, date){
   const rec=DB.attendance[date] && DB.attendance[date][s.id];
-  if(rec) return rec==='exceptional' ? 'present' : rec;
+  if(rec){
+    const _st = rec==='exceptional' ? 'present' : rec;
+    // حضور يوم الجمعة يظهر بلون أبيض مميز
+    if(_st==='present' && new Date(date+'T00:00:00').getDay()===5) return 'friday';
+    return _st;
+  }
   if(isHolidayDate(date)) return 'holiday';
   const allowedDays=_grpDayNums(_grpIdOnDate(s,date));
   if(allowedDays){
@@ -7749,6 +7771,7 @@ function _avwBox(status){
     late:   {bg:'var(--amber)',fg:'#1a1f2e',label:'ت'},
     excluded:{bg:'#3a3f52',fg:'rgba(255,255,255,.55)',label:'د'},
     holiday:{bg:'#00bcd4',fg:'#fff',label:'أ'},
+    friday: {bg:'#ffffff',fg:'#1a1f2e',label:'ح'},
   };
   const m=map[status]||map.excluded;
   return `<span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;font-weight:800;font-size:12.5px;background:${m.bg};color:${m.fg};">${m.label}</span>`;
@@ -7979,10 +8002,9 @@ function renderTodayLog(){
         const ic  = isExc ? '✅' : {present:'✅',late:'⏰',absent:'❌'}[st]||'⬜';
         const col = isExc ? 'var(--green)' : {present:'var(--green)',late:'var(--amber)',absent:'var(--red)'}[st]||'var(--text3)';
         const lbl = isExc ? 'حاضر' : {present:'حاضر',late:'متأخر',absent:'غائب'}[st]||'—';
-        const excBadge = isExc
-          ? `<span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.35);color:var(--amber);font-weight:700;white-space:nowrap;margin-top:2px;display:inline-block;">⚠️ استثنائي</span>`
+        const excBadge = isExc ? ''
           : '';
-        return `<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);${isExc?'background:rgba(245,166,35,.04);':''}">
+        return `<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);">
           <div class="av av28" style="background:${s.color}20;color:${s.color};flex-shrink:0;">${s.fname[0]}</div>
           <div style="flex:1;min-width:0;">
             <div style="font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.fname} ${s.lname}</div>
@@ -10052,8 +10074,10 @@ function switchPayTab(tab,btn){
   btn.classList.add('active');
   document.getElementById('pay-tab-main').style.display=tab==='main'?'block':'none';
   document.getElementById('pay-tab-special').style.display=tab==='special'?'block':'none';
+  const _gt=document.getElementById('pay-tab-geo'); if(_gt) _gt.style.display=tab==='geo'?'block':'none';
   if(tab==='main') renderPayments();
   else if(tab==='special') renderSpecialPays();
+  else if(tab==='geo') renderGeoPays();
 }
 // ── مسح الباركود في خانة البحث بتبويب المدفوعات: فتح سجل الطالب تلقائياً ──
 let _lastPayBarcodeOpened='';
@@ -10711,7 +10735,7 @@ function _showStuAttDetails(sid){
 
   const stMap={present:'✅ حاضر',exceptional:'✅ حاضر',late:'⏰ متأخر',absent:'❌ غائب',holiday:'🏖️ أجازة'};
   const stCol={present:'var(--green)',exceptional:'var(--green)',late:'var(--amber)',absent:'var(--red)',holiday:'#00bcd4'};
-  const stBg ={present:'rgba(34,201,122,.08)',exceptional:'rgba(245,166,35,.05)',late:'rgba(245,166,35,.08)',absent:'rgba(255,77,109,.08)',holiday:'rgba(0,188,212,.08)'};
+  const stBg ={present:'rgba(34,201,122,.08)',exceptional:'rgba(34,201,122,.08)',late:'rgba(245,166,35,.08)',absent:'rgba(255,77,109,.08)',holiday:'rgba(0,188,212,.08)'};
 
   // بناء أقسام الشهور
   const monthSections=Object.keys(months).sort().map(m=>{
@@ -10723,11 +10747,10 @@ function _showStuAttDetails(sid){
       const isExc = raw==='exceptional';
       if(raw==='present'||isExc) mp++; else if(raw==='absent') ma++; else if(raw==='late') ml++;
       const dayLabel=new Date(d+'T00:00:00').toLocaleDateString('ar-EG',{weekday:'short',day:'numeric'});
-      const excBadge = isExc
-        ? `<span style="font-size:9px;padding:1px 6px;border-radius:8px;background:rgba(245,166,35,.18);border:1px solid rgba(245,166,35,.4);color:var(--amber);font-weight:700;margin-right:4px;">⚠️ استثنائي</span>`
+      const excBadge = isExc ? ''
         : '';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-bottom:1px solid var(--border);background:${stBg[raw]};">
-        <span style="font-size:11.5px;color:var(--text2);">${dayLabel}${isExc?' <span style="font-size:9px;color:var(--amber);">(خارج الجدول)</span>':''}</span>
+        <span style="font-size:11.5px;color:var(--text2);">${dayLabel}${isExc?' <span style="font-size:9px;color:var(--text2);">(خارج الجدول)</span>':''}</span>
         <span style="font-size:11px;font-weight:800;color:${stCol[raw]};padding:2px 11px;border-radius:10px;background:${stBg[raw]};border:1px solid ${stCol[raw]}33;">${stMap[raw]}${excBadge}</span>
       </div>`;
     }).join('');
@@ -10768,7 +10791,7 @@ function _showStuAttDetails(sid){
       <div style="padding:10px;text-align:center;border-left:1px solid var(--border);">
         <div style="font-size:20px;font-weight:900;color:var(--green);">${totPresent}</div>
         <div style="font-size:9.5px;color:var(--text2);">✅ حاضر</div>
-        ${totExceptional>0?`<div style="font-size:9px;margin-top:2px;padding:1px 6px;border-radius:8px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);color:var(--amber);display:inline-block;">⚠️ ${totExceptional} استثنائي</div>`:''}
+        
       </div>
       <div style="padding:10px;text-align:center;border-left:1px solid var(--border);">
         <div style="font-size:20px;font-weight:900;color:var(--red);">${totAbsent}</div>
@@ -10974,6 +10997,8 @@ function openEditPaysForStudent(sid){
           </div>`;
         })()}
         ${document.body.dataset.role==='supervisor'?'':`<button class="btn btn-success btn-sm" onclick="showInlineNewPay('${sid}')">➕ دفعة جديدة</button>`}
+        ${(_geoEligible(sid))?_geoDebtBtnHtml(sid):''}
+        ${(document.body.dataset.role!=='supervisor' && _geoEligible(sid))?`<button class="btn btn-sm" style="background:rgba(0,201,177,.12);color:#00c9b1;border:1px solid rgba(0,201,177,.35);" onclick="showGeoNewPay('${sid}')">⛰️ دفعة جديدة جيولوجيا</button>`:''}
       </div>
     </div>
 
@@ -11064,6 +11089,7 @@ function openEditPaysForStudent(sid){
     </div>
     `}
 
+    ${_geoPaysSectionHtml(sid)}
         <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.85rem;display:flex;justify-content:space-between;align-items:center;">
       <button class="btn btn-b btn-sm" onclick="showStudentPayHistory('${sid}')" style="background:rgba(79,124,255,.1);color:var(--accent);border:1px solid rgba(79,124,255,.25);">📋 سجل المدفوعات الكامل</button>
       <button class="btn btn-secondary" onclick="closeModal('edit-pays-list-modal')">إغلاق</button>
@@ -11225,6 +11251,518 @@ function showInlineNewPay(sid){ if(_supBlockPay('بإضافة دفعات')) retu
       <button class="btn btn-amber" onclick="_buildInvoiceFormForPrint('${sid}')">🖨️ طباعة فاتورة</button>
       <button class="btn btn-primary" onclick="saveInvoicePay()">➕ إضافة الدفعة</button>
     </div>`;
+}
+
+
+// ══════════════════════════════════════════════════════════════
+// دفعات الجيولوجيا — طلاب الصف الثالث الثانوي (سجل منفصل عن الدفعات الشهرية)
+// ══════════════════════════════════════════════════════════════
+function _isThirdSecStu(s){
+  if(!s) return false;
+  if(s.classId==='c_s3') return true;
+  return /الثالث\s*الثانوي/.test(clsN(s.classId)||'');
+}
+// ══════════ نظام الاشتراك الشهري للجيولوجيا (نفس منطق الاشتراك الشهري العادي) ══════════
+// المشترك = طالب لديه دفعة جيولوجيا واحدة على الأقل؛ يبدأ الاستحقاق من أول شهر مسجّل له،
+// ثم يُستحق شهرياً مع بداية كل شهر جديد حتى يُسدَّد.
+function _geoMonthOf(g){ return g.month||String(g.date||'').slice(0,7); }
+function _geoStartMonth(sid){
+  const ms=(DB.geoPayments||[]).filter(g=>g.studentId===sid).map(_geoMonthOf).filter(Boolean).sort();
+  return ms[0]||null;
+}
+function _geoSumAmt(arr){ return arr.reduce((a,p)=>a+(+p.amount||0),0); }
+function _geoMonthInfo(sid,m){
+  const s=stu(sid); const fee=_geoFeeForStudent(s);
+  const pays=(DB.geoPayments||[]).filter(g=>g.studentId===sid&&_geoMonthOf(g)===m);
+  const got=pays.filter(p=>p.status==='paid'||p.status==='partial');
+  if(pays.some(p=>p.status==='paid')) return {state:'paid',remaining:0,paid:_geoSumAmt(got),fee,partial:false};
+  const partials=pays.filter(p=>p.status==='partial');
+  if(partials.length){
+    const paid=_geoSumAmt(partials), rem=Math.max(0,fee-paid);
+    return {state:rem>0?'partial':'paid',remaining:rem,paid,fee,partial:true};
+  }
+  return {state:'unpaid',remaining:fee,paid:0,fee,partial:false};
+}
+function _geoMonthsRange(sid){
+  const st=_geoStartMonth(sid); if(!st) return [];
+  const [y0,m0]=st.split('-').map(Number); if(!y0||!m0) return [];
+  const now=new Date(); const out=[];
+  let y=y0, mo=m0-1;
+  while(y<now.getFullYear()||(y===now.getFullYear()&&mo<=now.getMonth())){
+    out.push(y+'-'+String(mo+1).padStart(2,'0'));
+    mo++; if(mo>11){ mo=0; y++; }
+  }
+  return out;
+}
+// ── الجيولوجيا تخص طلاب الثالث الثانوي الذين يحضرون يوم الجمعة فقط ──
+// "يحضر الجمعة" = له سجل حضور (حاضر/متأخر/استثنائي) في أي يوم جمعة. وأي طالب لديه دفعات جيولوجيا مسجّلة سابقاً يبقى مؤهلاً.
+function _geoFridaySet(){
+  if(_cache.geoFri) return _cache.geoFri;
+  const set=new Set();
+  Object.keys(DB.attendance||{}).forEach(d=>{
+    const p=d.split('-'); if(p.length!==3) return;
+    if(new Date(+p[0],+p[1]-1,+p[2]).getDay()!==5) return;
+    const day=DB.attendance[d]||{};
+    Object.keys(day).forEach(sid=>{
+      if(sid.endsWith('_time')) return;
+      const v=day[sid]; if(v==='present'||v==='late'||v==='exceptional') set.add(sid);
+    });
+  });
+  return (_cache.geoFri=set);
+}
+function _geoEligible(sid){
+  const s=stu(sid); if(!s||!_isThirdSecStu(s)) return false;
+  return _geoFridaySet().has(sid) || (DB.geoPayments||[]).some(g=>g.studentId===sid);
+}
+function _geoApplies(sid){ return _geoEligible(sid) && !isStuFinExcluded(sid) && !isStuExempt(sid); }
+function _geoUnpaidMonths(sid){
+  if(!_geoApplies(sid)) return [];
+  const s=stu(sid); if(!s||_geoFeeForStudent(s)<=0) return [];
+  return _geoMonthsRange(sid).filter(m=>_geoMonthInfo(sid,m).state!=='paid');
+}
+function _geoStateBadge(st){
+  return {paid:['✅ مسدد','var(--green)'],partial:['🔶 جزئي','#f5a623'],unpaid:['⏳ مستحق','var(--red)']}[st]||['—','var(--text3)'];
+}
+// زر + قائمة "مديونيات الجيولوجيا" في شاشة دفعات الطالب
+function _geoDebtBtnHtml(sid){
+  const um=_geoUnpaidMonths(sid); if(!um.length) return '';
+  return `<div style="position:relative;">
+    <button class="btn btn-sm" style="background:rgba(255,77,109,.12);color:var(--red);border:1px solid rgba(255,77,109,.3);" onclick="_toggleGeoOverdue()">⚠️ مديونيات الجيولوجيا (${um.length})</button>
+    <div id="geo-overdue-dropdown" style="display:none;position:absolute;top:calc(100% + 6px);left:0;z-index:50;min-width:240px;max-height:280px;overflow-y:auto;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rs);box-shadow:0 8px 28px rgba(0,0,0,.35);">
+      ${um.map(m=>{ const i=_geoMonthInfo(sid,m);
+        const lbl=i.partial?`<span style="color:var(--amber);font-size:10.5px;font-weight:700;">🔶 متبقي: ${fmtM(i.remaining)}</span>`:`<span style="color:var(--red);font-size:10.5px;font-weight:700;">⏳ ${fmtM(i.fee)}</span>`;
+        return `<button onclick="showGeoNewPay('${sid}','${m}')" style="display:flex;align-items:center;justify-content:space-between;width:100%;text-align:right;padding:9px 12px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;"><span>${monthLabelAr(m)}</span>${lbl}</button>`; }).join('')}
+    </div></div>`;
+}
+function _toggleGeoOverdue(){ const d=document.getElementById('geo-overdue-dropdown'); if(d) d.style.display=d.style.display==='block'?'none':'block'; }
+
+function _geoPaysSectionHtml(sid){
+  const list=(DB.geoPayments||[]).filter(x=>x.studentId===sid).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  if(!list.length) return '';
+  const isSup=document.body.dataset.role==='supervisor';
+  const stLbl={paid:'✅ مسدد',partial:'🔶 جزئي',unpaid:'⏳ غير مسدد'};
+  const stCol={paid:'var(--green)',partial:'#f5a623',unpaid:'var(--red)'};
+  const total=list.filter(x=>x.status==='paid'||x.status==='partial').reduce((a,b)=>a+(+b.amount||0),0);
+  const months=_geoMonthsRange(sid).reverse();
+  const fee=_geoFeeForStudent(stu(sid));
+  const monthRows=(fee>0)?months.map(m=>{ const i=_geoMonthInfo(sid,m); const [lb,col]=_geoStateBadge(i.state);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);font-size:11.5px;">
+      <span style="flex:1;font-weight:700;">📅 ${monthLabelAr(m)}</span>
+      ${i.partial&&i.remaining>0?`<span style="font-size:10px;color:var(--amber);font-weight:700;">متبقي ${fmtM(i.remaining)}</span>`:''}
+      <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;color:${col};background:rgba(255,255,255,.05);">${lb}</span>
+      ${(i.state!=='paid'&&!isSup)?`<button class="btn btn-sm" style="padding:2px 8px;font-size:10px;background:rgba(0,201,177,.12);color:#00c9b1;border:1px solid rgba(0,201,177,.35);" onclick="showGeoNewPay('${sid}','${m}')">سداد</button>`:''}
+    </div>`; }).join(''):'';
+  return `
+    <div style="margin-top:1rem;border:1px solid rgba(0,201,177,.3);border-radius:var(--rs);overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(0,201,177,.08);">
+        <div style="font-size:12.5px;font-weight:800;color:#00c9b1;">⛰️ اشتراك الجيولوجيا (${list.length} دفعة)</div>
+        <div style="font-size:11.5px;font-weight:800;color:var(--text2);">المسدد: <span style="color:#00c9b1;">${fmtM(total)}</span>${fee>0?` · الرسوم الشهرية: ${fmtM(fee)}`:''}</div>
+      </div>
+      ${monthRows?`<div style="max-height:170px;overflow-y:auto;">${monthRows}</div>`:''}
+      <div style="padding:6px 12px;border-top:1px solid var(--border);font-size:10.5px;font-weight:800;color:var(--text3);background:rgba(255,255,255,.02);">سجل الدفعات</div>
+      ${list.map(p=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);">
+        ${p.invCode?`<span style="font-family:monospace;color:var(--accent);font-weight:700;">${p.invCode}</span>`:''}
+        ${p.date?`<span>🗓 ${p.date}</span>`:''}
+        ${_geoMonthOf(p)?`<span>📅 ${monthLabelAr(_geoMonthOf(p))}</span>`:''}
+        ${p.note?`<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);">📝 ${p.note}</span>`:'<span style="flex:1;"></span>'}
+        <span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;color:${stCol[p.status]};background:rgba(255,255,255,.05);white-space:nowrap;">${stLbl[p.status]||p.status}</span>
+        <span style="font-size:15px;font-weight:900;color:${stCol[p.status]};white-space:nowrap;">${Number(p.amount||0).toLocaleString('ar-EG')} ج</span>
+        <button class="btn btn-sm" title="طباعة فاتورة" style="background:rgba(245,166,35,.1);color:#f5a623;border:1px solid rgba(245,166,35,.3);padding:3px 8px;" onclick="printGeoReceipt('${p.id}')">🖨️</button>
+        ${isSup?'':`<button class="btn btn-sm" title="حذف" style="background:rgba(255,77,109,.1);color:var(--red);border:1px solid rgba(255,77,109,.3);padding:3px 8px;" onclick="delGeoPay('${p.id}','${sid}')">🗑</button>`}
+      </div>`).join('')}
+    </div>`;
+}
+
+// ── تبويب الجيولوجيا في صفحة المدفوعات: حالة كل مشترك في شهر معيّن + سداد سريع ──
+function renderGeoPays(){
+  const mEl=document.getElementById('geo-month-f'); if(mEl&&!mEl.value) mEl.value=localMonth();
+  const m=mEl?.value||localMonth();
+  const gsel=document.getElementById('geo-grp-f');
+  if(gsel){ const v=gsel.value; const gids=[...new Set((DB.geoPayments||[]).map(g=>stu(g.studentId)?.groupId).filter(Boolean))];
+    gsel.innerHTML='<option value="">كل المجموعات</option>'+gids.map(id=>`<option value="${id}">${grpN(id)}</option>`).join(''); gsel.value=v; }
+  const gf=gsel?.value||'', sf=document.getElementById('geo-st-f')?.value||'';
+  const qf=(document.getElementById('geo-search')?.value||'').trim().toLowerCase();
+  const subIds=[...new Set((DB.geoPayments||[]).map(g=>g.studentId))];
+  let rows=subIds.map(id=>stu(id)).filter(s=>s&&_geoApplies(s.id)&&(!gf||s.groupId===gf)
+      &&(!qf||(s.fname+' '+s.lname).toLowerCase().includes(qf)||String(s.barcode||s.id||'').toLowerCase().includes(qf))
+      &&(_geoStartMonth(s.id)||'9999')<=m)
+    .map(s=>({s,i:_geoMonthInfo(s.id,m)}));
+  const allRows=rows;
+  if(sf) rows=rows.filter(r=>r.i.state===sf);
+  const collected=(DB.geoPayments||[]).filter(g=>(g.status==='paid'||g.status==='partial')&&_geoMonthOf(g)===m&&_geoApplies(g.studentId)).reduce((a,g)=>a+(+g.amount||0),0);
+  const unpaidRows=allRows.filter(r=>r.i.state!=='paid');
+  document.getElementById('geo-metrics').innerHTML=`
+    <div class="mc mc-g"><div class="mi">✅</div><div class="mv">${fmtM(collected)}</div><div class="ml">محصّل ${monthLabelAr(m)}</div></div>
+    <div class="mc mc-r"><div class="mi">⏳</div><div class="mv">${unpaidRows.length}</div><div class="ml">غير مسددين</div></div>
+    <div class="mc mc-a"><div class="mi">💳</div><div class="mv">${fmtM(unpaidRows.reduce((a,r)=>a+r.i.remaining,0))}</div><div class="ml">إجمالي المتأخر</div></div>
+    <div class="mc mc-b"><div class="mi">👥</div><div class="mv">${allRows.length}</div><div class="ml">مشتركو الجيولوجيا</div></div>`;
+  const tb=document.getElementById('geo-tbody');
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);">${subIds.length?'لا توجد نتائج':'لا يوجد مشتركون في الجيولوجيا بعد — يبدأ الاشتراك بأول دفعة جيولوجيا من شاشة دفعات الطالب'}</td></tr>`; return; }
+  const isSup=document.body.dataset.role==='supervisor';
+  tb.innerHTML=rows.sort((a,b)=>(a.s.fname+a.s.lname).localeCompare(b.s.fname+b.s.lname,'ar')).map(({s,i})=>{
+    const [lb,col]=_geoStateBadge(i.state);
+    return `<tr>
+      <td style="font-weight:700;">${s.fname} ${s.lname}</td>
+      <td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
+      <td style="font-size:12px;">${monthLabelAr(m)}</td>
+      <td style="font-weight:800;color:var(--green);">${fmtM(i.paid)}</td>
+      <td style="font-weight:800;color:${i.remaining>0?'var(--red)':'var(--text3)'};">${i.remaining>0?fmtM(i.remaining):'—'}</td>
+      <td><span style="font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:20px;color:${col};background:rgba(255,255,255,.05);">${lb}</span></td>
+      <td style="white-space:nowrap;">
+        ${(i.state!=='paid'&&!isSup)?`<button class="btn btn-sm" style="background:rgba(0,201,177,.12);color:#00c9b1;border:1px solid rgba(0,201,177,.35);" onclick="_geoOpenPay('${s.id}','${m}')">💳 سداد</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="openEditPaysForStudent('${s.id}')">📋 دفعات الطالب</button>
+      </td></tr>`;
+  }).join('');
+}
+function _geoOpenPay(sid,m){ openEditPaysForStudent(sid); showGeoNewPay(sid,m); }
+
+// رسوم مادة الجيولوجيا للطالب — من إعدادات المعلم (المواد): الأدق (مجموعة) ثم الصف ثم أي مادة جيولوجيا
+function _geoFeeForStudent(s){
+  if(!s) return 0;
+  const subs=(DB.subjects||[]).filter(x=>/[جح]يولوج/.test(x.name||'') && (+x.fee||0)>0);
+  if(!subs.length) return 0;
+  const byGrp=subs.find(x=>(x.groupIds||[]).length && x.groupIds.includes(s.groupId));
+  if(byGrp) return +byGrp.fee;
+  const byCls=subs.find(x=>(x.classIds||[]).includes(s.classId) && !(x.groupIds||[]).length);
+  if(byCls) return +byCls.fee;
+  const byCls2=subs.find(x=>(x.classIds||[]).includes(s.classId));
+  if(byCls2) return +byCls2.fee;
+  const any=subs.find(x=>!(x.classIds||[]).length && !(x.groupIds||[]).length);
+  return any?+any.fee:0;
+}
+function showGeoNewPay(sid,month){ if(_supBlockPay('بإضافة دفعات')) return;
+  const s=stu(sid); if(!s) return;
+  if(!_geoEligible(sid)){ toast('⚠️ الجيولوجيا لطلاب الثالث الثانوي الذين يحضرون يوم الجمعة فقط','e'); return; }
+  showInlineNewPay(sid);            // نفس شاشة الدفعة العادية بالظبط
+  _invoiceMode._geo=true;           // وضع الجيولوجيا: الحفظ يروح لسجل الجيولوجيا
+  document.querySelector('#edit-pays-list-modal .mtt').innerHTML=
+    `➕ إضافة دفعة جديدة — جيولوجيا ⛰️ <button class="mc-btn" onclick="closeModal('edit-pays-list-modal')">✕</button>`;
+  const body=document.getElementById('edit-pays-list-body');
+  // شارة المادة داخل كارت الطالب
+  const info=body.querySelector('.av40')?.nextElementSibling;
+  if(info) info.insertAdjacentHTML('beforeend','<div style="font-size:10.5px;color:#00c9b1;margin-top:3px;font-weight:700;">⛰️ مادة الجيولوجيا</div>');
+  // المبلغ الافتراضي = رسوم مادة الجيولوجيا من إعدادات المعلم (المواد)
+  const geoFee=_geoFeeForStudent(s);
+  const amt=document.getElementById('inv-amt'); if(amt){ amt.placeholder='0'; amt.value=geoFee>0?geoFee:''; }
+  const mInp=document.getElementById('inv-month');
+  if(mInp){ if(month) mInp.value=month; mInp.setAttribute('onchange',`_geoOnMonthChange('${sid}')`); mInp.setAttribute('oninput',`_geoOnMonthChange('${sid}')`); }
+  setTimeout(()=>_geoOnMonthChange(sid),0);
+  ['full','half','quarter','other'].forEach(k=>{
+    const b=document.getElementById('dur-'+k); if(b) b.setAttribute('onclick',`_setPayDuration('${k}',${geoFee||0})`);
+  });
+  const dl=document.getElementById('dur-label');
+  if(dl) dl.textContent=geoFee>0?`💡 الشهر الكامل = ${fmtM(geoFee)} (رسوم الجيولوجيا من إعدادات المعلم)`:'💡 لا توجد رسوم محددة للجيولوجيا في إعدادات المعلم — أدخل المبلغ يدوياً';
+  // أزرار أسفل الشاشة: رجوع | طباعة فاتورة | إضافة
+  const btns=body.querySelectorAll('.fa button');
+  if(btns[1]) btns[1].setAttribute('onclick','_printGeoDraft()');
+  if(btns[2]) btns[2].textContent='➕ إضافة دفعة الجيولوجيا';
+}
+// عند اختيار شهر: لو عليه دفعة جزئية يُملأ المبلغ بالمتبقي فقط، وإلا بالرسوم الكاملة
+function _geoOnMonthChange(sid){
+  const m=document.getElementById('inv-month')?.value; if(!m) return;
+  const i=_geoMonthInfo(sid,m);
+  const amt=document.getElementById('inv-amt'); const dl=document.getElementById('dur-label');
+  if(i.state==='paid'){ if(dl) dl.textContent=`✅ شهر ${monthLabelAr(m)} مسدد بالكامل بالفعل`; return; }
+  if(i.partial && i.remaining>0){
+    if(amt) amt.value=i.remaining;
+    if(dl) dl.textContent=`🔶 شهر ${monthLabelAr(m)}: مسدد ${fmtM(i.paid)} — المتبقي ${fmtM(i.remaining)}`;
+  } else if(i.fee>0){
+    if(amt && !(amt.dataset.touched)) amt.value=i.fee;
+    if(dl) dl.textContent=`💡 الشهر الكامل = ${fmtM(i.fee)} (رسوم الجيولوجيا من إعدادات المعلم)`;
+  }
+}
+function _geoReadForm(sid){
+  return {
+    studentId:sid, subject:'geology',
+    amount:+document.getElementById('inv-amt').value||0,
+    month:document.getElementById('inv-month')?.value||'',
+    date:document.getElementById('inv-date').value,
+    status:document.getElementById('inv-status').value,
+    note:(document.getElementById('inv-note').value||'').trim(),
+    invCode:(document.getElementById('inline-inv-code')?.value||'').trim(),
+    durType:_payDurType||'full'
+  };
+}
+function _printGeoDraft(){
+  const sid=_invoiceMode.sid; if(!sid) return;
+  printGeoReceipt(null,_geoReadForm(sid));
+}
+function saveGeoPay(sid){ if(_supBlockPay('بإضافة دفعات')) return;
+  const f=_geoReadForm(sid);
+  const {amount:amt,date,invCode}=f;
+  if(amt<=0){ toast('⚠️ أدخل مبلغ صحيح','e'); document.getElementById('inv-amt').focus(); return; }
+  if(!date){ toast('⚠️ اختر تاريخ التسديد','e'); return; }
+  if(!f.month){ toast('⚠️ اختر شهر الاشتراك','e'); document.getElementById('inv-month')?.focus(); return; }
+  // ── منع إضافة دفعة لشهر جيولوجيا مسدد بالكامل بالفعل ──
+  if(_geoMonthInfo(sid,f.month).state==='paid' && (DB.geoPayments||[]).some(g=>g.studentId===sid&&_geoMonthOf(g)===f.month)){
+    toast(`⚠️ شهر ${f.month} مسدد بالكامل بالفعل في الجيولوجيا`,'e');
+    const mf=document.getElementById('inv-month'); if(mf){ mf.style.border='1.5px solid var(--red)'; setTimeout(()=>mf.style.border='',2500); }
+    return;
+  }
+  // ── كود الفاتورة إجباري (زي أي فاتورة عادية) ──
+  const _codeBox=document.getElementById('inline-inv-code');
+  if(!invCode){
+    toast('⚠️ يجب توليد كود الفاتورة أولاً','e');
+    if(_codeBox){ _codeBox.style.border='1.5px solid var(--red)'; _codeBox.focus(); setTimeout(()=>_codeBox.style.border='',2500); }
+    return;
+  }
+  const _dup=DB.payments.some(x=>x.invCode&&x.invCode.toUpperCase()===invCode.toUpperCase())
+          ||(DB.geoPayments||[]).some(x=>x.invCode&&x.invCode.toUpperCase()===invCode.toUpperCase());
+  if(_dup){
+    toast('⚠️ كود الفاتورة مستخدم من قبل — ولّد كود جديد','e');
+    if(_codeBox){ _codeBox.style.border='1.5px solid var(--red)'; _codeBox.focus(); setTimeout(()=>_codeBox.style.border='',2500); }
+    return;
+  }
+  if(!DB.geoPayments) DB.geoPayments=[];
+  const rec={id:nid('g'),...f,createdAt:new Date().toISOString()};
+  DB.geoPayments.push(rec);
+  pushNotif(sid,'payment','⛰️','دفعة جيولوجيا',`تم تسجيل دفعة جيولوجيا بقيمة ${fmtM(amt)}${f.status==='paid'?' (مسددة)':''}`);
+  save();
+  try{ renderPayments(); }catch(e){}
+  try{ if(document.getElementById('pay-tab-geo')?.style.display==='block') renderGeoPays(); }catch(e){}
+  _showPaySuccess(sid, rec.id, 'new');
+}
+
+// دفعات الجيولوجيا كسجلات شبيهة بالدفعات العادية — لإدخالها في تقارير الإيرادات وسجل المدفوعات
+function _geoAsPays(labelMonth){
+  return (DB.geoPayments||[]).map(g=>({...g,isGeo:true,month:labelMonth?'⛰️ جيولوجيا':(g.month||String(g.date||'').slice(0,7))}));
+}
+function _findAnyPay(pid){
+  return DB.payments.find(x=>x.id===pid)||(DB.geoPayments||[]).find(x=>x.id===pid)||null;
+}
+
+// ── طباعة فاتورة دفعة الجيولوجيا ──
+function printGeoReceipt(gid,draft){
+  const g=draft||(DB.geoPayments||[]).find(x=>x.id===gid); if(!g) return;
+  const s=stu(g.studentId);
+  const tName=DB.settings.name||'المدرس', tPhone=DB.settings.phone||'', logoSrc=DB.settings.logo;
+  const logoHtml=logoSrc
+    ? `<img src="${logoSrc}" style="width:38px;height:38px;object-fit:contain;border-radius:8px;">`
+    : `<div style="width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,#4f7cff,#7c5cff);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;">${tName[0]||'أ'}</div>`;
+  const dateLabel=g.date?new Date(g.date).toLocaleDateString('ar-EG',{day:'numeric',month:'long',year:'numeric'}):'—';
+  const stLbl={paid:'✅ مسدد',partial:'🔶 جزئي',unpaid:'⏳ غير مسدد'}[g.status]||'';
+  const w=window.open('','_blank');
+  if(!w){ alert('السماح بالنوافذ المنبثقة'); return; }
+  w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head>
+<meta charset="UTF-8">
+<title>فاتورة جيولوجيا — ${s?s.fname+' '+s.lname:''}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&family=Tajawal:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: #c8cede;
+    font-family: 'Cairo', sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── الورقة ── */
+  body {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 16px;
+    min-height: 100vh;
+  }
+
+  .receipt {
+    width: 88mm;
+    background: #fff;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,.28), 0 2px 8px rgba(0,0,0,.12);
+  }
+
+  /* ── هيدر ── */
+  .hdr {
+    background: linear-gradient(135deg, #0d1338 0%, #1e2d78 100%);
+    padding: 14px 16px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .hdr-left  { display: flex; align-items: center; gap: 10px; }
+  .hdr-name  { font-size: 13px; font-weight: 900; color: #fff; letter-spacing: .02em; }
+  .hdr-sub   { font-size: 9.5px; color: rgba(255,255,255,.55); margin-top: 2px; }
+  .hdr-right { text-align: center; }
+  .hdr-tag   { font-size: 8px; color: rgba(255,255,255,.5); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  .hdr-date  { font-size: 10px; font-weight: 800; color: #c8d4ff; margin-top: 2px; white-space: nowrap; }
+
+  /* ── شريط الألوان ── */
+  .strip { height: 4px; background: linear-gradient(90deg, #4f7cff, #a855f7, #00c9b1, #f5a623); }
+
+  /* ── بيانات الطالب ── */
+  .stu-section {
+    padding: 11px 16px 10px;
+    background: #f5f7ff;
+    border-bottom: 1px solid #e4e8f5;
+  }
+  .stu-name {
+    font-size: 15px;
+    font-weight: 900;
+    color: #0d1338;
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .stu-code {
+    display: inline-block;
+    background: #1a2060;
+    color: #fff;
+    font-family: monospace;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 5px;
+    letter-spacing: .6px;
+  }
+
+  /* ── قسم الإخوة ── */
+  .sibs-section {
+    margin-top: 8px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 7px;
+    padding: 6px 10px;
+  }
+  .sibs-label {
+    font-size: 8px;
+    font-weight: 800;
+    color: #4338ca;
+    letter-spacing: .05em;
+    margin-bottom: 3px;
+  }
+  .sibs-names {
+    font-size: 10px;
+    font-weight: 700;
+    color: #312e81;
+    line-height: 1.6;
+  }
+
+  /* ── جدول التفاصيل ── */
+  .tbl-section { }
+  .tbl-label {
+    font-size: 8px;
+    font-weight: 800;
+    color: #8b95b5;
+    padding: 8px 16px 5px;
+    letter-spacing: .06em;
+    border-bottom: 1px solid #eef0f8;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr {
+    background: linear-gradient(135deg, #1a2060, #2d3a8c);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  thead th {
+    padding: 7px 10px;
+    text-align: right;
+    font-weight: 800;
+    color: #fff;
+    font-size: 9.5px;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 9px 10px;
+    color: #1a2060;
+    border-bottom: 1px solid #eef0f8;
+    font-size: 10.5px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  .td-month { font-weight: 800; color: #0d1338; }
+  .td-date  { color: #555; font-size: 9.5px; }
+  .td-fee   { font-weight: 900; color: #16a34a; font-size: 13px; font-family: 'Tajawal', sans-serif; white-space: nowrap; }
+
+  /* ── كود الفاتورة ── */
+  .inv-section {
+    padding: 9px 16px;
+    background: #f0f4ff;
+    border-top: 1.5px solid #dde5ff;
+    border-bottom: 1.5px solid #dde5ff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .inv-label { font-size: 8.5px; color: #6b7a99; font-weight: 700; }
+  .inv-val   { font-family: monospace; font-size: 11px; font-weight: 900; color: #3b5bdb; letter-spacing: 1.2px; background: #fff; border: 1px solid #c5d2ff; padding: 3px 10px; border-radius: 6px; }
+  .inv-empty { font-size: 9px; color: #bbb; font-style: italic; }
+
+  /* ── فوتر ── */
+  .ftr {
+    background: linear-gradient(135deg, #0d1338, #1e2d78);
+    padding: 9px 16px;
+    text-align: center;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .ftr-phone { font-size: 9px; color: rgba(255,255,255,.65); margin-bottom: 2px; }
+  .ftr-brand { font-size: 7.5px; color: rgba(255,255,255,.22); }
+
+  /* ── طباعة ── */
+  @media print {
+    html, body {
+      background: #fff;
+      padding: 0;
+      min-height: unset;
+      display: block;
+    }
+    .receipt {
+      box-shadow: none;
+      border-radius: 0;
+      width: 88mm;
+    }
+    @page { size: 88mm auto; margin: 0; }
+  }
+</style>
+</head><body>
+<div class="receipt">
+  <div class="hdr">
+    <div class="hdr-left">${logoHtml}<div><div class="hdr-name">${tName}</div><div class="hdr-sub">مادة الجيولوجيا</div></div></div>
+    <div class="hdr-right"><div class="hdr-tag">فاتورة سداد</div><div class="hdr-date">${dateLabel}</div></div>
+  </div>
+  <div class="strip"></div>
+  <div class="stu-section">
+    <div class="stu-name">${s?s.fname+' '+s.lname:'—'}</div>
+    ${s&&(s.barcode||s.id)?`<span class="stu-code">🔖 ${s.barcode||s.id}</span>`:''}
+  </div>
+  <div class="tbl-section">
+    <div class="tbl-label">تفاصيل الفاتورة</div>
+    <table>
+      <thead><tr><th>المادة</th><th>تاريخ السداد</th><th>المبلغ المسدد</th></tr></thead>
+      <tbody><tr>
+        <td class="td-month">⛰️ جيولوجيا${g.month?`<div style="font-size:9px;color:#6b7a99;font-weight:600;">${new Date(g.month+'-01').toLocaleDateString('ar-EG',{month:'long',year:'numeric'})}</div>`:''}</td>
+        <td class="td-date">${dateLabel}</td>
+        <td class="td-fee">${Number(g.amount||0).toLocaleString('ar-EG')} ج</td>
+      </tr>
+      ${g.status&&g.status!=='paid'?`<tr><td colspan="3" style="font-size:10px;color:#b45309;">الحالة: ${stLbl}</td></tr>`:''}
+      ${g.note?`<tr><td colspan="3" style="font-size:10px;color:#555;">📝 ${g.note}</td></tr>`:''}
+      </tbody>
+    </table>
+  </div>
+  <div class="inv-section">
+    <span class="inv-label">🔑 كود الفاتورة</span>
+    ${g.invCode?`<span class="inv-val">${g.invCode}</span>`:`<span class="inv-empty">لم يتم توليد كود</span>`}
+  </div>
+  <div class="ftr">
+    ${tPhone?`<div class="ftr-phone">📱 ${tPhone}</div>`:''}
+    <div class="ftr-brand">EduTrack Pro · ${new Date().toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'})}</div>
+  </div>
+</div>
+<script>document.fonts.ready.then(()=>setTimeout(()=>window.print(),400));<\/script>
+</body></html>`);
+  w.document.close();
+}
+function delGeoPay(id,sid){ if(_supBlockPay('بحذف الدفعات')) return;
+  if(!confirm('حذف دفعة الجيولوجيا هذه؟')) return;
+  DB.geoPayments=(DB.geoPayments||[]).filter(x=>x.id!==id);
+  save(); toast('🗑 تم حذف الدفعة','i');
+  try{ renderPayments(); if(document.getElementById('pay-tab-geo')?.style.display==='block') renderGeoPays(); }catch(e){}
+  openEditPaysForStudent(sid);
 }
 
 // ── تحديث المبلغ بحسب المدة المختارة ──
@@ -11457,7 +11995,7 @@ function _showPaySuccess(sid, pid, type='new'){
   // type: 'new' = دفعة جديدة (3 أزرار) | 'settle' = تسوية (2 زرار)
   const s=stu(sid); if(!s)return;
   _paySuccessCtx={sid,pid,type};
-  const p=pid?DB.payments.find(x=>x.id===pid):DB.payments.filter(x=>x.studentId===sid).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];
+  const p=pid?_findAnyPay(pid):DB.payments.filter(x=>x.studentId===sid).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];
 
   const hasTG = !!(s.tgChatId && DB.settings.tgBotToken);
   const hasWA = !!(s.parentPhone||s.phone);
@@ -11474,7 +12012,7 @@ function _showPaySuccess(sid, pid, type='new'){
       <div style="font-size:11.5px;color:var(--text2);">${clsN(s.classId)} · ${grpN(s.groupId)}</div>
       ${p?`<div style="margin-top:10px;background:rgba(34,201,122,.08);border:1px solid rgba(34,201,122,.2);border-radius:var(--rs);padding:8px 14px;display:inline-block;">
         <span style="font-size:22px;font-weight:900;color:var(--green);">${fmtM(p.amount)}</span>
-        <span style="font-size:11px;color:var(--text2);margin-right:6px;">${p.month||''}</span>
+        <span style="font-size:11px;color:var(--text2);margin-right:6px;">${p.subject==='geology'?'⛰️ جيولوجيا':(p.month||'')}</span>
       </div>`:''}
     </div>
     <div style="display:flex;flex-direction:column;gap:9px;padding:.75rem 1rem 1.1rem;">
@@ -11500,11 +12038,12 @@ function _showPaySuccess(sid, pid, type='new'){
 function _paySuccessSend(){
   const {sid,pid}=_paySuccessCtx;
   const s=stu(sid); if(!s)return;
-  const p=pid?DB.payments.find(x=>x.id===pid):DB.payments.filter(x=>x.studentId===sid).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];
+  const p=pid?_findAnyPay(pid):DB.payments.filter(x=>x.studentId===sid).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0];
   const month=p?p.month:localMonth();
   const amount=p?p.amount:0;
   const invCode=p?.invCode||'';
-  const msg=`مرحباً ولي أمر ${s.fname} ${s.lname}،\nنشكركم على سداد رسوم شهر ${month}.\n💰 المبلغ المسدد: ${fmtM(amount)}${invCode?'\n🔑 كود الفاتورة: '+invCode:''}\n${DB.settings.name?'📚 '+DB.settings.name:''}`;
+  const _what=(p&&p.subject==='geology')?'دفعة مادة الجيولوجيا':`رسوم شهر ${month}`;
+  const msg=`مرحباً ولي أمر ${s.fname} ${s.lname}،\nنشكركم على سداد ${_what}.\n💰 المبلغ المسدد: ${fmtM(amount)}${invCode?'\n🔑 كود الفاتورة: '+invCode:''}\n${DB.settings.name?'📚 '+DB.settings.name:''}`;
   if(s.tgChatId && DB.settings.tgBotToken){
     _tgDeliver(s, msg);
   } else {
@@ -11517,7 +12056,8 @@ function _paySuccessSend(){
 
 function _paySuccessPrint(){
   const {pid,sid}=_paySuccessCtx;
-  if(pid){ printInlinePayReceipt(pid); }
+  if(pid && (DB.geoPayments||[]).some(x=>x.id===pid)){ printGeoReceipt(pid); }
+  else if(pid){ printInlinePayReceipt(pid); }
   else { const p=DB.payments.filter(x=>x.studentId===sid).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0]; if(p) printInlinePayReceipt(p.id); }
   _paySuccessFinish();
 }
@@ -11529,6 +12069,7 @@ function _paySuccessFinish(){
 }
 
 function saveInvoicePay(){ if(_supBlockPay('بإضافة أو تعديل الدفعات')) return;
+  if(_invoiceMode && _invoiceMode._geo && _invoiceMode.type==='new'){ saveGeoPay(_invoiceMode.sid); return; }
   const amt=+document.getElementById('inv-amt').value||0;
   const month=document.getElementById('inv-month').value;
   const date=document.getElementById('inv-date').value;
@@ -11974,7 +12515,7 @@ function sendPayWABulk(){
 // ── STUDENT PAYMENT HISTORY ──
 function showStudentPayHistory(sid){
   const s=stu(sid); if(!s)return;
-  const pays=DB.payments.filter(p=>p.studentId===sid).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const pays=DB.payments.concat(_geoAsPays(true)).filter(p=>p.studentId===sid).sort((a,b)=>new Date(b.date)-new Date(a.date));
   const total=pays.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
   document.getElementById('spay-title').innerHTML=`📋 مدفوعات: ${s.fname} ${s.lname} <button class="mc-btn" onclick="closeModal('student-pay-history-modal')">✕</button>`;
   document.getElementById('spay-body').innerHTML=`
@@ -11993,7 +12534,7 @@ function showStudentPayHistory(sid){
 let _currentPayHistorySid='';
 function printStudentPayHistory(){
   const s=stu(_currentPayHistorySid); if(!s)return;
-  const pays=DB.payments.filter(p=>p.studentId===_currentPayHistorySid).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const pays=DB.payments.concat(_geoAsPays(true)).filter(p=>p.studentId===_currentPayHistorySid).sort((a,b)=>new Date(b.date)-new Date(a.date));
   const totalPaid  = pays.filter(p=>p.status==='paid'||p.status==='partial').reduce((a,b)=>a+b.amount,0);
   const totalPart  = pays.filter(p=>p.status==='partial').reduce((a,b)=>a+b.amount,0);
   const totalAll   = totalPaid + totalPart;
@@ -12173,7 +12714,7 @@ function renderRevenue(){
   const fromD=document.getElementById('rev-from')?.value||'';
   const toD  =document.getElementById('rev-to')?.value||'';
 
-  const paid=DB.payments.filter(p=>{
+  const paid=DB.payments.concat(_geoAsPays()).filter(p=>{
     if(p.status!=='paid'&&p.status!=='partial') return false;
     const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); // الطلاب المستبعدين لا يُحتسبون في أي إحصائية مالية
   });
@@ -12232,7 +12773,7 @@ function renderRevenue(){
   // ── سجل الإيرادات ──
   // ── سجل الإيرادات: ترتيب تنازلي دائماً حسب التاريخ (الأحدث أولاً) — وليس فقط بترتيب الإضافة ──
   const _revRows=[
-    ...filteredPaid.map(p=>({date:p.date||'',amount:p.amount,sid:p.studentId,sub:`${p.month} · ${p.date}`,sale:false})),
+    ...filteredPaid.map(p=>({date:p.date||'',amount:p.amount,sid:p.studentId,sub:`${p.isGeo?'⛰️ جيولوجيا':p.month} · ${p.date}`,sale:false})),
     ...filteredSales.filter(x=>_salePaidAmt(x)>0).map(x=>{
       const rem=(+x.total||0)-_salePaidAmt(x);
       return {date:x.date||'',amount:_salePaidAmt(x),sid:x.studentId,name:x.studentId?stuN(x.studentId):(x.studentName||'عميل عام'),
@@ -12362,7 +12903,7 @@ function renderDailyInventory(){
   const day=document.getElementById('inv-day').value; if(!day)return;
   // الإخوة: كل أخ بياخد سجل دفعة منفصل تلقائياً (isSiblingAuto) بنفس قيمة الدفعة الأصلية —
   // بنستبعدهم من الجرد اليومي عشان الحالة تتحسب "فرد واحد بقيمة واحدة" زي باقي شاشات الإحصائيات
-  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial')&&!p.isSiblingAuto);
+  const dayPay=DB.payments.concat(_geoAsPays()).filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial')&&!p.isSiblingAuto);
   const dayExp=DB.expenses.filter(e=>e.date===day);
   const daySalesAll=DB.sales.filter(s=>s.date===day);
   const daySales=daySalesAll.filter(s=>saleAmountPaid(s)>0);
@@ -12380,7 +12921,7 @@ function renderDailyInventory(){
       <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:var(--green);">💰 الإيرادات</div>
       ${dayPay.length||daySales.length?`
       <table><thead><tr><th>الطالب / المنتج</th><th>المبلغ</th><th>الوقت</th></tr></thead><tbody>
-      ${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}${p.status==='partial'?' <span style="color:var(--orange,#e6a23c);font-size:10px;">(دفعة جزئية)</span>':''}</td><td style="color:var(--green);font-weight:700;">${fmtM(p.amount)}</td><td style="font-size:11px;color:var(--text2);">${p.month}</td>`).join('')}
+      ${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}${p.status==='partial'?' <span style="color:var(--orange,#e6a23c);font-size:10px;">(دفعة جزئية)</span>':''}</td><td style="color:var(--green);font-weight:700;">${fmtM(p.amount)}</td><td style="font-size:11px;color:var(--text2);">${p.isGeo?'⛰️ جيولوجيا':p.month}</td>`).join('')}
       ${daySales.map(s=>{const rem=saleRemaining(s);return `<tr><td>${s.productName}${rem>0?' <span style="color:var(--amber);font-size:10px;">(دفعة جزئية)</span>':''}</td><td style="color:var(--green);font-weight:700;">${fmtM(saleAmountPaid(s))}</td><td style="font-size:11px;color:var(--text2);">متجر${rem>0?` · متبقي ${fmtM(rem)}`:''}</td>`;}).join('')}
       </tbody></table>`:
       '<div style="color:var(--text3);padding:.75rem;text-align:center;">لا توجد إيرادات هذا اليوم</div>'}
@@ -12403,7 +12944,7 @@ function printDailyInventoryPDF(){
   const day=document.getElementById('inv-day').value;
   if(!day)return;
   // نفس منطق استبعاد دفعات الإخوة الآلية المكرّرة المستخدم في عرض الجرد داخل الصفحة
-  const dayPay=DB.payments.filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial')&&!p.isSiblingAuto);
+  const dayPay=DB.payments.concat(_geoAsPays()).filter(p=>p.date===day&&(p.status==='paid'||p.status==='partial')&&!p.isSiblingAuto);
   const dayExp=DB.expenses.filter(e=>e.date===day);
   const daySalesAll=DB.sales.filter(s=>s.date===day);
   const daySales=daySalesAll.filter(s=>saleAmountPaid(s)>0);
@@ -12417,7 +12958,7 @@ function printDailyInventoryPDF(){
   <style>body{font-family:Cairo;padding:20px;}h2{color:#4f7cff;}table{width:100%;border-collapse:collapse;margin:12px 0;}th,td{border:1px solid #ddd;padding:8px;text-align:right;}th{background:#4f7cff;color:#fff;}.total{font-size:16px;font-weight:700;margin-top:16px;}@media print{@page{size:A4;margin:8mm;}}</style></head>
   <body><h2>📅 الجرد اليومي - ${day}</h2>
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1rem 0;"><div><strong>إجمالي الإيرادات:</strong> ${fmtM(totalIn)}</div><div><strong>إجمالي المصروفات:</strong> ${fmtM(totalOut)}</div><div><strong>صافي اليوم:</strong> ${fmtM(net)}</div></div>
-  <h3>💰 الإيرادات</h3>${dayPay.length||daySales.length?`<table><thead><tr><th>الطالب / المنتج</th><th>المبلغ</th><th>التفاصيل</th></tr></thead><tbody>${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}${p.status==='partial'?' (دفعة جزئية)':''}</td><td>${fmtM(p.amount)}</td><td>${p.month}</td></tr>`).join('')}${daySales.map(s=>{const rem=saleRemaining(s);return `<tr><td>${s.productName}${rem>0?' (دفعة جزئية)':''}</td><td>${fmtM(saleAmountPaid(s))}</td><td>متجر${rem>0?` — متبقي ${fmtM(rem)}`:''}</td></tr>`;}).join('')}</tbody></table>`:'<p>لا توجد إيرادات</p>'}
+  <h3>💰 الإيرادات</h3>${dayPay.length||daySales.length?`<table><thead><tr><th>الطالب / المنتج</th><th>المبلغ</th><th>التفاصيل</th></tr></thead><tbody>${dayPay.map(p=>`<tr><td>${stuN(p.studentId)}${p.status==='partial'?' (دفعة جزئية)':''}</td><td>${fmtM(p.amount)}</td><td>${p.isGeo?'⛰️ جيولوجيا':p.month}</td></tr>`).join('')}${daySales.map(s=>{const rem=saleRemaining(s);return `<tr><td>${s.productName}${rem>0?' (دفعة جزئية)':''}</td><td>${fmtM(saleAmountPaid(s))}</td><td>متجر${rem>0?` — متبقي ${fmtM(rem)}`:''}</td></tr>`;}).join('')}</tbody></table>`:'<p>لا توجد إيرادات</p>'}
   ${dayUnpaidSales.length?`<h3 style="color:#e6a23c;">⏳ مبيعات غير مسددة (غير محتسبة)</h3><table><thead><tr><th>المنتج</th><th>المبلغ</th><th>الطالب</th></tr></thead><tbody>${dayUnpaidSales.map(s=>`<tr><td>${s.productName}</td><td>${fmtM(s.total)}</td><td>${s.studentId?stuN(s.studentId):(s.studentName||'عميل عام')}</td></tr>`).join('')}</tbody></table>`:''}
   <h3>📤 المصروفات</h3>${dayExp.length?`<table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>${dayExp.map(e=>`<tr><td>${e.name}</td><td>${fmtM(e.amount)}</td></tr>`).join('')}</tbody></table>`:'<p>لا توجد مصروفات</p>'}
   <script>window.onload=()=>window.print()<\/script></body></html>`);
@@ -14493,7 +15034,7 @@ function switchRep(tab,btn){
             <td style="font-size:11px;color:var(--text2);">${grpN(s.groupId)}</td>
             <td style="text-align:center;font-weight:800;color:var(--green);">
               ${st.present}
-              ${st.exceptional>0?'<span style="display:block;font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);color:var(--amber);font-weight:700;margin-top:2px;">⚠️ '+st.exceptional+' استثنائي</span>':''}
+              
             </td>
             <td style="text-align:center;font-weight:800;color:var(--red);">${st.absent}</td>
             <td style="text-align:center;font-weight:800;color:var(--amber);">${st.late}</td>
@@ -14559,7 +15100,7 @@ function switchRep(tab,btn){
           <td style="padding:8px 10px;font-size:11px;color:#555;">${grpN(s.groupId)}</td>
           <td style="padding:8px 10px;text-align:center;font-weight:800;color:#22c97a;">
             ${st.present}
-            ${st.exceptional>0?'<div style="font-size:8.5px;margin-top:2px;padding:1px 5px;border-radius:6px;background:#fff8e1;border:1px solid #f5a623;color:#c27c00;font-weight:700;display:inline-block;">⚠️ '+st.exceptional+' استثنائي</div>':''}
+            
           </td>
           <td style="padding:8px 10px;text-align:center;font-weight:800;color:#ff4d6d;">${st.absent}</td>
           <td style="padding:8px 10px;text-align:center;font-weight:800;color:#f5a623;">${st.late}</td>
@@ -14725,7 +15266,7 @@ function switchRep(tab,btn){
     const present=Object.values(att).filter(v=>v==='present').length;
     // الإخوة تُحسب كشخص واحد بقيمة واحدة في العدّ — مش كل أخ بعدّه لوحده، والمُعفيّون لا يُحتسبون ضمن غير المسددين
     const unpaidN=_dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id)&&!isStuFinExcluded(s.id)&&!isStuExempt(s.id))).length;
-    const totalRev=DB.payments.filter(p=>{
+    const totalRev=DB.payments.concat(_geoAsPays()).filter(p=>{
       if(p.status!=='paid'&&p.status!=='partial') return false;
       const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); // الطلاب المستبعدين لا يُحتسبون في أي إحصائية مالية
     }).reduce((a,b)=>a+b.amount,0);
@@ -15747,7 +16288,7 @@ function exportExcel(){
     { 'البيان': 'عدد الإناث',        'القيمة': DB.students.filter(s=>s.gender==='female').length },
     { 'البيان': 'الطلاب المسددون',   'القيمة': _dedupeSiblingsForTotals(DB.students.filter(s=>isPaid(s.id))).length },
     { 'البيان': 'الطلاب غير المسددين','القيمة': _dedupeSiblingsForTotals(DB.students.filter(s=>!isPaid(s.id))).length },
-    { 'البيان': 'إجمالي الإيرادات',  'القيمة': DB.payments.filter(p=>{ if(p.status!=='paid'&&p.status!=='partial') return false; const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); }).reduce((a,b)=>a+b.amount,0)+' جنيه' },
+    { 'البيان': 'إجمالي الإيرادات',  'القيمة': DB.payments.concat(_geoAsPays()).filter(p=>{ if(p.status!=='paid'&&p.status!=='partial') return false; const s=stu(p.studentId); return s && !isStuFinExcluded(s.id); }).reduce((a,b)=>a+b.amount,0)+' جنيه' },
     { 'البيان': 'تاريخ التصدير',     'القيمة': new Date().toLocaleDateString('ar-EG') },
     { 'البيان': 'اسم المدرس',        'القيمة': DB.settings.name || '—' },
     { 'البيان': 'المادة',            'القيمة': DB.settings.subject || '—' },
@@ -16086,13 +16627,92 @@ const STAGE_GRADES = {
   ],
 };
 
+// ── اختيار الصفوف/المجموعات للمادة بنظام "إضافة واحد واحد + شارات" ──
+let _subjCls=[];   // [{v:قيمة الصف (id أو اسم)، label}]
+let _subjGrp=[];   // [groupId]
+function _subjChip(label,onclick){
+  return `<span onclick="${onclick}" title="اضغط للحذف" style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;background:rgba(79,124,255,.12);border:1px solid rgba(79,124,255,.35);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;"><span style="font-size:11px;opacity:.8;">✕</span>${label}</span>`;
+}
+function _subjStageOptions(stage){
+  const grades=STAGE_GRADES[stage]||[];
+  return grades.map(gradeName=>{
+    const match=DB.classes.find(c=>c.name===gradeName||(c.name&&c.name.includes(gradeName.replace(/الصف /,'').trim())));
+    return {v:match?match.id:gradeName,label:gradeName};
+  });
+}
+function _subjRenderClsChips(){
+  const el=document.getElementById('subj-cls-chips'); if(!el) return;
+  el.innerHTML=_subjCls.map((c,i)=>_subjChip(c.label,`subjRemoveCls(${i})`)).join('');
+}
+function _subjRenderGrpChips(){
+  const el=document.getElementById('subj-grp-chips'); if(!el) return;
+  el.innerHTML=_subjGrp.map(id=>{
+    const g=DB.groups.find(x=>x.id===id);
+    return _subjChip(g?(g.name+' ('+clsN(g.classId)+')'):grpN(id),`subjRemoveGrp('${id}')`);
+  }).join('');
+}
+function _subjAvailableGroups(){
+  const cids=_subjCls.map(c=>c.v);
+  return DB.groups.filter(g=>(!cids.length||cids.includes(g.classId)) && !_subjGrp.includes(g.id));
+}
+function _subjRefreshGrpPick(){
+  const sel=document.getElementById('subj-grp-pick'); if(!sel) return;
+  const av=_subjAvailableGroups();
+  sel.innerHTML='<option value="">— اختر مجموعة —</option>'+av.map(g=>`<option value="${g.id}">${g.name} (${clsN(g.classId)})</option>`).join('');
+}
+function _subjRefreshClsPick(){
+  const sel=document.getElementById('subj-cls-pick'); if(!sel) return;
+  const stage=document.getElementById('subj-stage').value;
+  if(!stage){ sel.innerHTML='<option value="">— اختر المرحلة أولاً —</option>'; return; }
+  const have=_subjCls.map(c=>c.v);
+  const opts=_subjStageOptions(stage).filter(o=>!have.includes(o.v));
+  sel.innerHTML='<option value="">— اختر الصف —</option>'+opts.map(o=>`<option value="${o.v}">${o.label}</option>`).join('');
+}
+function _subjResetPicks(){
+  _subjCls=[]; _subjGrp=[];
+  _subjRenderClsChips(); _subjRenderGrpChips(); _subjRefreshClsPick(); _subjRefreshGrpPick();
+}
+function subjAddCls(){
+  const sel=document.getElementById('subj-cls-pick'); const v=sel.value; if(!v) return;
+  const o=_subjStageOptions(document.getElementById('subj-stage').value).find(x=>x.v===v); if(!o) return;
+  if(!_subjCls.some(c=>c.v===v)) _subjCls.push(o);
+  _subjRenderClsChips(); _subjRefreshClsPick(); _subjRefreshGrpPick();
+}
+function subjAddAllCls(){
+  const stage=document.getElementById('subj-stage').value;
+  if(!stage){ toast('اختر المرحلة أولاً','e'); return; }
+  _subjStageOptions(stage).forEach(o=>{ if(!_subjCls.some(c=>c.v===o.v)) _subjCls.push(o); });
+  _subjRenderClsChips(); _subjRefreshClsPick(); _subjRefreshGrpPick();
+}
+function subjRemoveCls(i){
+  _subjCls.splice(i,1);
+  // لو لسه فيه صفوف مختارة: شيل المجموعات اللي تخص صفوف اتشالت
+  const cids=_subjCls.map(c=>c.v);
+  if(cids.length) _subjGrp=_subjGrp.filter(id=>{ const g=DB.groups.find(x=>x.id===id); return !g||cids.includes(g.classId); });
+  _subjRenderClsChips(); _subjRenderGrpChips(); _subjRefreshClsPick(); _subjRefreshGrpPick();
+}
+function subjAddGrp(){
+  const sel=document.getElementById('subj-grp-pick'); const id=sel.value; if(!id) return;
+  if(!_subjGrp.includes(id)) _subjGrp.push(id);
+  _subjRenderGrpChips(); _subjRefreshGrpPick();
+}
+function subjAddAllGrps(){
+  const av=_subjAvailableGroups();
+  if(!av.length){ toast('لا توجد مجموعات إضافية','i'); return; }
+  av.forEach(g=>_subjGrp.push(g.id));
+  _subjRenderGrpChips(); _subjRefreshGrpPick();
+}
+function subjRemoveGrp(id){
+  _subjGrp=_subjGrp.filter(x=>x!==id);
+  _subjRenderGrpChips(); _subjRefreshGrpPick();
+}
+
 function openSubjectModal(){
   document.getElementById('subj-edit-id').value='';
   document.getElementById('subj-name').value='';
   document.getElementById('subj-fee').value='';
   document.getElementById('subj-stage').value='';
-  document.getElementById('subj-classes').innerHTML='<option value="" disabled selected>— اختر المرحلة أولاً —</option>';
-  document.getElementById('subj-groups').innerHTML='<option value="">— كل المجموعات —</option>';
+  _subjResetPicks();
   document.getElementById('subject-modal-title').innerHTML='إضافة مادة <button class="mc-btn" onclick="closeModal(\'add-subject-modal\')">✕</button>';
   // Remove previously added list if present
   const old=document.getElementById('subj-added-list'); if(old)old.remove();
@@ -16100,49 +16720,16 @@ function openSubjectModal(){
 }
 
 function filterSubjClsByStage(){
-  const stage = document.getElementById('subj-stage').value;
-  const csel  = document.getElementById('subj-classes');
-
-  if(!stage){
-    csel.innerHTML = '<option value="" disabled selected>— اختر المرحلة أولاً —</option>';
-    document.getElementById('subj-groups').innerHTML = '<option value="">— كل المجموعات —</option>';
-    return;
-  }
-
-  const grades = STAGE_GRADES[stage] || [];
-
-  // Build options: prefer matching DB.classes by name, otherwise use grade name as both id and name
-  const opts = grades.map(gradeName => {
-    // Try to find a matching class in DB
-    const match = DB.classes.find(c =>
-      c.name === gradeName ||
-      (c.name && c.name.includes(gradeName.replace(/الصف /,'').trim()))
-    );
-    const val  = match ? match.id : gradeName;   // use DB id if found, else grade name
-    return `<option value="${val}">${gradeName}</option>`;
-  });
-
-  csel.innerHTML = opts.join('');
-  // Size the list to show all options without scrolling
-  csel.size = Math.min(grades.length, 6);
-
-  // Reset groups
-  document.getElementById('subj-groups').innerHTML = '<option value="">— كل المجموعات —</option>';
-}
-
-function filterSubjGroupsByCls(){
-  const csel=document.getElementById('subj-classes');
-  const cids=[...csel.selectedOptions].map(o=>o.value).filter(Boolean);
-  const filtered=cids.length?DB.groups.filter(g=>cids.includes(g.classId)):[];
-  document.getElementById('subj-groups').innerHTML='<option value="">— كل المجموعات —</option>'+filtered.map(g=>`<option value="${g.id}">${g.name}</option>`).join('');
+  // تغيير المرحلة يفرّغ الصفوف والمجموعات المختارة
+  _subjResetPicks();
 }
 
 function saveSubject(){
   const name=document.getElementById('subj-name').value.trim();
   if(!name){toast('أدخل اسم المادة','e');return;}
   const stage=document.getElementById('subj-stage').value;
-  const classIds=[...document.getElementById('subj-classes').selectedOptions].map(o=>o.value).filter(Boolean);
-  const groupIds=[...document.getElementById('subj-groups').selectedOptions].map(o=>o.value).filter(Boolean);
+  const classIds=_subjCls.map(c=>c.v);
+  const groupIds=_subjGrp.slice();
   const fee=+document.getElementById('subj-fee').value||0;
   const editId=document.getElementById('subj-edit-id').value;
   if(editId){
@@ -16158,8 +16745,7 @@ function saveSubject(){
     document.getElementById('subj-name').value='';
     document.getElementById('subj-fee').value='';
     document.getElementById('subj-stage').value='';
-    document.getElementById('subj-classes').innerHTML='';
-    document.getElementById('subj-groups').innerHTML='<option value="">— كل المجموعات —</option>';
+    _subjResetPicks();
     document.getElementById('subject-modal-title').innerHTML='➕ إضافة مادة أخرى <button class="mc-btn" onclick="closeModal(\'add-subject-modal\')">✕</button>';
     if(!document.getElementById('subj-added-list')){
       const div=document.createElement('div'); div.id='subj-added-list';
@@ -16205,28 +16791,16 @@ function editSubject(id){
   const stage=sub.stage||'';
   document.getElementById('subj-stage').value=stage;
 
-  // Build class options from STAGE_GRADES hardcoded list
-  const csel=document.getElementById('subj-classes');
-  const grades=STAGE_GRADES[stage]||[];
-  if(grades.length){
-    const opts=grades.map(gradeName=>{
-      const match=DB.classes.find(c=>c.name===gradeName||(c.name&&c.name.includes(gradeName.replace(/الصف /,'').trim())));
-      const val=match?match.id:gradeName;
-      const sel=sub.classIds&&(sub.classIds.includes(val)||sub.classIds.includes(gradeName));
-      return `<option value="${val}"${sel?' selected':''}>${gradeName}</option>`;
-    });
-    csel.innerHTML=opts.join('');
-    csel.size=Math.min(grades.length,6);
-  } else {
-    csel.innerHTML='<option value="" disabled>— اختر المرحلة أولاً —</option>';
-    csel.size=1;
-  }
-
-  // Build group options filtered by selected class ids
-  const cids=[...csel.selectedOptions].map(o=>o.value).filter(Boolean);
-  const grpFiltered=cids.length?DB.groups.filter(g=>cids.includes(g.classId)):DB.groups;
-  const gsel=document.getElementById('subj-groups');
-  gsel.innerHTML='<option value="">— كل المجموعات —</option>'+grpFiltered.map(g=>`<option value="${g.id}"${sub.groupIds&&sub.groupIds.includes(g.id)?' selected':''}>${g.name}</option>`).join('');
+  // الصفوف المحفوظة → شارات
+  const opts=_subjStageOptions(stage);
+  _subjCls=[];
+  (sub.classIds||[]).forEach(v=>{
+    const o=opts.find(x=>x.v===v||x.label===v);
+    const item=o||{v:v,label:clsN(v)!=='—'?clsN(v):v};
+    if(!_subjCls.some(c=>c.v===item.v)) _subjCls.push(item);
+  });
+  _subjGrp=(sub.groupIds||[]).filter(g=>DB.groups.some(x=>x.id===g));
+  _subjRenderClsChips(); _subjRenderGrpChips(); _subjRefreshClsPick(); _subjRefreshGrpPick();
 
   document.getElementById('subject-modal-title').innerHTML='تعديل المادة <button class="mc-btn" onclick="closeModal(\'add-subject-modal\')">✕</button>';
   openModal('add-subject-modal');
