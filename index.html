@@ -8689,16 +8689,24 @@ function _gradeExportData(){
   });
   return {exam,cf,gf,rows};
 }
-function _gradeExportSheet(kind,d){
+function _gradeExportSheet(kind,d,range){
   const byName=(a,b)=>a.name.localeCompare(b.name,'ar');
   const took=d.rows.filter(r=>r.g), missed=d.rows.filter(r=>!r.g);
   const scope=clsN(d.cf)+(d.gf?' — '+grpN(d.gf):'');
   const base={sub:`${d.exam.title} — ${scope}`};
   if(kind==='tops'){
     const sorted=took.slice().sort((a,b)=>b.ratio-a.ratio||byName(a,b));
-    const cut=sorted.length>10?sorted[9].ratio:null;
-    const list=cut===null?sorted:sorted.filter(r=>r.ratio>=cut);
-    return {...base,sheet:'الأوائل',file:'الأوائل',title:'🏆 الأوائل',note:'أعلى 10 درجات مع احتساب المتعادلين في آخر مركز',
+    let list, noteTxt;
+    if(range){
+      // مدى درجات محدد من المستخدم: من ← إلى (شامل الطرفين)
+      list=sorted.filter(r=>+r.g.score>=range.from && +r.g.score<=range.to);
+      noteTxt=`الدرجات من ${range.from} إلى ${range.to}`;
+    } else {
+      const cut=sorted.length>10?sorted[9].ratio:null;
+      list=cut===null?sorted:sorted.filter(r=>r.ratio>=cut);
+      noteTxt='أعلى 10 درجات مع احتساب المتعادلين في آخر مركز';
+    }
+    return {...base,sheet:'الأوائل',file:'الأوائل',title:'🏆 الأوائل',note:noteTxt,
       headers:['الترتيب','الطالب','الصف','المجموعة','الدرجة','من','النسبة %','التقدير'],
       rows:list.map(r=>[1+sorted.filter(x=>x.ratio>r.ratio).length,r.name,clsN(r.s.classId),grpN(r.s.groupId),r.g.score,r.g.outOf,r.pct,grChar(r.pct)])};
   }
@@ -8711,10 +8719,11 @@ function _gradeExportSheet(kind,d){
     headers:['م','الطالب','الصف','المجموعة','هاتف الطالب','هاتف ولي الأمر','ملاحظة'],
     rows:missed.slice().sort(byName).map((r,i)=>[i+1,r.name,clsN(r.s.classId),grpN(r.s.groupId),r.s.phone||'',r.s.parentPhone||'',r.exc?'مستبعد (غياب متكرر)':''])};
 }
-function exportGradeList(kind,fmt){
+function exportGradeList(kind,fmt,range){
   const d=_gradeExportData();
   if(!d){ toast('اختر الصف والامتحان أولاً','e'); return; }
-  const sh=_gradeExportSheet(kind,d);
+  if(kind==='tops' && !range){ _openTopsRangeDialog(fmt); return; }
+  const sh=_gradeExportSheet(kind,d,range);
   if(!sh.rows.length){ toast('لا توجد بيانات في هذه القائمة','i'); return; }
   const safeTitle=String(d.exam.title||'').replace(/[\\/:*?"<>|]/g,'').trim();
   const fname=`${sh.file}_${safeTitle}_${localDate()}`;
@@ -8748,6 +8757,52 @@ function exportGradeList(kind,fmt){
   const w=window.open('','_blank');
   if(!w){ toast('اسمح بالنوافذ المنبثقة (Pop-ups) لتصدير PDF','e'); return; }
   w.document.write(html); w.document.close();
+}
+
+// ── نافذة اختيار مدى الدرجات (من : إلى) قبل تصدير/طباعة قائمة الأوائل ──
+function _openTopsRangeDialog(fmt){
+  const d=_gradeExportData(); if(!d){ toast('اختر الصف والامتحان أولاً','e'); return; }
+  const took=d.rows.filter(r=>r.g);
+  if(!took.length){ toast('لا توجد درجات مسجلة لهذا الامتحان','i'); return; }
+  const scores=took.map(r=>+r.g.score);
+  const hi=Math.max(...scores), lo=Math.min(...scores);
+  const sorted=took.slice().sort((a,b)=>b.ratio-a.ratio);
+  const defFrom=+sorted[Math.min(9,sorted.length-1)].g.score;   // درجة صاحب المركز العاشر (الافتراضي القديم)
+  const outOf=d.exam.outOf||took[0].g.outOf;
+  document.getElementById('tops-range-ov')?.remove();
+  const ov=document.createElement('div'); ov.id='tops-range-ov';
+  ov.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px;';
+  const inp='width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border2,#33384d);background:var(--bg3,#1c1f2b);color:var(--text,#fff);font-size:16px;font-weight:800;font-family:inherit;text-align:center;';
+  ov.innerHTML=`<div style="width:100%;max-width:380px;background:var(--bg2,#14161f);border:1px solid var(--border2,#33384d);border-radius:16px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.5);direction:rtl;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <div style="font-size:15px;font-weight:800;">🏆 مدى درجات الأوائل</div>
+      <button id="tr-x" style="background:none;border:none;color:var(--text2,#9aa);font-size:18px;cursor:pointer;">✕</button>
+    </div>
+    <div style="font-size:11.5px;color:var(--text2,#9aa);margin-bottom:14px;line-height:1.7;">${d.exam.title}<br>درجة الامتحان: <b>${outOf}</b> · أعلى درجة: <b>${hi}</b> · أقل درجة: <b>${lo}</b></div>
+    <div style="display:flex;gap:10px;margin-bottom:10px;">
+      <div style="flex:1;"><div style="font-size:11px;font-weight:700;margin-bottom:5px;color:var(--text2,#9aa);">من درجة</div><input id="tr-from" type="number" step="0.5" style="${inp}" value="${defFrom}"></div>
+      <div style="flex:1;"><div style="font-size:11px;font-weight:700;margin-bottom:5px;color:var(--text2,#9aa);">إلى درجة</div><input id="tr-to" type="number" step="0.5" style="${inp}" value="${hi}"></div>
+    </div>
+    <div id="tr-count" style="text-align:center;font-size:12px;font-weight:700;color:#00c9b1;margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button id="tr-go" style="flex:1;padding:11px;border-radius:10px;border:none;background:linear-gradient(135deg,#4f7cff,#7c5cff);color:#fff;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">${fmt==='xlsx'?'📊 تصدير Excel':'🖨️ طباعة PDF'}</button>
+      <button id="tr-cancel" style="padding:11px 16px;border-radius:10px;border:1px solid var(--border2,#33384d);background:transparent;color:var(--text,#fff);font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;">إلغاء</button>
+    </div></div>`;
+  document.body.appendChild(ov);
+  const fEl=ov.querySelector('#tr-from'), tEl=ov.querySelector('#tr-to'), cEl=ov.querySelector('#tr-count');
+  const upd=()=>{ const f=parseFloat(fEl.value), t2=parseFloat(tEl.value);
+    if(isNaN(f)||isNaN(t2)||f>t2){ cEl.style.color='var(--red,#ff4d6d)'; cEl.textContent='⚠️ تأكد أن "من" أقل من أو يساوي "إلى"'; return null; }
+    const n=took.filter(r=>+r.g.score>=f&&+r.g.score<=t2).length;
+    cEl.style.color=n?'#00c9b1':'var(--red,#ff4d6d)'; cEl.textContent=n?`عدد الطلاب في هذا المدى: ${n}`:'لا يوجد طلاب في هذا المدى';
+    return {from:f,to:t2,n}; };
+  fEl.addEventListener('input',upd); tEl.addEventListener('input',upd); upd();
+  const close=()=>ov.remove();
+  ov.querySelector('#tr-x').onclick=close; ov.querySelector('#tr-cancel').onclick=close;
+  ov.addEventListener('click',e=>{ if(e.target===ov) close(); });
+  const go=()=>{ const r=upd(); if(!r||!r.n){ toast('اختر مدى درجات صحيح فيه طلاب','e'); return; } close(); exportGradeList('tops',fmt,{from:r.from,to:r.to}); };
+  ov.querySelector('#tr-go').onclick=go;
+  [fEl,tEl].forEach(el=>el.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); }));
+  fEl.focus(); fEl.select();
 }
 function toggleGradeExportMenu(ev){
   ev.stopPropagation();
