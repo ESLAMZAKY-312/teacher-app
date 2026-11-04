@@ -3943,8 +3943,13 @@ function excludedMonthDebtInfo(sid,m){
 }
 // الشهور التي عليها مديونية فعلية للطالب المستبعد (من تاريخ الالتحاق حتى الشهر الحالي)
 function excludedUnpaidMonths(sid){
-  const s=stu(sid); if(!s||!s.date) return [];
-  const st=new Date(s.date); if(isNaN(st.getTime())) return [];
+  const s=stu(sid); if(!s) return [];
+  // بداية الحساب: الأقدم بين تاريخ الالتحاق وأول يوم حضور فعلي مسجّل (عشان تاريخ التحاق ناقص/متأخر ما يخفي شهور حضرها الطالب)
+  let st=null;
+  if(s.date){ const d0=new Date(s.date); if(!isNaN(d0.getTime())) st=new Date(d0.getFullYear(),d0.getMonth(),1); }
+  const firstAtt=Object.keys(DB.attendance).filter(d=>{ const v=DB.attendance[d][sid]; return v==='present'||v==='late'||v==='exceptional'||v==='excused'; }).sort()[0];
+  if(firstAtt){ const p=firstAtt.split('-'); const fa=new Date(+p[0],+p[1]-1,1); if(!st||fa<st) st=fa; }
+  if(!st) return [];
   const now=new Date(); const out=[];
   let y=st.getFullYear(), mo=st.getMonth();
   while(y<now.getFullYear()||(y===now.getFullYear()&&mo<=now.getMonth())){
@@ -3953,6 +3958,15 @@ function excludedUnpaidMonths(sid){
     mo++; if(mo>11){ mo=0; y++; }
   }
   return out;
+}
+
+// سبب عدم ظهور طالب مستبعد في "مديونيات المستبعدين" (يُعرض عند البحث باسمه)
+function _exclNoDebtWhy(s){
+  if(!stuEffectiveFee(s)) return 'لا توجد رسوم شهرية محددة لمجموعته (الرسوم = 0)';
+  const ok=['present','late','exceptional','excused'];
+  const ms=[...new Set(Object.keys(DB.attendance).filter(d=>ok.includes(DB.attendance[d][s.id])).map(d=>d.slice(0,7)))].sort();
+  if(!ms.length) return 'لم يحضر أي حصة مسجّلة — لا مستحقات عليه';
+  return 'كل الشهور التي حضرها مسددة — '+ms.map(m=>{ const e=excludedMonthDebtInfo(s.id,m); return `${monthLabelAr(m)}: حضر ${e.attended}/${EXCL_SESSIONS_PER_MONTH} ← ${e.remaining>0?'متبقي '+fmtM(e.remaining):'مسدد ✅'}`; }).join(' · ');
 }
 function monthDebtInfo(sid,m){
   const s=stu(sid); const fee=stuEffectiveFee(s);
@@ -7324,10 +7338,11 @@ function renderAttGrid(){
   const _isHol=isHolidayDate(date);
   document.getElementById('att-grid').innerHTML=orderedStudents.map(s=>{
     const st=attState[s.id]||(_isHol?'holiday':'unknown');
+    const _vs=st==='exceptional'?'present':st;   // الحضور الاستثنائي يظهر كحاضر
     const isExc=isStuFinExcluded(s.id);
-    const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',holiday:'rgba(0,188,212,.45)'}[st]||'var(--border)');
-    const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',holiday:'rgba(0,188,212,.07)'}[st]||'var(--card)');
-    return `<div id="ac-${s.id}" style="position:relative;background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;${isExc?'opacity:.6;':''}">
+    const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',holiday:'rgba(0,188,212,.45)'}[_vs]||'var(--border)');
+    const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',holiday:'rgba(0,188,212,.07)'}[_vs]||'var(--card)');
+    return `<div id="ac-${s.id}" data-exc="${isExc?1:0}" style="position:relative;background:${bg};border:1px solid ${bc};border-radius:var(--r);padding:.8rem;text-align:center;transition:all .18s;${isExc?'opacity:.6;':''}">
       ${!isExc?`<button onclick="event.stopPropagation();cancelAttCard('${s.id}')" title="إلغاء الإجراء — رجوع الطالب كما كان"
         style="position:absolute;top:6px;left:6px;width:20px;height:20px;border-radius:6px;border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);font-size:11px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;z-index:2;">↩</button>`:''}
       <div class="av av40" style="margin:0 auto 5px;background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
@@ -7335,10 +7350,10 @@ function renderAttGrid(){
       <div style="font-size:10px;color:var(--text2);margin-top:1px;">${grpN(s.groupId)}</div>
       <div id="as-${s.id}" style="font-size:10.5px;margin:3px 0 7px;">${isExc?'⛔ مستبعد':attLbl(st)}</div>
       <div style="display:flex;gap:3px;justify-content:center;">
-        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${st==='present'?'rgba(34,201,122,.2)':'transparent'};color:${st==='present'?'var(--green)':'var(--text2)'};cursor:pointer;font-size:11px;" onclick="setAtt('${s.id}','present')">✅</button>
-        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${st==='late'?'rgba(245,166,35,.2)':'transparent'};color:${st==='late'?'var(--amber)':'var(--text2)'};cursor:pointer;font-size:11px;" onclick="setAtt('${s.id}','late')">⏰</button>
-        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${st==='excused'?'rgba(124,92,255,.2)':'transparent'};color:${st==='excused'?'#7c5cff':'var(--text2)'};cursor:pointer;font-size:11px;" onclick="setAtt('${s.id}','excused')" title="استئذان">🙋</button>
-        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${st==='absent'?'rgba(255,77,109,.2)':'transparent'};color:${st==='absent'?'var(--red)':'var(--text2)'};cursor:pointer;font-size:11px;" onclick="setAtt('${s.id}','absent')">❌</button>
+        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${_vs==='present'?'rgba(34,201,122,.2)':'transparent'};color:${_vs==='present'?'var(--green)':'var(--text2)'};cursor:pointer;font-size:11px;" data-st="present" onclick="setAtt('${s.id}','present')">✅</button>
+        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${_vs==='late'?'rgba(245,166,35,.2)':'transparent'};color:${_vs==='late'?'var(--amber)':'var(--text2)'};cursor:pointer;font-size:11px;" data-st="late" onclick="setAtt('${s.id}','late')">⏰</button>
+        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${_vs==='excused'?'rgba(124,92,255,.2)':'transparent'};color:${_vs==='excused'?'#7c5cff':'var(--text2)'};cursor:pointer;font-size:11px;" data-st="excused" onclick="setAtt('${s.id}','excused')" title="استئذان">🙋</button>
+        <button style="padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:${_vs==='absent'?'rgba(255,77,109,.2)':'transparent'};color:${_vs==='absent'?'var(--red)':'var(--text2)'};cursor:pointer;font-size:11px;" data-st="absent" onclick="setAtt('${s.id}','absent')">❌</button>
       </div>
     </div>`;
   }).join('');
@@ -7467,10 +7482,11 @@ function _renderAttSearchCard(sid){
   const s=stu(sid); const wrap=document.getElementById('att-search-picked'); if(!s||!wrap) return;
   const date=document.getElementById('att-date')?.value||localDate();
   const st=(DB.attendance[date]&&DB.attendance[date][sid])||(isHolidayDate(date)?'holiday':'unknown');
+  const _vs=st==='exceptional'?'present':st;
   const _isSup=document.body.dataset.role==='supervisor';
   const isExc=isStuFinExcluded(sid);
-  const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',holiday:'rgba(0,188,212,.45)'}[st]||'var(--border)');
-  const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',holiday:'rgba(0,188,212,.07)'}[st]||'var(--card)');
+  const bc=isExc?'rgba(255,77,109,.35)':({present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',holiday:'rgba(0,188,212,.45)'}[_vs]||'var(--border)');
+  const bg=isExc?'rgba(255,77,109,.03)':({present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',holiday:'rgba(0,188,212,.07)'}[_vs]||'var(--card)');
   // ── أول مرة (أو طالب جديد): نبني الهيكل = كارت اليوم + لوحة الفترة الزمنية ──
   if(!wrap.querySelector('#att-sc-card') || wrap.dataset.sid!==sid){
     wrap.innerHTML='<div id="att-sc-card"></div><div id="att-range-panel"></div>';
@@ -7489,10 +7505,10 @@ function _renderAttSearchCard(sid){
     </div>
     ${_isSup?'<span style="font-size:10px;color:var(--text2);flex-shrink:0;">👁️ عرض فقط</span>':`
     <div style="display:flex;gap:3px;flex-shrink:0;">
-      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='present'?'rgba(34,201,122,.2)':'transparent'};color:${st==='present'?'var(--green)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','present')">✅</button>
-      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='late'?'rgba(245,166,35,.2)':'transparent'};color:${st==='late'?'var(--amber)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','late')">⏰</button>
-      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='excused'?'rgba(124,92,255,.2)':'transparent'};color:${st==='excused'?'#7c5cff':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','excused')" title="استئذان">🙋</button>
-      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${st==='absent'?'rgba(255,77,109,.2)':'transparent'};color:${st==='absent'?'var(--red)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','absent')">❌</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${_vs==='present'?'rgba(34,201,122,.2)':'transparent'};color:${_vs==='present'?'var(--green)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','present')">✅</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${_vs==='late'?'rgba(245,166,35,.2)':'transparent'};color:${_vs==='late'?'var(--amber)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','late')">⏰</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${_vs==='excused'?'rgba(124,92,255,.2)':'transparent'};color:${_vs==='excused'?'#7c5cff':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','excused')" title="استئذان">🙋</button>
+      <button style="padding:4px 7px;border-radius:5px;border:1px solid var(--border);background:${_vs==='absent'?'rgba(255,77,109,.2)':'transparent'};color:${_vs==='absent'?'var(--red)':'var(--text2)'};cursor:pointer;font-size:12px;" onclick="setAtt('${sid}','absent')">❌</button>
     </div>
     `}
   </div>`;
@@ -7905,23 +7921,25 @@ function setAtt(sid,status){
     renderTodayLog();
   }
   const card=document.getElementById('ac-'+sid);
-  if(card){
+  // لو تغيّرت حالة الاستبعاد بعد هذا التسجيل (مستبعد تم تحضيره ← يرجع طبيعي، أو طالب بقى مستبعد) نعيد رسم الشبكة
+  const _regrid = !!card && (card.dataset.exc==='1') !== isStuFinExcluded(sid);
+  if(card && !_regrid){
     const bcs={present:'rgba(34,201,122,.4)',late:'rgba(245,166,35,.4)',excused:'rgba(124,92,255,.4)',absent:'rgba(255,77,109,.4)',exceptional:'rgba(34,201,122,.4)'};
     const bgs={present:'rgba(34,201,122,.04)',late:'rgba(245,166,35,.04)',excused:'rgba(124,92,255,.04)',absent:'rgba(255,77,109,.04)',exceptional:'rgba(34,201,122,.04)'};
     card.style.borderColor=bcs[status]||'var(--border)'; card.style.background=bgs[status]||'var(--card)';
     document.getElementById('as-'+sid).textContent=attLbl(status);
-    const btns=card.querySelectorAll('button');
-    const sts=['present','late','excused','absent'];
+    const btns=card.querySelectorAll('button[data-st]');   // أزرار الحالات فقط (بدون زر ↩ إلغاء)
     const cols={present:'var(--green)',late:'var(--amber)',excused:'#7c5cff',absent:'var(--red)'};
     const bgmap={present:'rgba(34,201,122,.2)',late:'rgba(245,166,35,.2)',excused:'rgba(124,92,255,.2)',absent:'rgba(255,77,109,.2)'};
     // "حضور استثنائي" بيتعرض شكله زي زرار "حاضر" (اللون الأخضر) لأنه في الأساس حضور فعلي
     const _visSt = status==='exceptional' ? 'present' : status;
-    btns.forEach((b,i)=>{ b.style.background=sts[i]===_visSt?bgmap[_visSt]:'transparent'; b.style.color=sts[i]===_visSt?cols[_visSt]:'var(--text2)'; });
+    btns.forEach(b=>{ const on=b.dataset.st===_visSt; b.style.background=on?bgmap[_visSt]:'transparent'; b.style.color=on?cols[_visSt]:'var(--text2)'; });
   }
   // ── تحديث كارت نتيجة البحث السريع لو هو المفتوح حالياً لنفس الطالب ──
   const searchCard=document.getElementById('att-search-picked');
   if(searchCard && searchCard.dataset.sid===sid) _renderAttSearchCard(sid);
-  const gf=document.getElementById('att-grp')?.value||''; updateAttCounts(DB.students.filter(s=>!gf||s.groupId===gf));
+  if(_regrid){ renderAttGrid(); if(typeof renderTodayLog==='function') renderTodayLog(); return; }
+  const gf=document.getElementById('att-grp')?.value||''; updateAttCounts(DB.students.filter(s=>(!gf||s.groupId===gf)&&!isStuFinExcluded(s.id)));
 }
 // ── زر (إلغاء) في كل خانة طالب بشبكة الحضور: يمسح أي إجراء (حضور/غياب/تأخير/استئذان) تم عليه
 // اليوم المختار حالياً، ويرجّعه لحالة "غير محدد" كأنه لم يُسجَّل له شيء من الأساس ──
@@ -10256,11 +10274,24 @@ function renderPayments(){
       if(!unpaidMonths.length) return;
       rows.push({s,unpaidMonths});
     });
+    // ملاحظات توضيحية: مستبعدون طابقوا البحث لكن لا مديونية عليهم (مع السبب)
+    let _noDebtHtml='';
+    if(sf==='excluded' && qf){
+      const _nd=[];
+      DB.students.filter(s=>(!cf||s.classId===cf)&&(!gf||s.groupId===gf)&&isStuFinExcluded(s.id)
+        &&((s.fname+' '+s.lname).toLowerCase().includes(qf)||String(s.barcode||s.id||'').toLowerCase().includes(qf)))
+        .forEach(s=>{
+          if(isStuExempt(s.id)) _nd.push({s,why:'معفى من السداد (حالة دفع خاصة — إعفاء)'});
+          else if(!excludedUnpaidMonths(s.id).length) _nd.push({s,why:_exclNoDebtWhy(s)});
+        });
+      _noDebtHtml=_nd.map(({s,why})=>`<tr><td colspan="6"><div style="padding:8px 12px;border:1px dashed var(--border2);border-radius:var(--rs);font-size:11.5px;color:var(--text2);line-height:1.8;">ℹ️ <b style="color:var(--text);">${s.fname} ${s.lname}</b> مستبعد لكن لا مديونية عليه: ${why}</div></td></tr>`).join('');
+    }
     if(!rows.length){
       document.getElementById('pay-tbody').innerHTML=`<tr><td colspan="6" style="text-align:center;padding:3rem;color:var(--text3);">
         <div style="font-size:40px;margin-bottom:.75rem;">✅</div>
         <div style="font-size:13px;font-weight:600;">${sf==='overdue'?'لا توجد مديونيات سابقة لهذا الاختيار':sf==='excluded'?'لا توجد مديونيات للطلاب المستبعدين':'لا توجد مديونيات للشهر الحالي لهذا الاختيار'}</div>
       </td></tr>`;
+      if(_noDebtHtml) document.getElementById('pay-tbody').insertAdjacentHTML('beforeend',_noDebtHtml);
       _updatePayFilterStat(0,0);
       _updatePayRemainingStat(0,0);
       return;
@@ -10290,7 +10321,7 @@ function renderPayments(){
         <td><span class="badge bg-r">${sf==='overdue'?'⚠️ مديونية سابقة':sf==='excluded'?'🚫 مستبعد — مديونية':'🕒 مديونية حالية'}</span></td>
         <td></td>
       </tr>`;
-    }).join('');
+    }).join('')+_noDebtHtml;
     return;
   }
 
