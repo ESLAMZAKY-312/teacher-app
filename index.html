@@ -1328,7 +1328,7 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
       <div class="tc"><div class="th"><div class="tt">📊 إحصاء المبيعات بالمنتج</div></div><div id="products-stats" style="padding:.75rem;"></div></div>
     </div>
     <div class="tc"><div class="th" style="flex-wrap:wrap;gap:8px;">
-      <div class="tt">سجل المبيعات</div>
+      <div class="tt">سجل المبيعات <span id="sales-ro-badge" style="display:none;font-size:10px;font-weight:700;padding:2px 9px;border-radius:10px;background:rgba(79,124,255,.15);color:var(--accent);margin-right:6px;">👁️ عرض فقط</span></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <div style="position:relative;width:150px;" id="prod-filter-wrap">
           <button type="button" class="fs" id="prod-filter-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:4px;background:var(--glass2);border:1px solid var(--border2);border-radius:var(--rs);padding:8px 10px;color:var(--text);font-family:inherit;font-size:13px;" onclick="_toggleProdFilterMenu(event)">
@@ -1963,6 +1963,21 @@ input[type=date].dt-fmt::-webkit-calendar-picker-indicator{position:absolute;ins
         </div>
       </div>
       <div id="sx-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:.45rem .8rem;"></div>
+    </div>
+    <div style="border:1px solid var(--border2);border-radius:var(--rs);padding:.8rem 1rem;margin-bottom:1rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-bottom:.5rem;">
+        <div style="font-size:12px;font-weight:700;">📦 أعمدة المنتجات <span style="font-weight:500;color:var(--text2);">(اختياري)</span></div>
+        <div style="display:flex;gap:6px;">
+          <button type="button" class="btn btn-secondary btn-xs" onclick="sxSetAllProds(true)">✅ الكل</button>
+          <button type="button" class="btn btn-danger btn-xs" onclick="sxSetAllProds(false)">✕ لا شيء</button>
+        </div>
+      </div>
+      <div id="sx-prods" style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem .8rem;max-height:150px;overflow-y:auto;"></div>
+      <div style="display:flex;gap:1.1rem;flex-wrap:wrap;margin-top:.6rem;padding-top:.55rem;border-top:1px dashed var(--border);">
+        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="sx-pcol-pay" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">💰 حالة الدفع (✔ / ✘)</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="sx-pcol-recv" checked style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">📦 حالة الاستلام (✔ / ✘)</label>
+      </div>
+      <div style="font-size:10.5px;color:var(--text2);margin-top:.5rem;line-height:1.7;">عند اختيار منتج أو أكثر يُصدَّر الكشف كجدول: صف لكل طالب، وأمام كل منتج عمود للدفع وعمود للاستلام (✔ = تم، ✘ = لم يتم). تُستخدم من الأعمدة أعلاه: الطالب / الصف / المجموعة فقط.</div>
     </div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:.6rem;">يتم التصدير حسب الفلاتر المختارة حالياً في سجل المبيعات، ومرتباً: الصف ← المجموعة ← اسم الطالب.</div>
     <div style="display:flex;gap:.6rem;">
@@ -7754,10 +7769,12 @@ function _filterAttViewGrp(){
 }
 // ── قائمة التواريخ بين تاريخين (شاملة الطرفين)، ترتيب تصاعدي ──
 function _dateRangeList(from, to){
-  const out=[];
-  let d=new Date(from), end=new Date(to);
+  // حساب بالأيام بتوقيت UTC بالكامل — الطريقة القديمة كانت بتخلط UTC بالتوقيت المحلي،
+  // فبعد تغيير التوقيت الصيفي كان آخر يوم في النطاق (اليوم الحالي) بيسقط من القائمة
+  const out=[]; const ms=s=>{ const a=String(s||'').split('-').map(Number); return Date.UTC(a[0],(a[1]||1)-1,a[2]||1); };
+  let d=ms(from); const end=ms(to);
   if(isNaN(d)||isNaN(end)||d>end) return out;
-  while(d<=end){ out.push(d.toISOString().slice(0,10)); d.setDate(d.getDate()+1); }
+  for(; d<=end; d+=86400000) out.push(new Date(d).toISOString().slice(0,10));
   return out;
 }
 const _AVW_DAY_SHORT=['أحد','إثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'];
@@ -12937,6 +12954,7 @@ function _updateEditSaleRemainingNote(){
   document.getElementById('esale-remaining-note').textContent=rem>0?`سيُحتسب ${fmtM(rem)} متبقياً على الطالب`:'';
 }
 function saveEditedSale(saleId){
+  if(_supBlockSales('بتعديل عمليات الشراء')) return;
   const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
   const qty=Math.max(1,+document.getElementById('esale-qty').value||1);
   const total=Math.max(0,+document.getElementById('esale-total').value||0);
@@ -12963,6 +12981,7 @@ function saleAmountPaid(s){
 function saleRemaining(s){ return Math.max(0,(+s.total||0)-saleAmountPaid(s)); }
 /** تعديل المبلغ المدفوع لصنف مُباع مباشرةً من خانة رقمية — أي فرق عن السعر الكامل يُعتبر متبقياً على الطالب */
 function updateSalePaidAmount(saleId,rawVal){
+  if(_supBlockSales('بتعديل المبلغ المدفوع')){ if(document.getElementById('sales-tbody')) renderStore(); return; }
   const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
   const total=+s.total||0;
   let val=parseFloat(rawVal);
@@ -13169,7 +13188,7 @@ function openStudentStoreModal(sid){
     </div>
 
     <!-- ── قسم الأصناف المتاحة (قائمة منسدلة) ── -->
-    <div style="margin-bottom:1rem;">
+    <div style="margin-bottom:1rem;" id="sstore-add-sec">
       <div style="font-size:12px;font-weight:800;color:var(--text2);margin-bottom:.6rem;display:flex;align-items:center;gap:6px;">
         <span>📦</span> الأصناف المتاحة لصف <b style="color:var(--accent);">${clsN(s.classId)}</b>
       </div>
@@ -13244,12 +13263,22 @@ function openStudentStoreModal(sid){
       ${purchases.length ? `<button class="btn btn-amber btn-sm" onclick="printStudentPurchases('${sid}')">🖨️ طباعة</button>` : ''}
     </div>`;
 
+  // ── المشرف: اطلاع فقط — بدون إضافة أصناف أو تعديل مدفوع/دفع/استلام أو حذف ──
+  if(document.body.dataset.role==='supervisor'){
+    const box=document.getElementById('sstore-body');
+    const add=document.getElementById('sstore-add-sec');
+    if(add) add.innerHTML='<div style="padding:.85rem 1rem;border:1px dashed var(--border2);border-radius:var(--rs);font-size:12px;color:var(--text2);text-align:center;">👁️ عرض فقط — غير مسموح للمشرف بإضافة أو تعديل المشتريات</div>';
+    box.querySelectorAll('input[type=number]').forEach(i=>{ i.disabled=true; i.style.opacity='.7'; });
+    box.querySelectorAll('[onclick^="toggleSale"]').forEach(e=>{ e.removeAttribute('onclick'); e.style.cursor='default'; e.removeAttribute('title'); });
+    box.querySelectorAll('button[onclick^="deleteSale"]').forEach(b=>{ b.disabled=true; b.removeAttribute('onclick'); b.style.opacity='.35'; b.style.cursor='not-allowed'; });
+  }
   openModal('student-store-modal');
 }
 let _currentStoreStuSid='';
 let _newItemSelectedPid='';
 
 function _selectNewItemProduct(pid,sid){
+  if(_supBlockSales('بإضافة أصناف للطالب')) return;
   if(!pid){ _cancelNewItemSelection(); return; }
   const p=DB.products.find(x=>x.id===pid); if(!p)return;
   _newItemSelectedPid=pid;
@@ -13271,6 +13300,7 @@ function _cancelNewItemSelection(){
   document.getElementById('snewitem-qty-box').style.display='none';
 }
 function _confirmNewItemSale(sid){
+  if(_supBlockSales('بإضافة أصناف للطالب')) return;
   const p=DB.products.find(x=>x.id===_newItemSelectedPid); if(!p){toast('اختر صنفاً أولاً','e');return;}
   const s=stu(sid); if(!s)return;
   const qty=Math.max(1,+document.getElementById('snewitem-qty').value||1);
@@ -13409,7 +13439,7 @@ const _debouncedRenderStore = debounce(renderStore, 280);
  *  ولو المعلم لغى العلامتين معاً (مش دافع ومش مستلم) يتم حذف العملية بدل ما تفضل سجل فاضي بلا فايدة. */
 /** يحدد "استلام" و"دفع" معاً لكل طالب في القائمة الحالية (حسب فلاتر الصف/المجموعة/الاسم) له عملية بيع مسجّلة للمنتج المختار */
 function quickCompleteTaken(){
-  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف باستكمال الاستلام والدفع','e'); return; }
+  if(_supBlockSales('باستكمال الاستلام والدفع')) return;
   const fProd=document.getElementById('sales-filter-product')?.value||'';
   const p=DB.products.find(x=>x.id===fProd); if(!p) return;
   const ids=new Set(_quickRosterList().map(s=>s.id));
@@ -13422,7 +13452,13 @@ function quickCompleteTaken(){
   save(); renderStore();
   toast(`✅ تم استكمال الاستلام والدفع لـ ${todo.length} طالب`);
 }
+// ── المشرف: سجل المبيعات للعرض والاطلاع فقط (بدون تعديل أو إضافة) ──
+function _supBlockSales(what){
+  if(document.body.dataset.role==='supervisor'){ toast('❌ غير مسموح للمشرف '+(what||'بتعديل سجل المبيعات')+' — عرض واطلاع فقط','e'); return true; }
+  return false;
+}
 function toggleQuickSaleFlag(sid, pid, flag, checked){
+  if(_supBlockSales('بتسجيل الاستلام أو الدفع')){ renderStore(); return; }
   const p=DB.products.find(x=>x.id===pid); if(!p) return;
   let sale=DB.sales.find(x=>x.studentId===sid && x.productId===pid);
   if(!sale){
@@ -13541,6 +13577,7 @@ function renderStore(){
       </div>`).join(''):'<div style="color:var(--text3);text-align:center;padding:1rem;">لا توجد مبيعات بعد</div>';
   }
 
+  { const _rb=document.getElementById('sales-ro-badge'); if(_rb) _rb.style.display=document.body.dataset.role==='supervisor'?'inline-block':'none'; }
   // ── تعبئة فلتر المنتج (مع الحفاظ على القيمة المختارة عبر إعادة الرسم) ──
   const prodFilterEl=document.getElementById('sales-filter-product');
   if(prodFilterEl){
@@ -13579,6 +13616,7 @@ function renderStore(){
       const rosterStudents=_quickRosterList();
       document.getElementById('store-quick-roster-title').textContent=`⚡ تسجيل سريع — ${rp?rp.icon+' '+rp.name:''} (${rosterStudents.length} طالب)`;
       { const _qc=document.getElementById('quick-complete-btn'); if(_qc) _qc.style.display=document.body.dataset.role==='supervisor'?'none':''; }
+      const _supRO=document.body.dataset.role==='supervisor';
       document.getElementById('store-quick-roster-list').innerHTML=rosterStudents.map(s=>{
         const _qs=_quickRosterState(s.id,fProd);
         const rPaid=_qs.paid, rRecv=_qs.recv;
@@ -13586,10 +13624,10 @@ function renderStore(){
           <div class="av av28" style="background:${s.color}20;color:${s.color}">${s.fname[0]}</div>
           <span style="flex:1;font-size:12px;font-weight:600;">${s.fname} ${s.lname}</span>
           <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);cursor:pointer;">
-            <input type="checkbox" ${rRecv?'checked':''} onchange="toggleQuickSaleFlag('${s.id}','${fProd}','received',this.checked)" style="width:15px;height:15px;accent-color:var(--green);cursor:pointer;">استلام
+            <input type="checkbox" ${rRecv?'checked':''} ${_supRO?'disabled':''} onchange="toggleQuickSaleFlag('${s.id}','${fProd}','received',this.checked)" style="width:15px;height:15px;accent-color:var(--green);cursor:${_supRO?'not-allowed':'pointer'};">استلام
           </label>
           <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text2);cursor:pointer;">
-            <input type="checkbox" ${rPaid?'checked':''} onchange="toggleQuickSaleFlag('${s.id}','${fProd}','paid',this.checked)" style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">دفع
+            <input type="checkbox" ${rPaid?'checked':''} ${_supRO?'disabled':''} onchange="toggleQuickSaleFlag('${s.id}','${fProd}','paid',this.checked)" style="width:15px;height:15px;accent-color:var(--accent);cursor:${_supRO?'not-allowed':'pointer'};">دفع
           </label>
         </div>`;
       }).join('')||'<div style="text-align:center;color:var(--text3);padding:.75rem;font-size:12px;">لا يوجد طلاب مطابقين لهذا الاختيار</div>';
@@ -13608,8 +13646,8 @@ function renderStore(){
     const btnBase='width:22px;height:22px;border-radius:6px;font-size:11px;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;overflow:hidden;flex:none;';
     const btnState=isSup?'cursor:not-allowed;opacity:.4;filter:grayscale(.6);':'cursor:pointer;';
     return `<tr><td>${p?.icon||'📦'} ${s.productName}</td><td style="font-size:11px;color:var(--text2);">${stuLabel}${rem>0?` <span title="متبقي ${fmtM(rem)} على الطالب" style="display:inline-block;font-size:9.5px;font-weight:700;color:var(--amber);background:rgba(245,166,35,.15);border-radius:8px;padding:1px 6px;margin-right:4px;">🔶 متبقي ${fmtM(rem)}</span>`:''}</td><td style="text-align:center;">${s.qty}</td><td style="color:var(--green);font-weight:700;">${fmtM(s.total)}</td>`
-      +`<td style="text-align:center;"><span onclick="toggleSalePaid('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':(rem>0&&rem<s.total?'🔶':'❌')}</span></td>`
-      +`<td style="text-align:center;"><span onclick="toggleSaleReceived('${s.id}')" style="cursor:pointer;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>`
+      +`<td style="text-align:center;"><span ${isSup?'':`onclick="toggleSalePaid('${s.id}')"`} style="cursor:${isSup?'default':'pointer'};font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${paid?'background:rgba(79,124,255,.15);color:var(--accent);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${paid?'✔️':(rem>0&&rem<s.total?'🔶':'❌')}</span></td>`
+      +`<td style="text-align:center;"><span ${isSup?'':`onclick="toggleSaleReceived('${s.id}')"`} style="cursor:${isSup?'default':'pointer'};font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;${received?'background:rgba(34,201,122,.15);color:var(--green);':'background:rgba(245,166,35,.15);color:var(--amber);'}">${received?'✔️':'❌'}</span></td>`
       +`<td style="font-size:11px;color:var(--text2);">${s.date}</td>`
       +`<td style="text-align:center;"><button ${isSup?'disabled':''} onclick="${isSup?'':`openEditSaleModal('${s.id}')`}" title="${isSup?'غير مسموح للمشرف بالتعديل':'تعديل عملية الشراء'}" style="${btnBase}${btnState}border:1px solid rgba(245,166,35,.35);background:rgba(245,166,35,.09);color:var(--amber);">✏️</button></td>`
       +`<td style="text-align:center;"><button ${isSup?'disabled':''} onclick="${isSup?'':`deleteSale('${s.id}')`}" title="${isSup?'غير مسموح للمشرف بالحذف':'حذف عملية الشراء'}" style="${btnBase}${btnState}border:1px solid rgba(255,77,109,.35);background:rgba(255,77,109,.09);color:var(--red);">🗑️</button></td></tr>`; }).join('')||'<tr><td colspan="9" style="text-align:center;padding:1.25rem;color:var(--text3)">لا توجد مبيعات مطابقة</td></tr>';
@@ -13836,6 +13874,7 @@ function _saveAllInventory(){
   _renderInventory();
 }
 function sellProduct(id){
+  if(_supBlockSales('ببيع المنتجات')) return;
   const p=DB.products.find(x=>x.id===id); if(!p)return;
   // تصفية المجموعات بناءً على الصف المرتبط بالمنتج، بنفس ترتيب الصفوف الفعلي
   // في تبويب "الصفوف والمجموعات" (بدل ترتيب مصفوفة DB.groups الخام)
@@ -13903,6 +13942,7 @@ function sellFilterStudents(){
   document.getElementById('sell-stu').innerHTML='<option value="">— بدون طالب (عميل عام) —</option>'+list.map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join('');
 }
 function confirmSell(pid){
+  if(_supBlockSales('ببيع المنتجات')) return;
   const p=DB.products.find(x=>x.id===pid); if(!p)return;
   const qty=+document.getElementById('sell-qty').value||1;
   const sid=document.getElementById('sell-stu').value;
@@ -13918,6 +13958,7 @@ function confirmSell(pid){
 
 /** يبدّل حالة استلام صنف مباع بعد تسجيله (لو اتسلّم لاحقًا مثلاً) */
 function toggleSaleReceived(saleId){
+  if(_supBlockSales('بتغيير حالة الاستلام')) return;
   const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
   s.received=!s.received;
   save();
@@ -13927,6 +13968,7 @@ function toggleSaleReceived(saleId){
 }
 /** يبدّل حالة دفع صنف مباع بعد تسجيله (لو اتدفع لاحقًا مثلاً) */
 function toggleSalePaid(saleId){
+  if(_supBlockSales('بتغيير حالة الدفع')) return;
   const s=DB.sales.find(x=>x.id===saleId); if(!s)return;
   s.paid=!s.paid;
   s.paidAmount=s.paid?(+s.total||0):0; // تبديل سريع: مسدد بالكامل أو غير مسدد إطلاقاً (للتعديل الجزئي الدقيق استخدم خانة المبلغ)
@@ -15611,7 +15653,80 @@ function sxSetAllCols(v){ _SX_COLS.forEach(c=>{ const el=document.getElementById
 function _sxSelectedKeys(){
   return _SX_COLS.filter(c=>document.getElementById('sx-col-'+c.k)?.checked).map(c=>c.k);
 }
+
+// ── أعمدة المنتجات في التصدير: لكل منتج مختار عمود دفع وعمود استلام بعلامات ✔ / ✘ ──
+const _SX_OK='✔', _SX_NO='✘';
+function _sxRenderProds(){
+  const box=document.getElementById('sx-prods'); if(!box) return;
+  const f=_salesPageFilters();
+  let list=DB.products.slice();
+  if(f.cls) list=list.filter(p=>!p.classId||p.classId===f.cls);
+  if(!list.length){ box.innerHTML='<div style="grid-column:1/-1;font-size:11.5px;color:var(--text3);">لا توجد منتجات</div>'; return; }
+  box.innerHTML=list.map(p=>`<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;">
+    <input type="checkbox" class="sx-prod-cb" data-pid="${p.id}" ${f.prod===p.id?'checked':''} style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+    <span>${_honorEsc((p.icon||'📦')+' '+p.name)}</span></label>`).join('');
+}
+function sxSetAllProds(v){ document.querySelectorAll('#sx-prods .sx-prod-cb').forEach(el=>el.checked=v); }
+function _sxSelectedProds(){ return Array.from(document.querySelectorAll('#sx-prods .sx-prod-cb:checked')).map(el=>el.dataset.pid); }
+function _salesExportMatrix(pids,keys){
+  const f=_salesPageFilters();
+  const wantPay=document.getElementById('sx-pcol-pay')?.checked!==false;
+  const wantRecv=document.getElementById('sx-pcol-recv')?.checked!==false;
+  const prods=pids.map(id=>DB.products.find(p=>p.id===id)).filter(Boolean);
+  const idKeys=['stu','cls','grp'].filter(k=>k==='stu'||(keys&&keys.includes(k)));
+  const idCols=_SX_COLS.filter(c=>idKeys.includes(c.k));
+  const prodCols=[];
+  prods.forEach(p=>{
+    if(wantPay) prodCols.push({k:'pp_'+p.id,h:p.name+' — الدفع',prod:p.id,kind:'pay',mark:1});
+    if(wantRecv) prodCols.push({k:'pr_'+p.id,h:p.name+' — الاستلام',prod:p.id,kind:'recv',mark:1});
+  });
+  if(!prodCols.length) return {cols:idCols,headers:idCols.map(c=>c.h),rows:[],count:0,tot:{},info:[],matrix:true,sum:[]};
+  // الطلاب: حسب فلاتر الصف/المجموعة/الاسم، وإلا كل من اشترى أحد المنتجات المختارة
+  const pset=new Set(pids);
+  let studs;
+  if(f.cls||f.grp||f.stu){
+    studs=DB.students.filter(s=>(!f.cls||s.classId===f.cls)&&(!f.grp||s.groupId===f.grp)&&!isStuFinExcluded(s.id)
+      &&(!f.stu||(s.fname+' '+s.lname).toLowerCase().includes(f.stu)));
+  } else {
+    const ids=new Set(DB.sales.filter(x=>pset.has(x.productId)&&x.studentId).map(x=>x.studentId));
+    studs=DB.students.filter(s=>ids.has(s.id)&&!isStuFinExcluded(s.id));
+  }
+  const state=(sid,pid)=>{
+    const ss=DB.sales.filter(x=>x.studentId===sid&&x.productId===pid);
+    if(!ss.length) return {pay:_SX_NO,recv:_SX_NO,paid:false,recvd:false};
+    const rem=ss.reduce((a,x)=>a+saleRemaining(x),0), pd=ss.reduce((a,x)=>a+saleAmountPaid(x),0);
+    const paid=rem<=0, recvd=ss.every(x=>x.received!==false);
+    return {pay:paid?_SX_OK:(pd>0?'جزئي':_SX_NO), recv:recvd?_SX_OK:_SX_NO, paid, recvd};
+  };
+  let rowsData=studs.map(s=>{ const st={}; prods.forEach(p=>st[p.id]=state(s.id,p.id)); return {s,st}; });
+  // فلاتر حالة الدفع/الاستلام في الصفحة: يظهر الطالب لو انطبقت على أحد المنتجات المختارة
+  if(f.paid||f.recv){
+    rowsData=rowsData.filter(r=>prods.some(p=>{ const x=r.st[p.id];
+      if(f.paid==='paid'&&!x.paid) return false; if(f.paid==='unpaid'&&x.paid) return false;
+      if(f.recv==='received'&&!x.recvd) return false; if(f.recv==='unreceived'&&x.recvd) return false; return true; }));
+  }
+  const _ci=id=>{ const i=DB.classes.findIndex(c=>c.id===id); return i<0?9999:i; };
+  const _gi=id=>{ const i=DB.groups.findIndex(g=>g.id===id); return i<0?9999:i; };
+  rowsData.sort((a,b)=>_ci(a.s.classId)-_ci(b.s.classId)||_gi(a.s.groupId)-_gi(b.s.groupId)||String(a.s.fname+a.s.lname).localeCompare(String(b.s.fname+b.s.lname),'ar',{numeric:true}));
+  const cols=idCols.concat(prodCols);
+  const idVal={stu:s=>s.fname+' '+s.lname,cls:s=>clsN(s.classId),grp:s=>grpN(s.groupId)};
+  const rows=rowsData.map(r=>cols.map(c=>c.mark?(r.st[c.prod][c.kind]):idVal[c.k](r.s)));
+  const sum=[`عدد الطلاب: ${rows.length}`];
+  prods.forEach(p=>{
+    const n=rowsData.length;
+    const a=rowsData.filter(r=>r.st[p.id].paid).length, b=rowsData.filter(r=>r.st[p.id].recvd).length;
+    sum.push(`${p.name}: ${wantPay?'دفع '+a+'/'+n:''}${wantPay&&wantRecv?' · ':''}${wantRecv?'استلام '+b+'/'+n:''}`);
+  });
+  const info=[];
+  if(f.cls) info.push('الصف: '+(DB.classes.find(c=>c.id===f.cls)?.name||''));
+  if(f.grp) info.push('المجموعة: '+(DB.groups.find(g=>g.id===f.grp)?.name||''));
+  if(f.stu) info.push('الاسم: '+f.stu);
+  if(f.paid) info.push(f.paid==='paid'?'💰 مدفوع':'⏳ غير مدفوع');
+  if(f.recv) info.push(f.recv==='received'?'✅ مستلم':'⏳ غير مستلم');
+  return {cols,headers:cols.map(c=>c.h),rows,count:rows.length,tot:{qty:0,total:0,paid:0,rem:0},info,matrix:true,sum};
+}
 function _salesExportData(keys){
+  const _mp=_sxSelectedProds(); if(_mp.length) return _salesExportMatrix(_mp,keys);
   const f=_salesPageFilters();
   const cols=_SX_COLS.filter(c=>!keys||keys.includes(c.k));
   const roster=!!(f.prod && (f.cls||f.grp));   // لو قائمة التسجيل السريع ظاهرة → هي القائمة المُصدَّرة (بنفس ترتيبها وفلاترها)
@@ -15623,14 +15738,14 @@ function _salesExportData(keys){
       const total=has?(+x.total||0):'', rem=has?saleRemaining(x):'', paidAmt=has?saleAmountPaid(x):'';
       return {prod:prodName, stu:s.fname+' '+s.lname, cls:clsN(s.classId), grp:grpN(s.groupId),
               qty:has?(+x.qty||1):'', total, paid:paidAmt, rem,
-              pay:st.paid?'مدفوع':((has&&paidAmt>0)?'مدفوع جزئياً':'غير مدفوع'), recv:st.recv?'مستلم':'غير مستلم', date:has?(x.date||''):'',_c:s.classId,_g:s.groupId};
+              pay:st.paid?_SX_OK:((has&&paidAmt>0)?'جزئي':_SX_NO), recv:st.recv?_SX_OK:_SX_NO, date:has?(x.date||''):'',_c:s.classId,_g:s.groupId};
     });
   } else {
     full=_filterSalesByPage().slice().reverse().map(x=>{      // نفس ترتيب الجدول (الأحدث أولاً)
       const p=DB.products.find(y=>y.id===x.productId), st=x.studentId?stu(x.studentId):null;
       const total=+x.total||0, rem=saleRemaining(x), paidAmt=saleAmountPaid(x);
       return {prod:p?.name||x.productName||'—', stu:st?(st.fname+' '+st.lname):(x.studentName||'عميل عام'), cls:st?clsN(st.classId):'—', grp:st?grpN(st.groupId):'—',
-              qty:+x.qty||1, total, paid:paidAmt, rem, pay:rem<=0?'مدفوع':(paidAmt>0?'مدفوع جزئياً':'غير مدفوع'), recv:x.received!==false?'مستلم':'غير مستلم', date:x.date||'', _c:st?.classId, _g:st?.groupId};
+              qty:+x.qty||1, total, paid:paidAmt, rem, pay:rem<=0?_SX_OK:(paidAmt>0?'جزئي':_SX_NO), recv:x.received!==false?_SX_OK:_SX_NO, date:x.date||'', _c:st?.classId, _g:st?.groupId};
     });
   }
   // ── ترتيب الملف: الصف ← المجموعة (بترتيبها في البرنامج) ← اسم الطالب ──
@@ -15639,7 +15754,7 @@ function _salesExportData(keys){
   full.sort((a,b)=>_ci(a._c)-_ci(b._c)||_gi(a._g)-_gi(b._g)||String(a.stu).localeCompare(String(b.stu),'ar',{numeric:true})||String(b.date||'').localeCompare(String(a.date||'')));
   const _n=v=>(+v||0);
   const tot={qty:full.reduce((a,r)=>a+_n(r.qty),0), total:full.reduce((a,r)=>a+_n(r.total),0), paid:full.reduce((a,r)=>a+_n(r.paid),0), rem:full.reduce((a,r)=>a+_n(r.rem),0)};
-  const nRecv=full.filter(r=>r.recv==='مستلم').length, nPaid=full.filter(r=>r.pay==='مدفوع').length;
+  const nRecv=full.filter(r=>r.recv===_SX_OK).length, nPaid=full.filter(r=>r.pay===_SX_OK).length;
   const info=[];
   if(f.prod) info.push('المنتج: '+(DB.products.find(y=>y.id===f.prod)?.name||''));
   if(f.cls) info.push('الصف: '+(DB.classes.find(c=>c.id===f.cls)?.name||''));
@@ -15651,6 +15766,7 @@ function _salesExportData(keys){
 }
 function openSalesExportModal(){
   _sxRenderCols();
+  _sxRenderProds();
   const d=_salesExportData();
   document.getElementById('sales-export-summary').innerHTML=
     `<div><b>الفلاتر:</b> ${d.info.length?d.info.map(_honorEsc).join(' · '):'بدون فلاتر (كل السجل)'}</div>`+
@@ -15662,10 +15778,10 @@ function openSalesExportModal(){
 }
 function exportSalesLog(fmt){
   const keys=_sxSelectedKeys();
-  if(!keys.length){ toast('اختر عموداً واحداً على الأقل للتصدير','e'); return; }
+  if(!keys.length && !_sxSelectedProds().length){ toast('اختر عموداً واحداً على الأقل للتصدير','e'); return; }
   const d=_salesExportData(keys);
   if(!d.count){ toast('لا توجد بيانات مطابقة للفلتر الحالي','e'); return; }
-  const ttl=d.roster?'كشف الاستلام والدفع':'سجل المبيعات';
+  const ttl=d.matrix?'كشف الدفع والاستلام':(d.roster?'كشف الاستلام والدفع':'سجل المبيعات');
   const prodName=(_salesPageFilters().prod && DB.products.find(y=>y.id===_salesPageFilters().prod)?.name)||'كل المنتجات';
   const fname=(ttl+'_'+prodName+'_'+localDate()).replace(/[\\/:*?"<>|\s]+/g,'_');
   const totKeys=['qty','total','paid','rem'];
@@ -15673,7 +15789,7 @@ function exportSalesLog(fmt){
   const totRow=d.cols.map((c,i)=> totKeys.includes(c.k)?d.tot[c.k]:(i===labelIdx?'الإجمالي':''));
   if(fmt==='xlsx'){
     if(typeof XLSX==='undefined'){ toast('مكتبة Excel لم تُحمَّل — تأكد من الاتصال بالإنترنت','e'); return; }
-    const aoa=[[ttl+(d.info.length?' — '+d.info.join(' · '):'')],[],d.headers,...d.rows,[],totRow];
+    const aoa=[[ttl+(d.info.length?' — '+d.info.join(' · '):'')],[],d.headers,...d.rows,...(d.matrix?[[],[d.sum.join('   |   ')]]:[[],totRow])];
     const ws=XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols']=d.headers.map((h,i)=>({wch:Math.min(34,Math.max(String(h).length+2,...d.rows.map(r=>String(r[i]??'').length+2)))}));
     if(d.headers.length>1) ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:d.headers.length-1}}];
@@ -15686,12 +15802,15 @@ function exportSalesLog(fmt){
   const w=window.open('','_blank');
   if(!w){ toast('اسمح بالنوافذ المنبثقة (Pop-ups) لتصدير PDF','e'); return; }
   const logo=DB.settings.logo?`<img src="${DB.settings.logo}" style="height:40px;object-fit:contain;border-radius:7px;">`:_honorEsc(DB.settings.name||'');
-  const tr=d.rows.map(r=>`<tr>${r.map((c,i)=>{ const col=d.cols[i]; return `<td${col.k==='qty'?' style="text-align:center"':''}>${_honorEsc(c)}${(col.money&&c!=='')?' ج':''}</td>`; }).join('')}</tr>`).join('');
-  const sumParts=d.roster?[`عدد الطلاب: ${d.count}`,`مستلم: ${d.nRecv}`,`مدفوع: ${d.nPaid}`]:[`عدد العمليات: ${d.count}`];
-  if(keys.includes('qty')) sumParts.push(`الوحدات: ${d.tot.qty}`);
-  if(keys.includes('total')) sumParts.push(`الإجمالي: ${d.tot.total} ج`);
-  if(keys.includes('paid')) sumParts.push(`المدفوع: ${d.tot.paid} ج`);
-  if(keys.includes('rem')) sumParts.push(`المتبقي: ${d.tot.rem} ج`);
+  const tr=d.rows.map(r=>`<tr>${r.map((c,i)=>{ const col=d.cols[i];
+    const isMark=(col.k==='pay'||col.k==='recv'||col.mark);
+    const st=isMark?`text-align:center;font-weight:900;font-size:13px;color:${c==='✔'?'#16a34a':(c==='✘'?'#dc2626':'#b45309')}`:(col.k==='qty'?'text-align:center':'');
+    return `<td${st?` style="${st}"`:''}>${_honorEsc(c)}${(col.money&&c!=='')?' ج':''}</td>`; }).join('')}</tr>`).join('');
+  const sumParts=d.matrix?d.sum:(d.roster?[`عدد الطلاب: ${d.count}`,`مستلم: ${d.nRecv}`,`مدفوع: ${d.nPaid}`]:[`عدد العمليات: ${d.count}`]);
+  if(!d.matrix && keys.includes('qty')) sumParts.push(`الوحدات: ${d.tot.qty}`);
+  if(!d.matrix && keys.includes('total')) sumParts.push(`الإجمالي: ${d.tot.total} ج`);
+  if(!d.matrix && keys.includes('paid')) sumParts.push(`المدفوع: ${d.tot.paid} ج`);
+  if(!d.matrix && keys.includes('rem')) sumParts.push(`المتبقي: ${d.tot.rem} ج`);
   w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>${_honorEsc(fname)}</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
   <style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Cairo,sans-serif;background:#fff;color:#111;padding:18px 22px;}
@@ -19833,6 +19952,7 @@ function _applyRolePermissions(role){
 
       /* ── منع المشرف من: حذف منتجات المتجر أو عمليات الشراء ── */
       body[data-role="supervisor"] button[onclick*="delProductConfirm("],
+      body[data-role="supervisor"] button[onclick*="sellProduct("],
       body[data-role="supervisor"] button[onclick*="deleteSale("]{
         pointer-events:none!important;
         opacity:.35!important;
