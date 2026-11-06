@@ -4021,6 +4021,7 @@ function attPct(sid){
     const d=dateKeys[i];
     const v=DB.attendance[d][sid];
     if(v===undefined || v==='holiday') continue; // الأجازة لا تُحتسب
+    if(_isGeoFriAbs(s,d,v)) continue; // غياب الجمعة (جيولوجيا) لطلاب 3ث لا يُحتسب
     if(s && v!=='exceptional'){
       // نحدد مجموعة الطالب *وقت* هذا اليوم بالتحديد (تدعم النقل بين المجموعات)
       const allowedDays=_grpDayNums(_grpIdOnDate(s,d));
@@ -4039,8 +4040,8 @@ function attPct(sid){
 function stuAbsentCount(sid){
   const key='sab_'+sid;
   if(_cache[key]!=null) return _cache[key];
-  let c=0;
-  Object.values(DB.attendance).forEach(day=>{ if(day[sid]==='absent') c++; });
+  let c=0; const _s=stu(sid);
+  Object.keys(DB.attendance).forEach(d=>{ if(DB.attendance[d][sid]==='absent' && !_isGeoFriAbs(_s,d,'absent')) c++; });
   return (_cache[key]=c);
 }
 // ── متتالية الغياب الحالية لطالب معين: عدد أيام الغياب المتتالية (بدون أي حضور بينها) حتى آخر
@@ -4055,6 +4056,7 @@ function _stuAbsenceStreakInfo(sid){
     const d=dateKeys[i];
     const v=DB.attendance[d][sid];
     if(v===undefined || v==='holiday') continue; // الأجازة لا تكسر المتتالية ولا تزيدها
+    if(_isGeoFriAbs(s,d,v)) continue; // غياب الجمعة (جيولوجيا) لطلاب 3ث لا يكسر ولا يزيد المتتالية
     // أي تسجيل حضور فعلي (حاضر/متأخر/استثنائي) بيعيد الطالب للمنتظمين حتى لو كان في يوم خارج جدول مجموعته؛
     // التخطّي بيتم بس لتسجيلات الغياب/الاستئذان في الأيام غير المجدولة
     if(s && v!=='present' && v!=='late' && v!=='exceptional'){
@@ -4749,7 +4751,7 @@ function getExportStudentRow(s, selectedIds, idx){
   const lastGrade = grades.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
   const behRec    = DB.behaviors.filter(b=>b.studentId===s.id);
   let absCount=0, presCount=0, lateCount=0;
-  Object.values(DB.attendance).forEach(day=>{ const st=day[s.id]; if(st==='absent')absCount++; else if(st==='present'||st==='exceptional')presCount++; else if(st==='late')lateCount++; });
+  Object.keys(DB.attendance).forEach(d=>{ const st=DB.attendance[d][s.id]; if(st==='absent'){ if(!_isGeoFriAbs(s,d,st)) absCount++; } else if(st==='present'||st==='exceptional')presCount++; else if(st==='late')lateCount++; });
 
   const map = {
     num:       idx + 1,
@@ -6709,7 +6711,8 @@ function renderBehPage(){
   const clsSel=document.getElementById('beh-cls');
   clsSel.innerHTML='<option value="">كل الصفوف</option>'+DB.classes.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
   filterBehStudents();
-  document.getElementById('beh-f-st').innerHTML='<option value="">كل الطلاب</option>'+DB.students.map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join('');
+  const _behHasLog=new Set((DB.behaviors||[]).map(b=>b.studentId));
+  document.getElementById('beh-f-st').innerHTML='<option value="">كل الطلاب</option>'+DB.students.filter(s=>!isStuFinExcluded(s.id)||_behHasLog.has(s.id)).map(s=>`<option value="${s.id}">${s.fname} ${s.lname}</option>`).join('');
   document.getElementById('beh-pos').innerHTML=BEH_POS.map(b=>`<button class="beh-btn pos" onclick="togBeh(this,'${b}')" style="cursor:pointer;">${b}</button>`).join('');
   document.getElementById('beh-neg').innerHTML=BEH_NEG.map(b=>`<button class="beh-btn neg" onclick="togBeh(this,'${b}')" style="cursor:pointer;">${b}</button>`).join('');
   selBeh=[]; renderBehLog();
@@ -6730,7 +6733,8 @@ function filterBehStudents(){
   const dd=document.getElementById('beh-st-dd'); if(dd) dd.style.display='none';
 }
 function _behStMatches(q){
-  return _behStFiltered.filter(s=>{
+  return _behStFiltered.filter(s=>!isStuFinExcluded(s.id)).filter(s=>{   // المستبعدون لا يظهرون — ويُحسب الاستبعاد لحظياً
+
     const nm=(s.fname+' '+s.lname).toLowerCase();
     const code=(s.barcode||s.id||'').toLowerCase();
     return !q || nm.includes(q) || code.includes(q);
@@ -6773,7 +6777,7 @@ function _behStAutoResolve(){
   if(hid.value)return; // اتربط بالفعل عبر الاختيار من القائمة
   const typed=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
   if(!typed)return;
-  const match=DB.students.find(s=>(s.fname+' '+s.lname).trim().toLowerCase()===typed||(s.barcode||'').toLowerCase()===typed);
+  const match=DB.students.find(s=>!isStuFinExcluded(s.id)&&((s.fname+' '+s.lname).trim().toLowerCase()===typed||(s.barcode||'').toLowerCase()===typed));
   if(match) hid.value=match.id;
 }
 function togBeh(btn,beh){ if(selBeh.includes(beh)){selBeh=selBeh.filter(x=>x!==beh);btn.classList.remove('sel');}else{selBeh.push(beh);btn.classList.add('sel');} }
@@ -6787,7 +6791,7 @@ function saveBeh(sendWA){
   if(!sid){
     const typed=(document.getElementById('beh-st-search').value||'').trim().toLowerCase();
     if(typed){
-      const match=DB.students.find(s=>(s.fname+' '+s.lname).trim().toLowerCase()===typed||(s.barcode||'').toLowerCase()===typed);
+      const match=DB.students.find(s=>!isStuFinExcluded(s.id)&&((s.fname+' '+s.lname).trim().toLowerCase()===typed||(s.barcode||'').toLowerCase()===typed));
       if(match){ sid=match.id; document.getElementById('beh-st').value=sid; }
     }
   }
@@ -7386,6 +7390,7 @@ function closeAttendance(){
   if(!DB.attendance[date])DB.attendance[date]={};
   let absentCount=0;
   students.forEach(s=>{
+    if(_isGeoFriAbs(s,date,'absent')) return; // الجمعة جيولوجيا لطلاب 3ث: لا غياب تلقائي
     if(!attState[s.id]||attState[s.id]==='unknown'){ attState[s.id]='absent'; DB.attendance[date][s.id]='absent'; absentCount++; }
   });
   Object.assign(DB.attendance[date],attState); save();
@@ -7619,6 +7624,7 @@ function _renderAttRangeList(sid){
     const d=_attFmt(dt);
     const rec0=DB.attendance[d] && DB.attendance[d][sid];
     const rec=(rec0==='holiday'||(!rec0&&isHolidayDate(d)))?'holiday':rec0;
+    if(_isGeoFriAbs(s,d,rec)) continue; // غياب الجمعة (جيولوجيا) لطلاب 3ث
     const hasRec=!!rec && rec!=='none' && rec!=='unknown';
     const dayNums=_grpDayNums(_grpIdOnDate(s,d));
     const isClassDay=dayNums ? dayNums.has(dt.getDay()) : false;
@@ -7782,6 +7788,7 @@ const _AVW_DAY_SHORT=['أحد','إثنين','ثلاثاء','أربعاء','خم�
 function _avwCellStatus(s, date){
   const rec=DB.attendance[date] && DB.attendance[date][s.id];
   if(rec){
+    if(_isGeoFriAbs(s,date,rec)) return 'excluded';
     const _st = rec==='exceptional' ? 'present' : rec;
     // حضور يوم الجمعة يظهر بلون أبيض مميز
     if(_st==='present' && new Date(date+'T00:00:00').getDay()===5) return 'friday';
@@ -8638,7 +8645,7 @@ window.gp=function(id){
 function openAbsenceNotifyModal(){
   const today=localDate();
   const att=DB.attendance[today]||{};
-  const absList=DB.students.filter(s=>att[s.id]==='absent');
+  const absList=DB.students.filter(s=>att[s.id]==='absent' && !_isGeoFriAbs(s,today,'absent'));
   if(!absList.length){toast('لا يوجد غائبون اليوم','i');return;}
   const pins=DB.pinnedMessages||[];
   const dayStr=new Date().toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
@@ -8668,7 +8675,7 @@ function openAbsenceNotifyModal(){
 function sendAbsenceWithPinned(idx){
   const today=localDate();
   const att=DB.attendance[today]||{};
-  const absList=DB.students.filter(s=>att[s.id]==='absent');
+  const absList=DB.students.filter(s=>att[s.id]==='absent' && !_isGeoFriAbs(s,today,'absent'));
   const m=DB.pinnedMessages[idx]; if(!m)return;
   const list=absList.map(s=>{
     const ph=fmtPhone(s.parentPhone||s.phone||''); if(!ph)return null;
@@ -8681,7 +8688,7 @@ function sendAbsenceWithPinned(idx){
 function sendDefaultAbsenceWA(){
   const today=localDate();
   const att=DB.attendance[today]||{};
-  const abs=DB.students.filter(s=>att[s.id]==='absent');
+  const abs=DB.students.filter(s=>att[s.id]==='absent' && !_isGeoFriAbs(s,today,'absent'));
   if(!abs.length){toast('لا يوجد غائبون','i');return;}
   const list=abs.map(s=>({
     name:s.fname+' '+s.lname,
@@ -10704,6 +10711,13 @@ function _executeSettle(pid,sid,remaining){ if(_supBlockPay('بتسوية الد
 // ════════════════════════════════════════════════════════
 // دوال مساعدة: تصفية أيام الحضور بناءً على أيام المجموعة
 // ════════════════════════════════════════════════════════
+// ── الجمعة لطلاب الثالث الثانوي = حصة جيولوجيا اختيارية: الغياب فيها لا يُحتسب غياباً ──
+function _isGeoFriAbs(s, date, v){
+  if(v!=='absent' || !s || !date) return false;
+  const p=String(date).split('-'); if(p.length!==3) return false;
+  if(new Date(+p[0],+p[1]-1,+p[2]).getDay()!==5) return false;
+  return typeof _isThirdSecStu==='function' && _isThirdSecStu(s);
+}
 function _grpDayNums(grpId){
   const key='gdn_'+grpId;
   if(_cache[key]!==undefined) return _cache[key];
@@ -10819,6 +10833,7 @@ function _showStuAttDetails(sid){
   let totPresent=0,totAbsent=0,totLate=0,totExceptional=0;
   stuDays.forEach(d=>{
     const st=DB.attendance[d]?.[sid];
+    if(_isGeoFriAbs(s,d,st)) return;
     if(st==='present') totPresent++;
     else if(st==='exceptional'){ totPresent++; totExceptional++; }
     else if(st==='absent') totAbsent++;
@@ -17662,7 +17677,7 @@ function sendBehTG(bid){
 function sendDefaultAbsenceTG(){
   const today=localDate();
   const att=DB.attendance[today]||{};
-  const abs=DB.students.filter(s=>att[s.id]==='absent');
+  const abs=DB.students.filter(s=>att[s.id]==='absent' && !_isGeoFriAbs(s,today,'absent'));
   if(!abs.length){toast('لا يوجد غائبون','i');return;}
   const list=abs.map(s=>({
     sid:s.id,
@@ -17776,7 +17791,7 @@ function sendPayWARem(sid){
 
 function sendAttWA(){
   const today=localDate(), att=DB.attendance[today]||{};
-  const abs=DB.students.filter(s=>att[s.id]==='absent');
+  const abs=DB.students.filter(s=>att[s.id]==='absent' && !_isGeoFriAbs(s,today,'absent'));
   if(!abs.length){toast('لا يوجد غائبون اليوم','i');return;}
   showWAList(abs.map(s=>({
     name:s.fname+' '+s.lname,
